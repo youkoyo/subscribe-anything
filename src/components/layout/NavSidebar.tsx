@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Heart, Settings } from 'lucide-react';
+import { BookOpen, Factory, Heart, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { APP_SHORT_NAME, APP_TAGLINE } from '@/lib/branding';
 import { UserMenu } from './UserMenu';
@@ -16,6 +16,7 @@ export function NavSidebar({ className }: NavSidebarProps) {
 
   const navItems = [
     { href: '/subscriptions', label: '订阅', icon: BookOpen },
+    { href: '/industry-configs', label: '产业配置', icon: Factory },
     { href: '/favorites', label: '收藏', icon: Heart },
     { href: '/settings', label: '配置', icon: Settings },
   ];
