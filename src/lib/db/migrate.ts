@@ -261,6 +261,9 @@ export async function runMigrations() {
   // === Multi-tenant user system migration ===
   migrateUserSystem(sqlite);
 
+  // === Industry config migration ===
+  migrateIndustryConfigs(sqlite);
+
   // === Email verification system migration ===
   migrateEmailVerification(sqlite);
 
@@ -386,10 +389,30 @@ function bootstrapSchema(sqlite: InstanceType<typeof Database>) {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS industry_configs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      category TEXT,
+      sub_category TEXT,
+      description TEXT,
+      keywords_json TEXT NOT NULL DEFAULT '[]',
+      risk_terms_json TEXT NOT NULL DEFAULT '[]',
+      regions_json TEXT NOT NULL DEFAULT '[]',
+      entities_json TEXT NOT NULL DEFAULT '[]',
+      source_types_json TEXT NOT NULL DEFAULT '[]',
+      alert_level TEXT NOT NULL DEFAULT '一般关注',
+      is_enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS subscriptions (
       id TEXT PRIMARY KEY,
       topic TEXT NOT NULL,
       criteria TEXT,
+      industry_config_id TEXT REFERENCES industry_configs(id) ON DELETE SET NULL,
+      industry_config_snapshot TEXT,
       is_enabled INTEGER NOT NULL DEFAULT 1,
       unread_count INTEGER NOT NULL DEFAULT 0,
       total_count INTEGER NOT NULL DEFAULT 0,
@@ -641,6 +664,37 @@ function migrateUserSystem(sqlite: InstanceType<typeof Database>) {
     .run(GUEST_USER_ID);
 
   console.log('[DB] User system migration complete');
+}
+
+function migrateIndustryConfigs(sqlite: InstanceType<typeof Database>) {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS industry_configs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      category TEXT,
+      sub_category TEXT,
+      description TEXT,
+      keywords_json TEXT NOT NULL DEFAULT '[]',
+      risk_terms_json TEXT NOT NULL DEFAULT '[]',
+      regions_json TEXT NOT NULL DEFAULT '[]',
+      entities_json TEXT NOT NULL DEFAULT '[]',
+      source_types_json TEXT NOT NULL DEFAULT '[]',
+      alert_level TEXT NOT NULL DEFAULT '一般关注',
+      is_enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  try { sqlite.exec('ALTER TABLE subscriptions ADD COLUMN industry_config_id TEXT REFERENCES industry_configs(id) ON DELETE SET NULL'); } catch { /* already exists */ }
+  try { sqlite.exec('ALTER TABLE subscriptions ADD COLUMN industry_config_snapshot TEXT'); } catch { /* already exists */ }
+
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_industry_configs_user ON industry_configs(user_id)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_industry_configs_user_enabled ON industry_configs(user_id, is_enabled)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_subscriptions_industry_config ON subscriptions(industry_config_id)');
+
+  console.log('[DB] Industry config migration complete');
 }
 
 function migrateEmailVerification(sqlite: InstanceType<typeof Database>) {

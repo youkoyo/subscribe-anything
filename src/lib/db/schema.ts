@@ -93,6 +93,31 @@ export const searchProviderConfig = sqliteTable('search_provider_config', {
     .notNull(),
 });
 
+// ─── industry_configs ────────────────────────────────────────────────────────
+export const industryConfigs = sqliteTable('industry_configs', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  category: text('category'),
+  subCategory: text('sub_category'),
+  description: text('description'),
+  keywordsJson: text('keywords_json').notNull().default('[]'),
+  riskTermsJson: text('risk_terms_json').notNull().default('[]'),
+  regionsJson: text('regions_json').notNull().default('[]'),
+  entitiesJson: text('entities_json').notNull().default('[]'),
+  sourceTypesJson: text('source_types_json').notNull().default('[]'),
+  alertLevel: text('alert_level').notNull().default('一般关注'),
+  isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
 // ─── subscriptions ───────────────────────────────────────────────────────────
 export const subscriptions = sqliteTable('subscriptions', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
@@ -101,6 +126,10 @@ export const subscriptions = sqliteTable('subscriptions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   topic: text('topic').notNull(),
   criteria: text('criteria'), // optional monitoring criteria
+  industryConfigId: text('industry_config_id').references(() => industryConfigs.id, {
+    onDelete: 'set null',
+  }),
+  industryConfigSnapshot: text('industry_config_snapshot'),
   isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull().default(true),
   unreadCount: integer('unread_count').notNull().default(0),
   totalCount: integer('total_count').notNull().default(0),
@@ -291,6 +320,7 @@ export const analysisReports = sqliteTable('analysis_reports', {
 // ─── Relations ───────────────────────────────────────────────────────────────
 export const usersRelations = relations(users, ({ many }) => ({
   subscriptions: many(subscriptions),
+  industryConfigs: many(industryConfigs),
   favorites: many(favorites),
   promptTemplates: many(promptTemplates),
   sessions: many(sessions),
@@ -302,11 +332,23 @@ export const subscriptionsRelations = relations(subscriptions, ({ one, many }) =
     fields: [subscriptions.userId],
     references: [users.id],
   }),
+  industryConfig: one(industryConfigs, {
+    fields: [subscriptions.industryConfigId],
+    references: [industryConfigs.id],
+  }),
   sources: many(sources),
   messageCards: many(messageCards),
   notifications: many(notifications),
   managedBuildLogs: many(managedBuildLogs),
   analysisReports: many(analysisReports),
+}));
+
+export const industryConfigsRelations = relations(industryConfigs, ({ one, many }) => ({
+  user: one(users, {
+    fields: [industryConfigs.userId],
+    references: [users.id],
+  }),
+  subscriptions: many(subscriptions),
 }));
 
 export const managedBuildLogsRelations = relations(managedBuildLogs, ({ one }) => ({
