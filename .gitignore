@@ -39,6 +39,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.codex-*.log
 
 # 编辑器、IDE & AI 辅助工具 (Editors, IDEs & AI tools)
 .claude/

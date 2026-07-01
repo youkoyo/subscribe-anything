@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
+import { APP_NAME, APP_SHORT_NAME, APP_TAGLINE } from '@/lib/branding';
 
 function ResetPasswordContent() {
   const searchParams = useSearchParams();
@@ -129,32 +130,36 @@ function ResetPasswordContent() {
   const showTurnstile = turnstileSiteKey;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-      <div className="max-w-md w-full space-y-8">
+    <div className="nebula-page-bg relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+      <div className="nebula-grid pointer-events-none fixed inset-0" />
+      <div className="relative w-full max-w-md space-y-8 rounded-lg border border-cyan-400/28 bg-card/78 p-7 shadow-[0_24px_80px_rgba(2,10,31,0.5)] backdrop-blur-xl">
         <div className="text-center">
           {/* Logo + 标题 */}
           <div className="flex items-center justify-center gap-3 mb-2">
             <img
-              src="/favicon-32x32.png"
+              src="/icon.svg"
               alt="Logo"
-              className="w-8 h-8"
+              className="h-12 w-12 rounded-md ring-1 ring-cyan-300/50 shadow-[0_0_18px_rgba(50,202,255,0.28)]"
             />
-            <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-              订阅万物
+            <h1 className="text-3xl font-bold text-cyan-50">
+              {APP_SHORT_NAME}
             </h1>
           </div>
 
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Subscribe Anything
+          <p className="mb-2 text-sm font-medium text-cyan-200/80">
+            {APP_TAGLINE}
+          </p>
+          <p className="mb-5 text-xs text-cyan-100/56">
+            {APP_NAME}
           </p>
 
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-cyan-100/70">
             {step === 'send' ? '重置密码' : '设置新密码'}
           </p>
         </div>
 
         {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+          <div className="rounded-md border border-rose-300/35 bg-rose-500/12 px-4 py-3 text-sm text-rose-100">
             {error}
           </div>
         )}
@@ -162,7 +167,7 @@ function ResetPasswordContent() {
         {step === 'send' && (
           <>
             {success ? (
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">
+              <div className="rounded-md border border-emerald-300/35 bg-emerald-500/12 px-4 py-3 text-sm text-emerald-100">
                 <p>重置邮件已发送到您的邮箱。</p>
                 <p className="mt-2">邮件链接有效期 15 分钟，请及时查收。</p>
               </div>
@@ -206,12 +211,12 @@ function ResetPasswordContent() {
           <>
             {tokenValid === null ? (
               <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">验证中...</p>
+                <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-cyan-300"></div>
+                <p className="mt-4 text-sm text-cyan-100/70">验证中...</p>
               </div>
             ) : tokenValid === false ? (
               <div className="space-y-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-cyan-100/70">
                   重置链接无效或已过期。请重新发起密码重置。
                 </p>
                 <Button

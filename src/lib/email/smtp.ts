@@ -3,6 +3,7 @@ import SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { getDb } from '@/lib/db';
 import { smtpConfig } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { APP_NAME } from '@/lib/branding';
 
 export interface SmtpConfigData {
   host: string;
@@ -109,7 +110,7 @@ async function sendEmailViaZeabur(
   { to, subject, html, text }: SendEmailOptions
 ): Promise<{ success: boolean; error?: string }> {
   const fromEmail = config.fromEmail || config.user;
-  const fromName = config.fromName || 'Subscribe Anything';
+  const fromName = config.fromName || APP_NAME;
 
   const res = await fetch('https://api.zeabur.com/api/v1/zsend/emails', {
     method: 'POST',
@@ -146,7 +147,7 @@ async function sendEmailViaResend(
   const resend = new Resend(config.resendApiKey!);
 
   const fromEmail = config.fromEmail || 'onboarding@resend.dev';
-  const fromName = config.fromName || 'Subscribe Anything';
+  const fromName = config.fromName || APP_NAME;
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -173,7 +174,7 @@ async function sendEmailViaAliyunDirectMail(
   { to, subject, html, text }: SendEmailOptions
 ): Promise<{ success: boolean; error?: string }> {
   const fromEmail = config.fromEmail || 'noreply@example.com';
-  const fromName = config.fromName || 'Subscribe Anything';
+  const fromName = config.fromName || APP_NAME;
 
   const accessKeyId = config.aliyunDirectMailAccessKeyId;
   const accessKeySecret = config.aliyunDirectMailAccessKeySecret;
@@ -256,7 +257,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
   const transporter = createTransporter(config);
 
   const fromEmail = config.fromEmail || config.user;
-  const fromName = config.fromName || 'Subscribe Anything';
+  const fromName = config.fromName || APP_NAME;
 
   try {
     await transporter.sendMail({
@@ -296,7 +297,7 @@ export async function sendVerificationCode(email: string, code: string): Promise
       <div class="container">
         <h2>验证您的邮箱</h2>
         <p>您好！</p>
-        <p>您正在注册 Subscribe Anything 账户，请使用以下验证码完成验证：</p>
+        <p>您正在注册 ${APP_NAME} 账户，请使用以下验证码完成验证：</p>
         <div class="code">${code}</div>
         <p>验证码有效期为 <strong>5 分钟</strong>，请尽快完成验证。</p>
         <div class="warning">
@@ -304,7 +305,7 @@ export async function sendVerificationCode(email: string, code: string): Promise
         </div>
         <div class="footer">
           <p>此邮件由系统自动发送，请勿回复。</p>
-          <p>&copy; ${new Date().getFullYear()} Subscribe Anything</p>
+          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}</p>
         </div>
       </div>
     </body>
@@ -316,7 +317,7 @@ export async function sendVerificationCode(email: string, code: string): Promise
 
 您好！
 
-您正在注册 Subscribe Anything 账户，请使用以下验证码完成验证：
+您正在注册 ${APP_NAME} 账户，请使用以下验证码完成验证：
 
 验证码：${code}
 
@@ -325,12 +326,12 @@ export async function sendVerificationCode(email: string, code: string): Promise
 如果您没有请求此验证码，请忽略此邮件。
 
 此邮件由系统自动发送，请勿回复。
-© ${new Date().getFullYear()} Subscribe Anything
+© ${new Date().getFullYear()} ${APP_NAME}
   `.trim();
 
   return sendEmail({
     to: email,
-    subject: 'Subscribe Anything - 邮箱验证码',
+    subject: `${APP_NAME} - 邮箱验证码`,
     html,
     text,
   });

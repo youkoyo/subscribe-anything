@@ -52,7 +52,7 @@ CREATE TABLE `smtp_config` (
 	`user` text NOT NULL,
 	`password` text NOT NULL,
 	`from_email` text,
-	`from_name` text DEFAULT 'Subscribe Anything',
+	`from_name` text DEFAULT '星云棱镜产业信息订阅平台',
 	`require_verification` integer DEFAULT true NOT NULL,
 	`provider` text DEFAULT 'smtp' NOT NULL,
 	`zeabur_api_key` text,

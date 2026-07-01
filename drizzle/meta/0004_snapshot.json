@@ -1237,7 +1237,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "'Subscribe Anything'"
+          "default": "'星云棱镜产业信息订阅平台'"
         },
         "require_verification": {
           "name": "require_verification",

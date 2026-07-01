@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
+import { APP_NAME } from '@/lib/branding';
 
 // ─── users ───────────────────────────────────────────────────────────────────
 export const users = sqliteTable('users', {
@@ -416,7 +417,7 @@ export const smtpConfig = sqliteTable('smtp_config', {
   user: text('user').notNull(), // SMTP 用户名
   password: text('password').notNull(), // SMTP 密码/授权码
   fromEmail: text('from_email'), // 发件人地址
-  fromName: text('from_name').default('Subscribe Anything'),
+  fromName: text('from_name').default(APP_NAME),
   requireVerification: integer('require_verification', { mode: 'boolean' }).notNull().default(true), // 注册是否需要邮箱验证码
   provider: text('provider').notNull().default('smtp'), // 'smtp' | 'zeabur' | 'resend' | 'aliyun'
   zeaburApiKey: text('zeabur_api_key'), // Zeabur Email API Key

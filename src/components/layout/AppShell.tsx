@@ -20,14 +20,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground">加载中...</div>
+      <div className="nebula-page-bg flex min-h-screen items-center justify-center">
+        <div className="rounded-md border border-cyan-400/30 bg-card/80 px-4 py-2 text-sm text-muted-foreground shadow-[0_0_24px_rgba(37,167,255,0.18)]">
+          加载中...
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="nebula-page-bg min-h-screen text-foreground">
+      <div className="nebula-grid pointer-events-none fixed inset-0 z-0" />
+
       {/* Desktop sidebar */}
       <NavSidebar className="hidden md:flex" />
 
@@ -35,7 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <AppBar className="flex md:hidden" />
 
       {/* Main content: mobile has top padding for AppBar + bottom padding for BottomNav */}
-      <main className="md:ml-64 pt-14 md:pt-0 pb-16 md:pb-0 min-h-screen">
+      <main className="relative z-10 min-h-screen pb-16 pt-14 md:ml-64 md:pb-0 md:pt-0">
         {children}
       </main>
 

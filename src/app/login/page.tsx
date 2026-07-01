@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginForm } from './components/LoginForm';
 import { OAuthButtons } from './components/OAuthButtons';
+import { APP_NAME, APP_SHORT_NAME, APP_TAGLINE } from '@/lib/branding';
 
 function LoginContent() {
   const router = useRouter();
@@ -68,39 +69,43 @@ function LoginContent() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-      <div className="max-w-md w-full space-y-8">
+    <div className="nebula-page-bg relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+      <div className="nebula-grid pointer-events-none fixed inset-0" />
+      <div className="relative w-full max-w-md space-y-8 rounded-lg border border-cyan-400/28 bg-card/78 p-7 shadow-[0_24px_80px_rgba(2,10,31,0.5)] backdrop-blur-xl">
         <div className="text-center">
           {/* Logo + 主标题 */}
           <div className="flex items-center justify-center gap-3 mb-2">
             <img
-              src="/favicon-32x32.png"
+              src="/icon.svg"
               alt="Logo"
-              className="w-8 h-8"
+              className="h-12 w-12 rounded-md ring-1 ring-cyan-300/50 shadow-[0_0_18px_rgba(50,202,255,0.28)]"
             />
-            <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-              订阅万物
+            <h1 className="text-3xl font-bold text-cyan-50">
+              {APP_SHORT_NAME}
             </h1>
           </div>
 
           {/* 副标题 - 英文 */}
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Subscribe Anything
+          <p className="mb-2 text-sm font-medium text-cyan-200/80">
+            {APP_TAGLINE}
+          </p>
+          <p className="mb-5 text-xs text-cyan-100/56">
+            {APP_NAME}
           </p>
 
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-cyan-100/70">
             {mode === 'login' ? '登录您的账户' : '创建新账户'}
           </p>
         </div>
 
         {successMessage && (
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">
+          <div className="rounded-md border border-emerald-300/35 bg-emerald-500/12 px-4 py-3 text-sm text-emerald-100">
             {successMessage}
           </div>
         )}
 
         {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+          <div className="rounded-md border border-rose-300/35 bg-rose-500/12 px-4 py-3 text-sm text-rose-100">
             {error}
           </div>
         )}
@@ -115,10 +120,10 @@ function LoginContent() {
         <div className="space-y-3">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300 dark:border-gray-700" />
+              <div className="w-full border-t border-cyan-400/18" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">
+              <span className="bg-card px-2 text-cyan-100/54">
                 或者
               </span>
             </div>

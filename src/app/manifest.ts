@@ -1,24 +1,20 @@
 import type { MetadataRoute } from 'next';
+import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME } from '@/lib/branding';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: '订阅万物',
-    short_name: '订阅万物',
-    description: 'AI 驱动的智能数据订阅平台',
+    name: APP_NAME,
+    short_name: APP_SHORT_NAME,
+    description: APP_DESCRIPTION,
     start_url: '/',
     display: 'standalone',
-    background_color: '#ffffff',
-    theme_color: '#ffffff',
+    background_color: '#06112f',
+    theme_color: '#0c4bb3',
     icons: [
       {
-        src: '/android-chrome-192x192.png',
-        sizes: '192x192',
-        type: 'image/png',
-      },
-      {
-        src: '/android-chrome-512x512.png',
-        sizes: '512x512',
-        type: 'image/png',
+        src: '/icon.svg',
+        sizes: 'any',
+        type: 'image/svg+xml',
       },
     ],
   };

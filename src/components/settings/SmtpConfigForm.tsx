@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
+import { APP_NAME } from '@/lib/branding';
 
 interface SmtpFormData {
   configured: boolean;
@@ -61,7 +62,7 @@ export default function SmtpConfigForm() {
     aliyunDirectMailAccessKeySecret: '',
     aliyunDirectMailRegion: 'cn-hangzhou',
     fromEmail: '',
-    fromName: 'Subscribe Anything',
+    fromName: APP_NAME,
     requireVerification: true,
   });
 
@@ -541,7 +542,7 @@ export default function SmtpConfigForm() {
               id="smtp-from-name"
               value={form.fromName}
               onChange={e => set('fromName', e.target.value)}
-              placeholder="Subscribe Anything"
+              placeholder={APP_NAME}
             />
           </div>
 

@@ -3,6 +3,7 @@ import { smtpConfig } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth';
 import { sendEmail } from '@/lib/email/smtp';
+import { APP_NAME } from '@/lib/branding';
 
 // POST /api/settings/smtp/test — test SMTP connection (admin only)
 export async function POST(req: Request) {
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
     const result = await sendEmail({
       to: testEmail,
-      subject: 'Subscribe Anything - SMTP 配置测试',
+      subject: `${APP_NAME} - SMTP 配置测试`,
       html: `<p>这是一封测试邮件，说明您的 SMTP 配置正常工作。</p>`,
       text: '这是一封测试邮件，说明您的 SMTP 配置正常工作。',
     });

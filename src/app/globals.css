@@ -4,48 +4,48 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --background: 224 74% 9%;
+    --foreground: 208 72% 95%;
+    --card: 220 68% 17%;
+    --card-foreground: 208 72% 95%;
+    --popover: 221 68% 14%;
+    --popover-foreground: 208 72% 95%;
+    --primary: 212 100% 45%;
+    --primary-foreground: 199 100% 96%;
+    --secondary: 216 63% 21%;
+    --secondary-foreground: 203 76% 91%;
+    --muted: 218 51% 23%;
+    --muted-foreground: 205 32% 72%;
+    --accent: 204 87% 31%;
+    --accent-foreground: 196 100% 94%;
+    --destructive: 350 78% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 211 73% 39%;
+    --input: 211 73% 39%;
+    --ring: 192 100% 58%;
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: 224 74% 9%;
+    --foreground: 208 72% 95%;
+    --card: 220 68% 17%;
+    --card-foreground: 208 72% 95%;
+    --popover: 221 68% 14%;
+    --popover-foreground: 208 72% 95%;
+    --primary: 212 100% 45%;
+    --primary-foreground: 199 100% 96%;
+    --secondary: 216 63% 21%;
+    --secondary-foreground: 203 76% 91%;
+    --muted: 218 51% 23%;
+    --muted-foreground: 205 32% 72%;
+    --accent: 204 87% 31%;
+    --accent-foreground: 196 100% 94%;
+    --destructive: 350 78% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 211 73% 39%;
+    --input: 211 73% 39%;
+    --ring: 192 100% 58%;
   }
 }
 
@@ -53,7 +53,192 @@
   * {
     @apply border-border;
   }
+  html {
+    background: #06112f;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    min-height: 100vh;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Source Han Sans SC", sans-serif;
+    letter-spacing: 0;
+  }
+
+  ::selection {
+    background: rgba(44, 204, 255, 0.32);
+    color: #f4fbff;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Scrollbar styling — kept OUTSIDE @layer base so unlayered CSS wins
+ * specificity battles against any Tailwind preflight / utility that targets
+ * the same pseudo-elements. Theme: dark navy thumb on transparent track,
+ * bright cyan on hover/active.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* Firefox — every scrollable element gets the thin dark-blue thumb. */
+* {
+  scrollbar-color: rgba(96, 165, 250, 0.7) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* opaque enough to read on the dark `bg-card` surface (~17% L) inside modals */
+  background: linear-gradient(
+    180deg,
+    rgba(96, 165, 250, 0.75) 0%,
+    rgba(59, 130, 246, 0.85) 100%
+  );
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(125, 211, 252, 0.92) 0%,
+    rgba(96, 165, 250, 0.95) 100%
+  );
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(
+    180deg,
+    rgba(186, 230, 253, 1) 0%,
+    rgba(125, 211, 252, 1) 100%
+  );
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Explicit per-element class — apply to any container that should always
+ * use the themed scrollbar even if a global rule loses a specificity fight.
+ * (e.g. nested elements inside Radix Dialog portals) */
+.nebula-scroll {
+  scrollbar-color: rgba(96, 165, 250, 0.7) transparent;
+  scrollbar-width: thin;
+}
+.nebula-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.nebula-scroll::-webkit-scrollbar-track { background: transparent; }
+.nebula-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(96, 165, 250, 0.75) 0%,
+    rgba(59, 130, 246, 0.85) 100%
+  );
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.nebula-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(125, 211, 252, 0.92) 0%,
+    rgba(96, 165, 250, 0.95) 100%
+  );
+  background-clip: padding-box;
+}
+.nebula-scroll::-webkit-scrollbar-corner { background: transparent; }
+
+/* Suppress hover/active states when users prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  ::-webkit-scrollbar-thumb {
+    transition: none;
+  }
+}
+
+@layer components {
+  .nebula-page-bg {
+    background:
+      linear-gradient(118deg, rgba(27, 92, 181, 0.26) 0%, transparent 42%),
+      linear-gradient(292deg, transparent 54%, rgba(18, 152, 190, 0.15) 100%),
+      linear-gradient(180deg, #061329 0%, #071b3d 46%, #051126 100%);
+  }
+
+  .nebula-grid {
+    overflow: hidden;
+    background-image:
+      linear-gradient(rgba(143, 204, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(143, 204, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(120deg, transparent 0 48%, rgba(69, 160, 255, 0.045) 48.08%, transparent 48.22%),
+      linear-gradient(58deg, transparent 0 70%, rgba(58, 221, 255, 0.035) 70.08%, transparent 70.22%);
+    background-position: 0 0, 0 0, 12% 22%, 86% 72%;
+    background-size: 96px 96px, 96px 96px, 980px 560px, 780px 520px;
+    opacity: 0.58;
+    animation: nebula-field-drift 72s linear infinite;
+    mask-image: linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  }
+
+  .nebula-grid::before,
+  .nebula-grid::after {
+    content: "";
+    position: absolute;
+    inset: -12%;
+    pointer-events: none;
+  }
+
+  .nebula-grid::before {
+    background-image:
+      linear-gradient(112deg, transparent 0 20%, rgba(77, 165, 255, 0.08) 20.2%, rgba(77, 165, 255, 0.02) 27%, transparent 27.4%),
+      linear-gradient(126deg, transparent 0 62%, rgba(80, 227, 255, 0.065) 62.2%, rgba(80, 227, 255, 0.018) 68%, transparent 68.4%);
+    background-position: 4% 18%, 86% 78%;
+    background-size: 1280px 720px, 1180px 620px;
+    opacity: 0.72;
+    animation: nebula-light-sweep 46s ease-in-out infinite alternate;
+  }
+
+  .nebula-grid::after {
+    inset: 0;
+    background-image:
+      linear-gradient(180deg, rgba(2, 8, 23, 0.08) 0%, transparent 22%, transparent 76%, rgba(2, 8, 23, 0.34) 100%),
+      linear-gradient(90deg, rgba(2, 8, 23, 0.36) 0%, transparent 18%, transparent 82%, rgba(2, 8, 23, 0.34) 100%);
+    opacity: 0.78;
+  }
+
+  @keyframes nebula-field-drift {
+    from {
+      background-position: 0 0, 0 0, 12% 22%, 86% 72%;
+    }
+    to {
+      background-position: 96px 96px, -96px 96px, 18% 26%, 80% 68%;
+    }
+  }
+
+  @keyframes nebula-light-sweep {
+    from {
+      transform: translate3d(-1.2%, 0, 0);
+      opacity: 0.48;
+    }
+    to {
+      transform: translate3d(1.2%, -0.8%, 0);
+      opacity: 0.74;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nebula-grid,
+    .nebula-grid::before,
+    .nebula-grid::after {
+      animation: none;
+    }
   }
 }

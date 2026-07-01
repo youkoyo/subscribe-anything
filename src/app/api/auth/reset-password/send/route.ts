@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { isSmtpConfigured } from '@/lib/email/smtp';
 import { verifyTurnstileToken, isTurnstileConfigured } from '@/lib/turnstile';
+import { APP_NAME } from '@/lib/branding';
 import crypto from 'crypto';
 
 const TOKEN_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
@@ -140,7 +141,7 @@ export async function POST(req: Request) {
           </div>
           <div class="footer">
             <p>此邮件由系统自动发送，请勿回复。</p>
-            <p>&copy; ${new Date().getFullYear()} Subscribe Anything</p>
+            <p>&copy; ${new Date().getFullYear()} ${APP_NAME}</p>
           </div>
         </div>
       </body>
@@ -163,12 +164,12 @@ ${resetLink}
 如果您没有请求重置密码，请忽略此邮件。
 
 此邮件由系统自动发送，请勿回复。
-© ${new Date().getFullYear()} Subscribe Anything
+© ${new Date().getFullYear()} ${APP_NAME}
     `.trim();
 
     await sendEmail({
       to: email,
-      subject: 'Subscribe Anything - 重置密码',
+      subject: `${APP_NAME} - 重置密码`,
       html,
       text,
     });

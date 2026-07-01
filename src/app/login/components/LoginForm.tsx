@@ -170,7 +170,7 @@ export function LoginForm({ mode, loading, onSubmit, onToggleMode }: LoginFormPr
             </Button>
           </div>
           {codeSent && (
-            <p className="text-xs text-gray-500 mt-1">验证码已发送到您的邮箱，有效期5分钟</p>
+            <p className="mt-1 text-xs text-cyan-100/55">验证码已发送到您的邮箱，有效期5分钟</p>
           )}
         </div>
       )}
@@ -211,7 +211,7 @@ export function LoginForm({ mode, loading, onSubmit, onToggleMode }: LoginFormPr
           <div>
             <a
               href="/reset-password"
-              className="text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+              className="text-sm text-cyan-100/65 hover:text-cyan-100 hover:underline"
             >
               忘记密码？
             </a>
@@ -220,7 +220,7 @@ export function LoginForm({ mode, loading, onSubmit, onToggleMode }: LoginFormPr
         <button
           type="button"
           onClick={onToggleMode}
-          className="text-blue-600 dark:text-blue-400 hover:underline"
+          className="text-cyan-200 hover:text-cyan-50 hover:underline"
         >
           {mode === 'login' ? '没有账户？立即注册' : '已有账户？立即登录'}
         </button>

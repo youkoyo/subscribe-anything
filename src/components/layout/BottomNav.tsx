@@ -21,7 +21,7 @@ export function BottomNav({ className }: BottomNavProps) {
   return (
     <nav
       className={cn(
-        'fixed bottom-0 inset-x-0 z-40 items-center justify-around border-t bg-background',
+        'fixed inset-x-0 bottom-0 z-40 items-center justify-around border-t border-cyan-400/25 bg-[#071946]/92 shadow-[0_-12px_34px_rgba(2,10,31,0.35)] backdrop-blur-xl',
         'pb-[env(safe-area-inset-bottom)]',
         className
       )}
@@ -34,8 +34,8 @@ export function BottomNav({ className }: BottomNavProps) {
             key={href}
             href={href}
             className={cn(
-              'flex flex-col items-center gap-1 px-4 py-2 min-w-[44px] min-h-[44px] justify-center',
-              active ? 'text-primary' : 'text-muted-foreground'
+              'flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 px-4 py-2 transition-colors',
+              active ? 'text-cyan-100' : 'text-cyan-100/55'
             )}
           >
             <Icon className="h-5 w-5 shrink-0" />

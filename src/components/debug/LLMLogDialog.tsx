@@ -179,8 +179,12 @@ export default function LLMLogDialog({
   const displayModel = model ?? calls[0]?.model;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/50">
-      <div className="bg-background w-full md:max-w-3xl rounded-t-2xl md:rounded-xl shadow-xl flex flex-col h-[90vh] md:h-[80vh]">
+    // On desktop the AppShell renders a 256px sidebar to the left; offset the
+    // dialog overlay so it visually centers within the main content area
+    // (not the entire viewport). On mobile the sidebar is hidden, so the
+    // overlay still covers the full screen.
+    <div className="fixed inset-0 md:left-64 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-card text-card-foreground border border-cyan-300/25 w-full md:max-w-3xl rounded-t-2xl md:rounded-xl shadow-[0_24px_80px_rgba(2,10,31,0.55)] flex flex-col h-[90vh] md:h-[80vh]">
 
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b flex-shrink-0">
@@ -217,7 +221,9 @@ export default function LLMLogDialog({
         </div>
 
         {/* ── Sequential call list ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 font-mono text-xs">
+        <div
+          className="flex-1 min-h-0 overflow-y-auto px-5 font-mono text-xs nebula-scroll"
+        >
           {calls.length === 0 ? (
             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
               暂无调用记录

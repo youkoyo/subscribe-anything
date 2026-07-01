@@ -670,7 +670,7 @@ function migrateEmailVerification(sqlite: InstanceType<typeof Database>) {
       user TEXT NOT NULL,
       password TEXT NOT NULL,
       from_email TEXT,
-      from_name TEXT DEFAULT 'Subscribe Anything',
+      from_name TEXT DEFAULT '星云棱镜产业信息订阅平台',
       require_verification INTEGER NOT NULL DEFAULT 1,
       updated_at INTEGER NOT NULL
     )

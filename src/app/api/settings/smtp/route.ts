@@ -2,6 +2,7 @@ import { getDb } from '@/lib/db';
 import { smtpConfig } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth';
+import { APP_NAME } from '@/lib/branding';
 
 // GET /api/settings/smtp — get SMTP config (admin only, password masked)
 export async function GET() {
@@ -25,7 +26,7 @@ export async function GET() {
         aliyunDirectMailAccessKeySecret: '',
         aliyunDirectMailRegion: 'cn-hangzhou',
         fromEmail: '',
-        fromName: 'Subscribe Anything',
+        fromName: APP_NAME,
         requireVerification: true,
       });
     }
@@ -44,7 +45,7 @@ export async function GET() {
       aliyunDirectMailAccessKeySecret: (row as any).aliyunDirectMailAccessKeySecret ? '••••••••' : '', // mask key
       aliyunDirectMailRegion: row.aliyunDirectMailRegion ?? 'cn-hangzhou',
       fromEmail: row.fromEmail ?? '',
-      fromName: row.fromName ?? 'Subscribe Anything',
+      fromName: row.fromName ?? APP_NAME,
       requireVerification: row.requireVerification ?? true,
     });
   } catch (err) {
@@ -115,7 +116,7 @@ export async function PUT(req: Request) {
         aliyunDirectMailAccessKeySecret: finalAliyunDirectMailAccessKeySecret,
         aliyunDirectMailRegion: aliyunDirectMailRegion || 'cn-hangzhou',
         fromEmail: fromEmail || null,
-        fromName: fromName || 'Subscribe Anything',
+        fromName: fromName || APP_NAME,
         requireVerification: requireVerification !== false,
         updatedAt: now,
       })
@@ -134,7 +135,7 @@ export async function PUT(req: Request) {
           aliyunDirectMailAccessKeySecret: finalAliyunDirectMailAccessKeySecret,
           aliyunDirectMailRegion: aliyunDirectMailRegion || 'cn-hangzhou',
           fromEmail: fromEmail || null,
-          fromName: fromName || 'Subscribe Anything',
+          fromName: fromName || APP_NAME,
           requireVerification: requireVerification !== false,
           updatedAt: now,
         },

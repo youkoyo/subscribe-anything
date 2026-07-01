@@ -1,16 +1,14 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import { AppShell } from '@/components/layout/AppShell';
 import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
-
-const inter = Inter({ subsets: ['latin'] });
+import { APP_DESCRIPTION, APP_NAME } from '@/lib/branding';
 
 export const metadata: Metadata = {
-  title: '订阅万物',
-  description: '智能数据订阅平台',
+  title: APP_NAME,
+  description: APP_DESCRIPTION,
 };
 
 export const viewport: Viewport = {
@@ -24,7 +22,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body>
         <ThemeProvider>
           <AuthProvider>
             <AppShell>{children}</AppShell>
