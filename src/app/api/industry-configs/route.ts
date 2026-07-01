@@ -2,6 +2,7 @@ import { requireAuth } from '@/lib/auth';
 import {
   createIndustryConfig,
   listIndustryConfigs,
+  seedDefaultIndustryConfigsForUser,
 } from '@/lib/industry-configs/service';
 import type { IndustryConfigInput } from '@/lib/industry-configs/types';
 
@@ -26,6 +27,8 @@ export async function GET(req: Request) {
     const session = await requireAuth();
     const { searchParams } = new URL(req.url);
     const enabledOnly = searchParams.get('enabledOnly') === 'true';
+
+    seedDefaultIndustryConfigsForUser(session.userId);
 
     return Response.json(listIndustryConfigs(session.userId, enabledOnly));
   } catch (err) {

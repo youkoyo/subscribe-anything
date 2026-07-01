@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { industryConfigs } from '@/lib/db/schema';
+import { DEFAULT_INDUSTRY_CONFIGS } from './defaults';
 import {
   buildIndustryConfigSnapshot,
   buildIndustrySubscriptionSuggestion,
@@ -49,6 +50,32 @@ export function listIndustryConfigs(userId: string, enabledOnly = false) {
     .orderBy(desc(industryConfigs.updatedAt))
     .all()
     .map(toApi);
+}
+
+export function seedDefaultIndustryConfigsForUser(userId: string) {
+  const db = getDb();
+  const existing = db
+    .select({ id: industryConfigs.id })
+    .from(industryConfigs)
+    .where(eq(industryConfigs.userId, userId))
+    .limit(1)
+    .get();
+
+  if (existing) return 0;
+
+  const now = new Date();
+  db.insert(industryConfigs)
+    .values(
+      DEFAULT_INDUSTRY_CONFIGS.map((input) => ({
+        userId,
+        ...toDbValues(input),
+        createdAt: now,
+        updatedAt: now,
+      }))
+    )
+    .run();
+
+  return DEFAULT_INDUSTRY_CONFIGS.length;
 }
 
 export function getIndustryConfigForUser(id: string, userId: string) {
