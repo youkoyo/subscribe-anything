@@ -1,10 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import type {
+  IndustryConfigSnapshot,
+  IndustrySubscriptionSuggestion,
+} from '@/lib/industry-configs/types';
 import type { WizardState } from '@/types/wizard';
 
 interface Step1TopicProps {
@@ -12,15 +23,112 @@ interface Step1TopicProps {
   onStateChange: (updates: Partial<WizardState>) => void;
   onNext: () => void;
   onBack: () => void;
-  onStep1Next?: (topic: string, criteria: string) => Promise<void>;
-  onManagedCreate?: (topic: string, criteria: string) => void;
+  onStep1Next?: (
+    topic: string,
+    criteria: string,
+    industryConfigId: string | null,
+    industryConfigSnapshot: IndustryConfigSnapshot | null
+  ) => Promise<void>;
+  onManagedCreate?: (
+    topic: string,
+    criteria: string,
+    industryConfigId: string | null,
+    industryConfigSnapshot: IndustryConfigSnapshot | null
+  ) => void | Promise<void>;
 }
+
+interface IndustryConfigOption {
+  id: string;
+  name: string;
+  category: string | null;
+  subCategory: string | null;
+  snapshot: IndustryConfigSnapshot;
+  suggestion: IndustrySubscriptionSuggestion;
+}
+
+const NO_INDUSTRY_CONFIG = '__none__';
 
 export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, onManagedCreate }: Step1TopicProps) {
   const [topic, setTopic] = useState(state.topic);
   const [criteria, setCriteria] = useState(state.criteria);
+  const [industryConfigs, setIndustryConfigs] = useState<IndustryConfigOption[]>([]);
+  const [selectedIndustryConfigId, setSelectedIndustryConfigId] = useState(
+    state.industryConfigId ?? NO_INDUSTRY_CONFIG
+  );
+  const [industryConfigError, setIndustryConfigError] = useState('');
   const [topicError, setTopicError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch('/api/industry-configs?enabledOnly=true')
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to load industry configs');
+        return res.json() as Promise<IndustryConfigOption[]>;
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setIndustryConfigs(data);
+          setIndustryConfigError('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setIndustryConfigError('产业配置加载失败，可继续手动创建订阅');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedIndustryConfig = useMemo(
+    () => industryConfigs.find((item) => item.id === selectedIndustryConfigId) ?? null,
+    [industryConfigs, selectedIndustryConfigId]
+  );
+
+  const getIndustrySelection = () => {
+    if (selectedIndustryConfig) {
+      return {
+        industryConfigId: selectedIndustryConfig.id,
+        industryConfigSnapshot: selectedIndustryConfig.snapshot,
+      };
+    }
+
+    if (
+      selectedIndustryConfigId !== NO_INDUSTRY_CONFIG &&
+      state.industryConfigId === selectedIndustryConfigId
+    ) {
+      return {
+        industryConfigId: state.industryConfigId ?? null,
+        industryConfigSnapshot: state.industryConfigSnapshot ?? null,
+      };
+    }
+
+    return { industryConfigId: null, industryConfigSnapshot: null };
+  };
+
+  const handleIndustryChange = (value: string) => {
+    setSelectedIndustryConfigId(value);
+
+    if (value === NO_INDUSTRY_CONFIG) {
+      onStateChange({ industryConfigId: null, industryConfigSnapshot: null });
+      return;
+    }
+
+    const config = industryConfigs.find((item) => item.id === value);
+    if (!config) return;
+
+    setTopic(config.suggestion.topic);
+    setCriteria(config.suggestion.criteria);
+    setTopicError('');
+    onStateChange({
+      topic: config.suggestion.topic,
+      criteria: config.suggestion.criteria,
+      industryConfigId: config.id,
+      industryConfigSnapshot: config.snapshot,
+    });
+  };
 
   const validate = (): string | null => {
     const trimmed = topic.trim();
@@ -35,24 +143,46 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
   const handleSubmit = async () => {
     const trimmed = validate();
     if (!trimmed) return;
+    const industrySelection = getIndustrySelection();
 
     if (onStep1Next) {
       setIsLoading(true);
       try {
-        await onStep1Next(trimmed, criteria.trim());
+        await onStep1Next(
+          trimmed,
+          criteria.trim(),
+          industrySelection.industryConfigId,
+          industrySelection.industryConfigSnapshot
+        );
       } finally {
         setIsLoading(false);
       }
     } else {
-      onStateChange({ topic: trimmed, criteria: criteria.trim() });
+      onStateChange({
+        topic: trimmed,
+        criteria: criteria.trim(),
+        industryConfigId: industrySelection.industryConfigId,
+        industryConfigSnapshot: industrySelection.industryConfigSnapshot,
+      });
       onNext();
     }
   };
 
-  const handleManaged = () => {
+  const handleManaged = async () => {
     const trimmed = validate();
     if (!trimmed) return;
-    onManagedCreate?.(trimmed, criteria.trim());
+    const industrySelection = getIndustrySelection();
+    setIsLoading(true);
+    try {
+      await onManagedCreate?.(
+        trimmed,
+        criteria.trim(),
+        industrySelection.industryConfigId,
+        industrySelection.industryConfigSnapshot
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -65,6 +195,47 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
       </div>
 
       <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="industry-config" className="text-sm font-medium">
+            产业配置 <span className="text-muted-foreground font-normal">（可选）</span>
+          </label>
+          <Select value={selectedIndustryConfigId} onValueChange={handleIndustryChange}>
+            <SelectTrigger id="industry-config">
+              <SelectValue placeholder="选择产业配置" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_INDUSTRY_CONFIG}>不使用产业配置</SelectItem>
+              {industryConfigs.map((config) => (
+                <SelectItem key={config.id} value={config.id}>
+                  {config.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {industryConfigError ? (
+            <p className="text-xs text-amber-400">{industryConfigError}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              选择后会带入建议主题和监控条件，并在订阅中保存产业快照。
+            </p>
+          )}
+          {selectedIndustryConfig ? (
+            <div className="rounded-lg border border-cyan-300/25 bg-secondary/35 px-3 py-2 text-xs text-cyan-50/78">
+              <div className="font-medium text-cyan-50">{selectedIndustryConfig.name}</div>
+              <div className="mt-1 text-muted-foreground">
+                {[selectedIndustryConfig.category, selectedIndustryConfig.subCategory]
+                  .filter(Boolean)
+                  .join(' / ') || '未设置分类'}
+              </div>
+              {selectedIndustryConfig.snapshot.keywords.length > 0 ? (
+                <div className="mt-2 line-clamp-2">
+                  关键词：{selectedIndustryConfig.snapshot.keywords.slice(0, 6).join('、')}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         <div className="flex flex-col gap-1.5">
           <label htmlFor="topic" className="text-sm font-medium">
             订阅主题 <span className="text-destructive">*</span>

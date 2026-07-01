@@ -2,8 +2,13 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
+import {
+  industrySelectionErrorResponse,
+  resolveSubscriptionIndustrySelection,
+} from '@/lib/industry-configs/subscriptionSelection';
 import { runManagedPipeline } from '@/lib/managed/pipeline';
 import type { ManagedStartStep } from '@/lib/managed/pipeline';
+import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
 
 // POST /api/subscriptions/managed
@@ -21,6 +26,8 @@ export async function POST(req: Request) {
       allFoundSources,
       generatedSources,
       existingSubscriptionId,
+      industryConfigId,
+      industryConfigSnapshot,
     } = body as {
       topic?: string;
       criteria?: string;
@@ -29,10 +36,24 @@ export async function POST(req: Request) {
       allFoundSources?: FoundSource[];
       generatedSources?: GeneratedSource[];
       existingSubscriptionId?: string; // reuse a manual_creating subscription
+      industryConfigId?: string | null;
+      industryConfigSnapshot?: IndustryConfigSnapshot | null;
     };
 
     if (!topic || typeof topic !== 'string' || !topic.trim()) {
       return Response.json({ error: 'topic is required' }, { status: 400 });
+    }
+
+    let industrySelection;
+    try {
+      industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
+        industryConfigId,
+        industryConfigSnapshot,
+      });
+    } catch (err) {
+      const response = industrySelectionErrorResponse(err);
+      if (response) return response;
+      throw err;
     }
 
     const db = getDb();
@@ -48,6 +69,8 @@ export async function POST(req: Request) {
       step: initialStep,
       topic: topic.trim(),
       criteria: criteria?.trim() ?? '',
+      industryConfigId: industrySelection.industryConfigId,
+      industryConfigSnapshot: industrySelection.snapshot,
       foundSources: displaySources,
       selectedIndices: displaySources
         .map((s: FoundSource, i: number) => selectedUrls.has(s.url) ? i : -1)
@@ -77,6 +100,8 @@ export async function POST(req: Request) {
           managedStatus: 'managed_creating',
           managedError: null,
           wizardStateJson: initialWizardState,
+          industryConfigId: industrySelection.industryConfigId,
+          industryConfigSnapshot: industrySelection.industryConfigSnapshot,
           updatedAt: now,
         })
         .where(eq(subscriptions.id, existingSubscriptionId))
@@ -91,6 +116,8 @@ export async function POST(req: Request) {
           userId: session.userId,
           topic: topic.trim(),
           criteria: criteria?.trim() || null,
+          industryConfigId: industrySelection.industryConfigId,
+          industryConfigSnapshot: industrySelection.industryConfigSnapshot,
           isEnabled: false,
           managedStatus: 'managed_creating',
           wizardStateJson: initialWizardState,
@@ -111,6 +138,8 @@ export async function POST(req: Request) {
       criteria: criteria?.trim(),
       startStep,
       userId: session.userId,
+      industryConfigId: industrySelection.industryConfigId,
+      industryConfigSnapshot: industrySelection.snapshot,
       foundSources,
       allFoundSources,
       generatedSources,

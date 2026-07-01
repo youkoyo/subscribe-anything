@@ -3,6 +3,11 @@ import { getDb } from '@/lib/db';
 import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
 import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
+import {
+  industrySelectionErrorResponse,
+  resolveSubscriptionIndustrySelection,
+} from '@/lib/industry-configs/subscriptionSelection';
+import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { SourceInput } from '@/lib/subscriptionCreator';
 
 // POST /api/subscriptions/[id]/complete-wizard
@@ -32,13 +37,32 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { sources: sourcesInput, criteria } = body as {
+    const { sources: sourcesInput, criteria, industryConfigId, industryConfigSnapshot } = body as {
       sources?: SourceInput[];
       criteria?: string;
+      industryConfigId?: string | null;
+      industryConfigSnapshot?: IndustryConfigSnapshot | null;
     };
 
     if (!Array.isArray(sourcesInput) || sourcesInput.length === 0) {
       return Response.json({ error: 'sources is required' }, { status: 400 });
+    }
+
+    let resolvedIndustryConfigId = existing.industryConfigId;
+    let resolvedIndustryConfigSnapshot = existing.industryConfigSnapshot;
+    if (!resolvedIndustryConfigSnapshot && (industryConfigId || industryConfigSnapshot)) {
+      try {
+        const industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
+          industryConfigId,
+          industryConfigSnapshot,
+        });
+        resolvedIndustryConfigId = industrySelection.industryConfigId;
+        resolvedIndustryConfigSnapshot = industrySelection.industryConfigSnapshot;
+      } catch (err) {
+        const response = industrySelectionErrorResponse(err);
+        if (response) return response;
+        throw err;
+      }
     }
 
     // Create sources and message cards
@@ -51,6 +75,8 @@ export async function POST(
         managedStatus: null,
         managedError: null,
         wizardStateJson: null,
+        industryConfigId: resolvedIndustryConfigId,
+        industryConfigSnapshot: resolvedIndustryConfigSnapshot,
         isEnabled: true,
         updatedAt: now,
       })

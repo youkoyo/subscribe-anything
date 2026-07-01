@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { WizardState } from '@/types/wizard';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
+import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import { Trash2 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { Button } from '@/components/ui/button';
@@ -114,6 +115,8 @@ export default function WizardShell() {
         foundSources,
         selectedIndices,
         generatedSources: takeover.generatedSources ?? [],
+        industryConfigId: takeover.industryConfigId ?? null,
+        industryConfigSnapshot: takeover.industryConfigSnapshot ?? null,
         subscriptionId,
       };
       setState(newState);
@@ -151,12 +154,17 @@ export default function WizardShell() {
   };
 
   // Step1 next: create bare subscription and start find_sources in background
-  const handleStep1Next = async (topic: string, criteria: string) => {
+  const handleStep1Next = async (
+    topic: string,
+    criteria: string,
+    industryConfigId: string | null,
+    industryConfigSnapshot: IndustryConfigSnapshot | null
+  ) => {
     try {
       const res = await fetch('/api/subscriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, criteria, bare: true }),
+        body: JSON.stringify({ topic, criteria, bare: true, industryConfigId, industryConfigSnapshot }),
       });
       const data = await res.json();
       const newState: WizardState = {
@@ -164,6 +172,8 @@ export default function WizardShell() {
         step: 2,
         topic,
         criteria,
+        industryConfigId,
+        industryConfigSnapshot,
         subscriptionId: data.id,
         managedError: null, // Clear any previous managed error
       };
@@ -178,7 +188,7 @@ export default function WizardShell() {
       });
     } catch {
       // Fallback: advance without DB persistence
-      setState((prev) => ({ ...prev, step: 2, topic, criteria }));
+      setState((prev) => ({ ...prev, step: 2, topic, criteria, industryConfigId, industryConfigSnapshot }));
     }
   };
 
@@ -272,6 +282,8 @@ export default function WizardShell() {
         body: JSON.stringify({
           topic: state.topic,
           criteria: state.criteria,
+          industryConfigId: state.industryConfigId ?? null,
+          industryConfigSnapshot: state.industryConfigSnapshot ?? null,
           startStep: data.startStep,
           foundSources: data.foundSources,
           allFoundSources: data.allFoundSources,
@@ -421,13 +433,19 @@ export default function WizardShell() {
           <Step1Topic
             {...stepProps}
             onStep1Next={handleStep1Next}
-            onManagedCreate={async (topic, criteria) => {
-              setState((prev) => ({ ...prev, topic, criteria }));
+            onManagedCreate={async (topic, criteria, industryConfigId, industryConfigSnapshot) => {
+              setState((prev) => ({ ...prev, topic, criteria, industryConfigId, industryConfigSnapshot }));
               try {
                 await fetch('/api/subscriptions/managed', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ topic, criteria, startStep: 'find_sources' }),
+                  body: JSON.stringify({
+                    topic,
+                    criteria,
+                    industryConfigId,
+                    industryConfigSnapshot,
+                    startStep: 'find_sources',
+                  }),
                 });
               } catch { /* ignore */ }
               try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }

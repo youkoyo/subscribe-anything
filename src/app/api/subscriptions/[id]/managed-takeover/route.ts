@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
+import { parseIndustryConfigSnapshot } from '@/lib/industry-configs/subscriptionSelection';
 import type { FoundSource } from '@/types/wizard';
 
 // POST /api/subscriptions/[id]/managed-takeover
@@ -56,6 +57,11 @@ export async function POST(
       foundSources,
       selectedIndices,
       generatedSources,
+      industryConfigId: sub.industryConfigId ?? wizardState?.industryConfigId ?? null,
+      industryConfigSnapshot:
+        parseIndustryConfigSnapshot(sub.industryConfigSnapshot) ??
+        wizardState?.industryConfigSnapshot ??
+        null,
       subscriptionId: id,
       managedError: sub.managedError ?? null,
     };
@@ -77,6 +83,8 @@ export async function POST(
       foundSources,
       selectedIndices,
       generatedSources,
+      industryConfigId: newWizardState.industryConfigId,
+      industryConfigSnapshot: newWizardState.industryConfigSnapshot,
       resumeStep,
     });
   } catch (err) {

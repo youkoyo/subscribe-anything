@@ -1,5 +1,6 @@
 import type { CollectedItem } from '@/lib/sandbox/contract';
 import type { LLMCallInfo } from '@/lib/ai/client';
+import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 
 export interface FoundSource {
   title: string;
@@ -29,6 +30,8 @@ export interface WizardState {
   foundSources: FoundSource[];
   selectedIndices: number[];
   generatedSources: GeneratedSource[];
+  industryConfigId?: string | null;
+  industryConfigSnapshot?: IndustryConfigSnapshot | null;
   subscriptionId?: string; // Step1 完成后写入，用于后续步骤的 DB 持久化
   /** Step2 LLM 调用记录，持久化到 DB 以便重入向导时恢复 */
   step2LlmCalls?: LLMCallInfo[];

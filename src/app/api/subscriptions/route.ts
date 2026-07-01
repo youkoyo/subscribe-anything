@@ -3,6 +3,11 @@ import { getDb } from '@/lib/db';
 import { subscriptions, managedBuildLogs } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
 import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
+import {
+  industrySelectionErrorResponse,
+  resolveSubscriptionIndustrySelection,
+} from '@/lib/industry-configs/subscriptionSelection';
+import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { SourceInput } from '@/lib/subscriptionCreator';
 
 // GET /api/subscriptions — list all subscriptions ordered by createdAt DESC
@@ -68,15 +73,29 @@ export async function POST(req: Request) {
   try {
     const session = await requireAuth();
     const body = await req.json();
-    const { topic, criteria, sources: sourcesInput, bare } = body as {
+    const { topic, criteria, sources: sourcesInput, bare, industryConfigId, industryConfigSnapshot } = body as {
       topic?: string;
       criteria?: string;
       sources?: SourceInput[];
       bare?: boolean;
+      industryConfigId?: string | null;
+      industryConfigSnapshot?: IndustryConfigSnapshot | null;
     };
 
     if (!topic || typeof topic !== 'string' || !topic.trim()) {
       return Response.json({ error: 'topic is required' }, { status: 400 });
+    }
+
+    let industrySelection;
+    try {
+      industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
+        industryConfigId,
+        industryConfigSnapshot,
+      });
+    } catch (err) {
+      const response = industrySelectionErrorResponse(err);
+      if (response) return response;
+      throw err;
     }
 
     const db = getDb();
@@ -90,6 +109,8 @@ export async function POST(req: Request) {
           userId: session.userId,
           topic: topic.trim(),
           criteria: criteria?.trim() || null,
+          industryConfigId: industrySelection.industryConfigId,
+          industryConfigSnapshot: industrySelection.industryConfigSnapshot,
           isEnabled: false,
           managedStatus: 'manual_creating',
           unreadCount: 0,
@@ -110,6 +131,8 @@ export async function POST(req: Request) {
         userId: session.userId,
         topic: topic.trim(),
         criteria: criteria?.trim() || null,
+        industryConfigId: industrySelection.industryConfigId,
+        industryConfigSnapshot: industrySelection.industryConfigSnapshot,
         isEnabled: true,
         unreadCount: 0,
         totalCount: 0,

@@ -15,6 +15,7 @@ import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
 import { createId } from '@paralleldrive/cuid2';
 import pLimit from 'p-limit';
 import { upsertLLMCall, clearLLMCalls } from './llmCallStore';
+import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
 
 // In-memory set of "subscriptionId:sourceUrl" keys that have been manually aborted.
@@ -96,6 +97,8 @@ export interface ManagedPayload {
   criteria?: string;
   startStep: ManagedStartStep;
   userId: string;
+  industryConfigId?: string | null;
+  industryConfigSnapshot?: IndustryConfigSnapshot | null;
   foundSources?: FoundSource[];
   /** All discovered sources (for display); foundSources is the selected subset for generation */
   allFoundSources?: FoundSource[];

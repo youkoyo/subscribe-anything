@@ -120,7 +120,12 @@ export default function Step4Confirm({
         const res = await fetch(`/api/subscriptions/${state.subscriptionId}/complete-wizard`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sources: sourcesPayload, criteria: state.criteria }),
+          body: JSON.stringify({
+            sources: sourcesPayload,
+            criteria: state.criteria,
+            industryConfigId: state.industryConfigId ?? null,
+            industryConfigSnapshot: state.industryConfigSnapshot ?? null,
+          }),
         });
 
         if (!res.ok) {
@@ -135,6 +140,8 @@ export default function Step4Confirm({
         const body = {
           topic: state.topic,
           criteria: state.criteria,
+          industryConfigId: state.industryConfigId ?? null,
+          industryConfigSnapshot: state.industryConfigSnapshot ?? null,
           sources: sourcesPayload,
         };
 
@@ -177,6 +184,12 @@ export default function Step4Confirm({
       <div className="rounded-lg bg-muted/50 px-4 py-3 text-sm flex flex-col gap-0.5">
         <span className="text-muted-foreground text-xs">订阅主题</span>
         <span className="font-medium">{state.topic}</span>
+        {state.industryConfigSnapshot && (
+          <>
+            <span className="text-muted-foreground text-xs mt-1">产业配置</span>
+            <span className="text-sm">{state.industryConfigSnapshot.name}</span>
+          </>
+        )}
         {state.criteria && (
           <>
             <span className="text-muted-foreground text-xs mt-1">监控条件</span>
@@ -379,4 +392,3 @@ export default function Step4Confirm({
     </div>
   );
 }
-
