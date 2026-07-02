@@ -10,6 +10,10 @@ import type {
   notifications,
   favorites,
   managedBuildLogs,
+  industryMonitoringProfiles,
+  userIndustrySubscriptions,
+  industryDeliveryRuns,
+  userDeliveryLogs,
 } from '@/lib/db/schema';
 
 export type LLMProvider = InferSelectModel<typeof llmProviders>;
@@ -40,3 +44,15 @@ export type NewFavorite = InferInsertModel<typeof favorites>;
 
 export type ManagedBuildLog = InferSelectModel<typeof managedBuildLogs>;
 export type NewManagedBuildLog = InferInsertModel<typeof managedBuildLogs>;
+
+export type IndustryMonitoringProfile = InferSelectModel<typeof industryMonitoringProfiles>;
+export type NewIndustryMonitoringProfile = InferInsertModel<typeof industryMonitoringProfiles>;
+
+export type UserIndustrySubscription = InferSelectModel<typeof userIndustrySubscriptions>;
+export type NewUserIndustrySubscription = InferInsertModel<typeof userIndustrySubscriptions>;
+
+export type IndustryDeliveryRun = InferSelectModel<typeof industryDeliveryRuns>;
+export type NewIndustryDeliveryRun = InferInsertModel<typeof industryDeliveryRuns>;
+
+export type UserDeliveryLog = InferSelectModel<typeof userDeliveryLogs>;
+export type NewUserDeliveryLog = InferInsertModel<typeof userDeliveryLogs>;

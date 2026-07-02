@@ -58,7 +58,7 @@ The approved spec covers enterprise catalog, profile matching, shared collection
 - Modify: `src/types/db.ts`
 - Test: `tests/enterpriseSchema.test.ts`
 
-- [ ] **Step 1: Write the failing schema source tests**
+- [x] **Step 1: Write the failing schema source tests**
 
 Create `tests/enterpriseSchema.test.ts`:
 
@@ -116,7 +116,7 @@ test('db types export enterprise industry models', async () => {
 });
 ```
 
-- [ ] **Step 2: Run schema tests and verify failure**
+- [x] **Step 2: Run schema tests and verify failure**
 
 Run:
 
@@ -126,7 +126,7 @@ npm test -- tests/enterpriseSchema.test.ts
 
 Expected: FAIL because the new tables and fields do not exist yet.
 
-- [ ] **Step 3: Add enterprise fields and tables to Drizzle schema**
+- [x] **Step 3: Add enterprise fields and tables to Drizzle schema**
 
 Modify `src/lib/db/schema.ts`.
 
@@ -333,7 +333,7 @@ userSubscriptions: many(userIndustrySubscriptions),
 deliveryRuns: many(industryDeliveryRuns),
 ```
 
-- [ ] **Step 4: Add runtime migration helper**
+- [x] **Step 4: Add runtime migration helper**
 
 Modify `src/lib/db/migrate.ts`.
 
@@ -441,7 +441,7 @@ function migrateEnterpriseIndustrySubscriptions(sqlite: InstanceType<typeof Data
 
 In `bootstrapSchema(sqlite)`, update the `industry_configs` SQL with the same enterprise columns and add the four new `CREATE TABLE IF NOT EXISTS` blocks from the helper.
 
-- [ ] **Step 5: Export DB types**
+- [x] **Step 5: Export DB types**
 
 Modify `src/types/db.ts` imports:
 
@@ -468,7 +468,7 @@ export type UserDeliveryLog = InferSelectModel<typeof userDeliveryLogs>;
 export type NewUserDeliveryLog = InferInsertModel<typeof userDeliveryLogs>;
 ```
 
-- [ ] **Step 6: Run schema tests and typecheck**
+- [x] **Step 6: Run schema tests and typecheck**
 
 Run:
 
@@ -479,7 +479,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/db/schema.ts src/lib/db/migrate.ts src/types/db.ts tests/enterpriseSchema.test.ts

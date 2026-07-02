@@ -264,6 +264,9 @@ export async function runMigrations() {
   // === Industry config migration ===
   migrateIndustryConfigs(sqlite);
 
+  // === Enterprise industry subscriptions migration ===
+  migrateEnterpriseIndustrySubscriptions(sqlite);
+
   // === Email verification system migration ===
   migrateEmailVerification(sqlite);
 
@@ -403,6 +406,14 @@ function bootstrapSchema(sqlite: InstanceType<typeof Database>) {
       source_types_json TEXT NOT NULL DEFAULT '[]',
       alert_level TEXT NOT NULL DEFAULT '一般关注',
       is_enabled INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      visibility TEXT NOT NULL DEFAULT 'draft',
+      subscription_mode TEXT NOT NULL DEFAULT 'open',
+      auto_profile_expansion INTEGER NOT NULL DEFAULT 0,
+      delivery_cron TEXT,
+      delivery_timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+      delivery_enabled INTEGER NOT NULL DEFAULT 0,
+      max_items_per_email INTEGER NOT NULL DEFAULT 10,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -420,6 +431,76 @@ function bootstrapSchema(sqlite: InstanceType<typeof Database>) {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS industry_monitoring_profiles (
+      id TEXT PRIMARY KEY,
+      industry_config_id TEXT NOT NULL REFERENCES industry_configs(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      seed_criteria TEXT NOT NULL,
+      criteria_summary TEXT,
+      keywords_json TEXT NOT NULL DEFAULT '[]',
+      target_entities_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending',
+      shared_subscription_id TEXT REFERENCES subscriptions(id) ON DELETE SET NULL,
+      triggered_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      requires_admin_approval INTEGER NOT NULL DEFAULT 0,
+      approved_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      approved_at INTEGER,
+      last_provisioned_at INTEGER,
+      provisioning_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_industry_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      industry_config_id TEXT NOT NULL REFERENCES industry_configs(id) ON DELETE CASCADE,
+      monitoring_profile_id TEXT REFERENCES industry_monitoring_profiles(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'pending_profile',
+      custom_criteria TEXT NOT NULL,
+      recipient_emails_json TEXT NOT NULL DEFAULT '[]',
+      approval_reason TEXT,
+      last_delivered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS industry_delivery_runs (
+      id TEXT PRIMARY KEY,
+      industry_config_id TEXT NOT NULL REFERENCES industry_configs(id) ON DELETE CASCADE,
+      scheduled_for INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_delivery_logs (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES industry_delivery_runs(id) ON DELETE CASCADE,
+      user_industry_subscription_id TEXT NOT NULL REFERENCES user_industry_subscriptions(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_emails_json TEXT NOT NULL DEFAULT '[]',
+      selected_card_ids_json TEXT NOT NULL DEFAULT '[]',
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error TEXT,
+      sent_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_industry_profiles_industry_status
+      ON industry_monitoring_profiles(industry_config_id, status);
+    CREATE INDEX IF NOT EXISTS idx_user_industry_subs_user
+      ON user_industry_subscriptions(user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_user_industry_subs_industry
+      ON user_industry_subscriptions(industry_config_id, status);
+    CREATE INDEX IF NOT EXISTS idx_delivery_runs_industry
+      ON industry_delivery_runs(industry_config_id, scheduled_for);
+    CREATE INDEX IF NOT EXISTS idx_user_delivery_logs_run
+      ON user_delivery_logs(run_id, status);
 
     CREATE TABLE IF NOT EXISTS sources (
       id TEXT PRIMARY KEY,
@@ -682,6 +763,14 @@ function migrateIndustryConfigs(sqlite: InstanceType<typeof Database>) {
       source_types_json TEXT NOT NULL DEFAULT '[]',
       alert_level TEXT NOT NULL DEFAULT '一般关注',
       is_enabled INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      visibility TEXT NOT NULL DEFAULT 'draft',
+      subscription_mode TEXT NOT NULL DEFAULT 'open',
+      auto_profile_expansion INTEGER NOT NULL DEFAULT 0,
+      delivery_cron TEXT,
+      delivery_timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+      delivery_enabled INTEGER NOT NULL DEFAULT 0,
+      max_items_per_email INTEGER NOT NULL DEFAULT 10,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -695,6 +784,98 @@ function migrateIndustryConfigs(sqlite: InstanceType<typeof Database>) {
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_subscriptions_industry_config ON subscriptions(industry_config_id)');
 
   console.log('[DB] Industry config migration complete');
+}
+
+function migrateEnterpriseIndustrySubscriptions(sqlite: InstanceType<typeof Database>) {
+  try { sqlite.exec('ALTER TABLE industry_configs ADD COLUMN created_by TEXT REFERENCES users(id) ON DELETE SET NULL'); } catch { /* already exists */ }
+  try { sqlite.exec("ALTER TABLE industry_configs ADD COLUMN visibility TEXT NOT NULL DEFAULT 'draft'"); } catch { /* already exists */ }
+  try { sqlite.exec("ALTER TABLE industry_configs ADD COLUMN subscription_mode TEXT NOT NULL DEFAULT 'open'"); } catch { /* already exists */ }
+  try { sqlite.exec('ALTER TABLE industry_configs ADD COLUMN auto_profile_expansion INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+  try { sqlite.exec('ALTER TABLE industry_configs ADD COLUMN delivery_cron TEXT'); } catch { /* already exists */ }
+  try { sqlite.exec("ALTER TABLE industry_configs ADD COLUMN delivery_timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'"); } catch { /* already exists */ }
+  try { sqlite.exec('ALTER TABLE industry_configs ADD COLUMN delivery_enabled INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+  try { sqlite.exec('ALTER TABLE industry_configs ADD COLUMN max_items_per_email INTEGER NOT NULL DEFAULT 10'); } catch { /* already exists */ }
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS industry_monitoring_profiles (
+      id TEXT PRIMARY KEY,
+      industry_config_id TEXT NOT NULL REFERENCES industry_configs(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      seed_criteria TEXT NOT NULL,
+      criteria_summary TEXT,
+      keywords_json TEXT NOT NULL DEFAULT '[]',
+      target_entities_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending',
+      shared_subscription_id TEXT REFERENCES subscriptions(id) ON DELETE SET NULL,
+      triggered_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      requires_admin_approval INTEGER NOT NULL DEFAULT 0,
+      approved_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      approved_at INTEGER,
+      last_provisioned_at INTEGER,
+      provisioning_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_industry_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      industry_config_id TEXT NOT NULL REFERENCES industry_configs(id) ON DELETE CASCADE,
+      monitoring_profile_id TEXT REFERENCES industry_monitoring_profiles(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'pending_profile',
+      custom_criteria TEXT NOT NULL,
+      recipient_emails_json TEXT NOT NULL DEFAULT '[]',
+      approval_reason TEXT,
+      last_delivered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS industry_delivery_runs (
+      id TEXT PRIMARY KEY,
+      industry_config_id TEXT NOT NULL REFERENCES industry_configs(id) ON DELETE CASCADE,
+      scheduled_for INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_delivery_logs (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES industry_delivery_runs(id) ON DELETE CASCADE,
+      user_industry_subscription_id TEXT NOT NULL REFERENCES user_industry_subscriptions(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_emails_json TEXT NOT NULL DEFAULT '[]',
+      selected_card_ids_json TEXT NOT NULL DEFAULT '[]',
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error TEXT,
+      sent_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_industry_profiles_industry_status
+      ON industry_monitoring_profiles(industry_config_id, status);
+    CREATE INDEX IF NOT EXISTS idx_user_industry_subs_user
+      ON user_industry_subscriptions(user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_user_industry_subs_industry
+      ON user_industry_subscriptions(industry_config_id, status);
+    CREATE INDEX IF NOT EXISTS idx_delivery_runs_industry
+      ON industry_delivery_runs(industry_config_id, scheduled_for);
+    CREATE INDEX IF NOT EXISTS idx_user_delivery_logs_run
+      ON user_delivery_logs(run_id, status);
+  `);
+
+  sqlite.exec(`
+    UPDATE industry_configs
+       SET created_by = COALESCE(created_by, user_id),
+           visibility = COALESCE(visibility, 'draft')
+     WHERE created_by IS NULL OR visibility IS NULL
+  `);
+
+  console.log('[DB] Enterprise industry subscription migration complete');
 }
 
 function migrateEmailVerification(sqlite: InstanceType<typeof Database>) {

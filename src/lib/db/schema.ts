@@ -110,6 +110,20 @@ export const industryConfigs = sqliteTable('industry_configs', {
   sourceTypesJson: text('source_types_json').notNull().default('[]'),
   alertLevel: text('alert_level').notNull().default('一般关注'),
   isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull().default(true),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  visibility: text('visibility', { enum: ['draft', 'published'] })
+    .notNull()
+    .default('draft'),
+  subscriptionMode: text('subscription_mode', { enum: ['open', 'approval_required'] })
+    .notNull()
+    .default('open'),
+  autoProfileExpansion: integer('auto_profile_expansion', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  deliveryCron: text('delivery_cron'),
+  deliveryTimezone: text('delivery_timezone').notNull().default('Asia/Shanghai'),
+  deliveryEnabled: integer('delivery_enabled', { mode: 'boolean' }).notNull().default(false),
+  maxItemsPerEmail: integer('max_items_per_email').notNull().default(10),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .$defaultFn(() => new Date())
     .notNull(),
@@ -159,6 +173,112 @@ export const managedBuildLogs = sqliteTable('managed_build_logs', {
   level: text('level', { enum: ['info', 'progress', 'success', 'error'] }).notNull(),
   message: text('message').notNull(),
   payload: text('payload'), // JSON：关键步骤结果（foundSources 列表、脚本等）
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+// ─── industry_monitoring_profiles ───────────────────────────────────────────
+export const industryMonitoringProfiles = sqliteTable('industry_monitoring_profiles', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  industryConfigId: text('industry_config_id')
+    .notNull()
+    .references(() => industryConfigs.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  seedCriteria: text('seed_criteria').notNull(),
+  criteriaSummary: text('criteria_summary'),
+  keywordsJson: text('keywords_json').notNull().default('[]'),
+  targetEntitiesJson: text('target_entities_json').notNull().default('[]'),
+  status: text('status', {
+    enum: ['pending', 'creating', 'active', 'failed', 'disabled'],
+  }).notNull().default('pending'),
+  sharedSubscriptionId: text('shared_subscription_id').references(() => subscriptions.id, {
+    onDelete: 'set null',
+  }),
+  triggeredByUserId: text('triggered_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  requiresAdminApproval: integer('requires_admin_approval', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  approvedBy: text('approved_by').references(() => users.id, { onDelete: 'set null' }),
+  approvedAt: integer('approved_at', { mode: 'timestamp_ms' }),
+  lastProvisionedAt: integer('last_provisioned_at', { mode: 'timestamp_ms' }),
+  provisioningError: text('provisioning_error'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+// ─── user_industry_subscriptions ────────────────────────────────────────────
+export const userIndustrySubscriptions = sqliteTable('user_industry_subscriptions', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  industryConfigId: text('industry_config_id')
+    .notNull()
+    .references(() => industryConfigs.id, { onDelete: 'cascade' }),
+  monitoringProfileId: text('monitoring_profile_id').references(
+    () => industryMonitoringProfiles.id,
+    { onDelete: 'set null' }
+  ),
+  status: text('status', {
+    enum: ['pending_approval', 'pending_profile', 'active', 'rejected', 'paused'],
+  }).notNull().default('pending_profile'),
+  customCriteria: text('custom_criteria').notNull(),
+  recipientEmailsJson: text('recipient_emails_json').notNull().default('[]'),
+  approvalReason: text('approval_reason'),
+  lastDeliveredAt: integer('last_delivered_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+// ─── industry_delivery_runs ─────────────────────────────────────────────────
+export const industryDeliveryRuns = sqliteTable('industry_delivery_runs', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  industryConfigId: text('industry_config_id')
+    .notNull()
+    .references(() => industryConfigs.id, { onDelete: 'cascade' }),
+  scheduledFor: integer('scheduled_for', { mode: 'timestamp_ms' }).notNull(),
+  status: text('status', { enum: ['running', 'completed', 'failed'] })
+    .notNull()
+    .default('running'),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+// ─── user_delivery_logs ─────────────────────────────────────────────────────
+export const userDeliveryLogs = sqliteTable('user_delivery_logs', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  runId: text('run_id')
+    .notNull()
+    .references(() => industryDeliveryRuns.id, { onDelete: 'cascade' }),
+  userIndustrySubscriptionId: text('user_industry_subscription_id')
+    .notNull()
+    .references(() => userIndustrySubscriptions.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  recipientEmailsJson: text('recipient_emails_json').notNull().default('[]'),
+  selectedCardIdsJson: text('selected_card_ids_json').notNull().default('[]'),
+  subject: text('subject').notNull(),
+  status: text('status', { enum: ['sent', 'skipped', 'failed'] }).notNull(),
+  error: text('error'),
+  sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .$defaultFn(() => new Date())
     .notNull(),
@@ -321,6 +441,8 @@ export const analysisReports = sqliteTable('analysis_reports', {
 export const usersRelations = relations(users, ({ many }) => ({
   subscriptions: many(subscriptions),
   industryConfigs: many(industryConfigs),
+  userIndustrySubscriptions: many(userIndustrySubscriptions),
+  userDeliveryLogs: many(userDeliveryLogs),
   favorites: many(favorites),
   promptTemplates: many(promptTemplates),
   sessions: many(sessions),
@@ -349,12 +471,72 @@ export const industryConfigsRelations = relations(industryConfigs, ({ one, many 
     references: [users.id],
   }),
   subscriptions: many(subscriptions),
+  monitoringProfiles: many(industryMonitoringProfiles),
+  userSubscriptions: many(userIndustrySubscriptions),
+  deliveryRuns: many(industryDeliveryRuns),
 }));
 
 export const managedBuildLogsRelations = relations(managedBuildLogs, ({ one }) => ({
   subscription: one(subscriptions, {
     fields: [managedBuildLogs.subscriptionId],
     references: [subscriptions.id],
+  }),
+}));
+
+export const industryMonitoringProfilesRelations = relations(
+  industryMonitoringProfiles,
+  ({ one, many }) => ({
+    industryConfig: one(industryConfigs, {
+      fields: [industryMonitoringProfiles.industryConfigId],
+      references: [industryConfigs.id],
+    }),
+    sharedSubscription: one(subscriptions, {
+      fields: [industryMonitoringProfiles.sharedSubscriptionId],
+      references: [subscriptions.id],
+    }),
+    userSubscriptions: many(userIndustrySubscriptions),
+  })
+);
+
+export const userIndustrySubscriptionsRelations = relations(
+  userIndustrySubscriptions,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [userIndustrySubscriptions.userId],
+      references: [users.id],
+    }),
+    industryConfig: one(industryConfigs, {
+      fields: [userIndustrySubscriptions.industryConfigId],
+      references: [industryConfigs.id],
+    }),
+    monitoringProfile: one(industryMonitoringProfiles, {
+      fields: [userIndustrySubscriptions.monitoringProfileId],
+      references: [industryMonitoringProfiles.id],
+    }),
+    deliveryLogs: many(userDeliveryLogs),
+  })
+);
+
+export const industryDeliveryRunsRelations = relations(industryDeliveryRuns, ({ one, many }) => ({
+  industryConfig: one(industryConfigs, {
+    fields: [industryDeliveryRuns.industryConfigId],
+    references: [industryConfigs.id],
+  }),
+  userLogs: many(userDeliveryLogs),
+}));
+
+export const userDeliveryLogsRelations = relations(userDeliveryLogs, ({ one }) => ({
+  run: one(industryDeliveryRuns, {
+    fields: [userDeliveryLogs.runId],
+    references: [industryDeliveryRuns.id],
+  }),
+  userSubscription: one(userIndustrySubscriptions, {
+    fields: [userDeliveryLogs.userIndustrySubscriptionId],
+    references: [userIndustrySubscriptions.id],
+  }),
+  user: one(users, {
+    fields: [userDeliveryLogs.userId],
+    references: [users.id],
   }),
 }));
 
