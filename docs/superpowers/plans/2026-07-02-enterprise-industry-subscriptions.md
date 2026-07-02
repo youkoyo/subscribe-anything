@@ -1741,7 +1741,7 @@ git commit -m "feat: add user enterprise industry subscriptions"
 - Create: `src/app/api/industry-profiles/[id]/retry/route.ts`
 - Test: `tests/enterpriseProfileProvisioningSource.test.ts`
 
-- [ ] **Step 1: Write failing source tests**
+- [x] **Step 1: Write failing source tests**
 
 Create `tests/enterpriseProfileProvisioningSource.test.ts`:
 
@@ -1778,7 +1778,7 @@ test('profile approval can trigger provisioning', async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -1788,7 +1788,7 @@ npm test -- tests/enterpriseProfileProvisioningSource.test.ts
 
 Expected: FAIL because profile provisioner and admin profile routes do not exist.
 
-- [ ] **Step 3: Implement profile provisioner**
+- [x] **Step 3: Implement profile provisioner**
 
 Create `src/lib/enterprise/profileProvisioner.ts`:
 
@@ -1963,7 +1963,7 @@ export async function startProfileProvisioning(profileId: string) {
 }
 ```
 
-- [ ] **Step 4: Add admin profile routes**
+- [x] **Step 4: Add admin profile routes**
 
 Create `src/app/api/industry-configs/[id]/profiles/route.ts`:
 
@@ -2053,7 +2053,7 @@ export async function POST(
 }
 ```
 
-- [ ] **Step 5: Trigger automatic provisioning for auto-created profiles**
+- [x] **Step 5: Trigger automatic provisioning for auto-created profiles**
 
 Modify `src/lib/enterprise/subscriptionService.ts` inside the `match.action === 'create'` path after profile insert:
 
@@ -2065,7 +2065,7 @@ Modify `src/lib/enterprise/subscriptionService.ts` inside the `match.action === 
   }
 ```
 
-- [ ] **Step 6: Run tests and typecheck**
+- [x] **Step 6: Run tests and typecheck**
 
 Run:
 
@@ -2076,7 +2076,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/enterprise src/app/api/industry-configs src/app/api/industry-profiles tests/enterpriseProfileProvisioningSource.test.ts

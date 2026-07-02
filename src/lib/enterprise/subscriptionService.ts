@@ -141,6 +141,12 @@ export function bindSubscriptionToProfile(userSubscriptionId: string) {
     .returning()
     .get();
 
+  if (match.action === 'create') {
+    import('./profileProvisioner')
+      .then(({ startProfileProvisioning }) => startProfileProvisioning(profile.id))
+      .catch((err) => console.error('[enterprise] profile auto provisioning failed', err));
+  }
+
   db.update(userIndustrySubscriptions)
     .set({
       monitoringProfileId: profile.id,
