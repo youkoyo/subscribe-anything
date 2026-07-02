@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface CatalogItem {
   id: string;
@@ -37,6 +38,7 @@ function parseEmailInput(value: string) {
 }
 
 export default function IndustryCatalog() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,14 +159,20 @@ export default function IndustryCatalog() {
                 onChange={(event) => setCustomCriteria(event.target.value)}
               />
             </label>
-            <label className="grid gap-2 text-sm font-medium">
-              额外收件邮箱
-              <Input
-                value={extraRecipientEmails}
-                onChange={(event) => setExtraRecipientEmails(event.target.value)}
-                placeholder="多个邮箱用逗号分隔"
-              />
-            </label>
+            <div className="grid gap-2 rounded-md border border-cyan-300/20 bg-secondary/30 p-3">
+              <div className="text-sm font-medium">收件邮箱配置</div>
+              <p className="text-xs text-muted-foreground">
+                默认发送到账户邮箱：{user?.email || '当前账号邮箱'}。也可以补充同事或团队邮箱。
+              </p>
+              <label className="grid gap-2 text-sm font-medium">
+                额外收件邮箱
+                <Input
+                  value={extraRecipientEmails}
+                  onChange={(event) => setExtraRecipientEmails(event.target.value)}
+                  placeholder="name@company.com, team@company.com"
+                />
+              </label>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelected(null)} disabled={submitting}>

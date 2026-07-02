@@ -17,6 +17,13 @@ import type { FoundSource, GeneratedSource } from '@/types/wizard';
 export async function POST(req: Request) {
   try {
     const session = await requireAuth();
+    if (!session.isAdmin) {
+      return Response.json(
+        { error: '普通用户请从产业订阅目录发起订阅' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const {
       topic,
