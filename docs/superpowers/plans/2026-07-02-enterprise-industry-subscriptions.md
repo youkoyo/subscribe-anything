@@ -495,7 +495,7 @@ git commit -m "feat: add enterprise industry schema"
 - Create: `src/lib/enterprise/recipientEmails.ts`
 - Test: `tests/enterpriseRecipientEmails.test.ts`
 
-- [ ] **Step 1: Write failing utility tests**
+- [x] **Step 1: Write failing utility tests**
 
 Create `tests/enterpriseRecipientEmails.test.ts`:
 
@@ -546,7 +546,7 @@ test('validateRecipientEmails accepts one to five valid emails', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -556,7 +556,7 @@ npm test -- tests/enterpriseRecipientEmails.test.ts
 
 Expected: FAIL because `src/lib/enterprise/recipientEmails.ts` does not exist.
 
-- [ ] **Step 3: Add enterprise union types**
+- [x] **Step 3: Add enterprise union types**
 
 Modify `src/lib/industry-configs/types.ts` and append:
 
@@ -602,7 +602,7 @@ export interface IndustryConfigInput extends EnterpriseIndustryFields {
 }
 ```
 
-- [ ] **Step 4: Implement recipient email utilities**
+- [x] **Step 4: Implement recipient email utilities**
 
 Create `src/lib/enterprise/recipientEmails.ts`:
 
@@ -664,7 +664,7 @@ export function parseRecipientEmailsJson(value: string | null | undefined): stri
 }
 ```
 
-- [ ] **Step 5: Run utility tests**
+- [x] **Step 5: Run utility tests**
 
 Run:
 
@@ -675,7 +675,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/industry-configs/types.ts src/lib/enterprise/recipientEmails.ts tests/enterpriseRecipientEmails.test.ts

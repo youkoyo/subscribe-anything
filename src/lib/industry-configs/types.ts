@@ -30,7 +30,29 @@ export interface IndustryConfigSnapshot {
   alertLevel: string;
 }
 
-export interface IndustryConfigInput {
+export type IndustryVisibility = 'draft' | 'published';
+export type IndustrySubscriptionMode = 'open' | 'approval_required';
+export type MonitoringProfileStatus = 'pending' | 'creating' | 'active' | 'failed' | 'disabled';
+export type UserIndustrySubscriptionStatus =
+  | 'pending_approval'
+  | 'pending_profile'
+  | 'active'
+  | 'rejected'
+  | 'paused';
+export type IndustryDeliveryRunStatus = 'running' | 'completed' | 'failed';
+export type UserDeliveryLogStatus = 'sent' | 'skipped' | 'failed';
+
+export interface EnterpriseIndustryFields {
+  visibility?: IndustryVisibility;
+  subscriptionMode?: IndustrySubscriptionMode;
+  autoProfileExpansion?: boolean;
+  deliveryCron?: string | null;
+  deliveryTimezone?: string;
+  deliveryEnabled?: boolean;
+  maxItemsPerEmail?: number;
+}
+
+export interface IndustryConfigInput extends EnterpriseIndustryFields {
   name: string;
   category?: string;
   subCategory?: string;
