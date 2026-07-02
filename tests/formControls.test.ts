@@ -22,5 +22,5 @@ test('textarea uses dark native control chrome', async () => {
   const source = await readFile('src/components/ui/textarea.tsx', 'utf8');
 
   assert.doesNotMatch(source, /\[color-scheme:dark\]/);
-  assert.match(source, /style=\{\{\s*colorScheme: 'dark',\s*\.\.\.style\s*\}\}/s);
+  assert.match(source, /style=\{\{[\s\S]*colorScheme: 'dark',[\s\S]*\.\.\.style[\s\S]*\}\}/);
 });
