@@ -1284,7 +1284,7 @@ git commit -m "feat: add monitoring profile matcher"
 - Create: `src/app/api/enterprise/my-industry-subscriptions/[id]/pause/route.ts`
 - Test: `tests/enterpriseSubscriptionApiSource.test.ts`
 
-- [ ] **Step 1: Write failing API source tests**
+- [x] **Step 1: Write failing API source tests**
 
 Create `tests/enterpriseSubscriptionApiSource.test.ts`:
 
@@ -1328,7 +1328,7 @@ test('my subscription routes are scoped to the current user', async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -1338,7 +1338,7 @@ npm test -- tests/enterpriseSubscriptionApiSource.test.ts
 
 Expected: FAIL because enterprise routes/service do not exist.
 
-- [ ] **Step 3: Implement subscription service**
+- [x] **Step 3: Implement subscription service**
 
 Create `src/lib/enterprise/subscriptionService.ts`:
 
@@ -1562,7 +1562,7 @@ export function pauseMyIndustrySubscription(id: string, userId: string, paused: 
 
 The `adminUserId` parameter in `approveUserIndustrySubscription` is intentionally accepted for audit extension; this task does not write an audit row.
 
-- [ ] **Step 4: Add enterprise catalog route**
+- [x] **Step 4: Add enterprise catalog route**
 
 Create `src/app/api/enterprise/industry-catalog/route.ts`:
 
@@ -1584,7 +1584,7 @@ export async function GET() {
 }
 ```
 
-- [ ] **Step 5: Add user subscription routes**
+- [x] **Step 5: Add user subscription routes**
 
 Create `src/app/api/enterprise/industry-subscriptions/route.ts`:
 
@@ -1712,7 +1712,7 @@ export async function POST(
 }
 ```
 
-- [ ] **Step 6: Run API source tests and typecheck**
+- [x] **Step 6: Run API source tests and typecheck**
 
 Run:
 
@@ -1723,7 +1723,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/enterprise src/app/api/enterprise tests/enterpriseSubscriptionApiSource.test.ts
