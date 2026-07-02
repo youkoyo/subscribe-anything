@@ -2,18 +2,22 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('industry config API routes require auth', async () => {
+test('industry config API routes require auth and admin for writes', async () => {
   const listRoute = await readFile('src/app/api/industry-configs/route.ts', 'utf8');
   const itemRoute = await readFile('src/app/api/industry-configs/[id]/route.ts', 'utf8');
 
   assert.match(listRoute, /requireAuth/);
   assert.match(itemRoute, /requireAuth/);
+  assert.match(listRoute, /requireAdmin/);
+  assert.match(itemRoute, /requireAdmin/);
 });
 
-test('industry config API routes scope operations by user id', async () => {
+test('industry config service exposes enterprise catalog semantics', async () => {
   const service = await readFile('src/lib/industry-configs/service.ts', 'utf8');
 
-  assert.match(service, /eq\(industryConfigs\.userId, userId\)/);
+  assert.match(service, /listIndustryConfigsForAdmin/);
+  assert.match(service, /listPublishedIndustryConfigsForUser/);
+  assert.match(service, /eq\(industryConfigs\.visibility, 'published'\)/);
   assert.match(service, /buildIndustryConfigSnapshot/);
 });
 

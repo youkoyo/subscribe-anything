@@ -18,7 +18,8 @@ test('industry config API seeds defaults before listing configs', async () => {
   const route = await readFile('src/app/api/industry-configs/route.ts', 'utf8');
   const service = await readFile('src/lib/industry-configs/service.ts', 'utf8');
 
-  assert.match(route, /seedDefaultIndustryConfigsForUser\(session\.userId\)/);
+  assert.match(route, /seedDefaultIndustryConfigsForAdmin\(session\.userId\)/);
+  assert.match(route, /session\.isAdmin/);
   assert.match(service, /DEFAULT_INDUSTRY_CONFIGS/);
   assert.match(service, /limit\(1\)/);
 });

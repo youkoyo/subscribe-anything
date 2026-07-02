@@ -693,7 +693,7 @@ git commit -m "feat: add enterprise recipient email utilities"
 - Create: `src/app/api/industry-configs/[id]/publish/route.ts`
 - Test: `tests/enterpriseIndustryConfigApi.test.ts`
 
-- [ ] **Step 1: Write failing API source tests**
+- [x] **Step 1: Write failing API source tests**
 
 Create `tests/enterpriseIndustryConfigApi.test.ts`:
 
@@ -729,7 +729,7 @@ test('ordinary catalog reads only published enabled industry configs', async () 
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -739,7 +739,7 @@ npm test -- tests/enterpriseIndustryConfigApi.test.ts
 
 Expected: FAIL because route/service semantics are still user-scoped.
 
-- [ ] **Step 3: Update industry config service**
+- [x] **Step 3: Update industry config service**
 
 Modify `src/lib/industry-configs/service.ts`.
 
@@ -901,7 +901,7 @@ export const getIndustryConfigForUser = (id: string, _userId: string) =>
   getPublishedIndustryConfig(id);
 ```
 
-- [ ] **Step 4: Update industry config routes**
+- [x] **Step 4: Update industry config routes**
 
 Modify `src/app/api/industry-configs/route.ts`:
 
@@ -972,7 +972,7 @@ export async function POST(req: Request) {
 
 Modify `src/app/api/industry-configs/[id]/route.ts` to use `requireAdmin` for `PATCH` and `DELETE`, and use `getIndustryConfigForAdmin` for admin GET while non-admin GET uses `getPublishedIndustryConfig`.
 
-- [ ] **Step 5: Add publish route**
+- [x] **Step 5: Add publish route**
 
 Create `src/app/api/industry-configs/[id]/publish/route.ts`:
 
@@ -1004,7 +1004,7 @@ export async function POST(
 }
 ```
 
-- [ ] **Step 6: Run API tests and typecheck**
+- [x] **Step 6: Run API tests and typecheck**
 
 Run:
 
@@ -1015,7 +1015,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/industry-configs src/app/api/industry-configs tests/enterpriseIndustryConfigApi.test.ts
