@@ -48,6 +48,13 @@ interface IndustryConfigView {
   subCategory: string | null;
   alertLevel: string | null;
   isEnabled: boolean;
+  visibility?: 'draft' | 'published';
+  subscriptionMode?: 'open' | 'approval_required';
+  autoProfileExpansion?: boolean;
+  deliveryCron?: string | null;
+  deliveryTimezone?: string;
+  deliveryEnabled?: boolean;
+  maxItemsPerEmail?: number;
   updatedAt?: string;
   snapshot: IndustryConfigSnapshot;
   suggestion: IndustrySubscriptionSuggestion;
@@ -65,6 +72,13 @@ interface FormState {
   sourceTypes: IndustrySourceType[];
   alertLevel: string;
   isEnabled: boolean;
+  visibility: 'draft' | 'published';
+  subscriptionMode: 'open' | 'approval_required';
+  autoProfileExpansion: boolean;
+  deliveryCron: string;
+  deliveryTimezone: string;
+  deliveryEnabled: boolean;
+  maxItemsPerEmail: number;
 }
 
 const emptyForm: FormState = {
@@ -79,6 +93,13 @@ const emptyForm: FormState = {
   sourceTypes: ['authority', 'news'],
   alertLevel: '一般关注',
   isEnabled: true,
+  visibility: 'draft',
+  subscriptionMode: 'open',
+  autoProfileExpansion: false,
+  deliveryCron: '0 9 * * *',
+  deliveryTimezone: 'Asia/Shanghai',
+  deliveryEnabled: false,
+  maxItemsPerEmail: 10,
 };
 
 const alertLevels = ['一般关注', '重点关注', '高风险预警'];
@@ -109,6 +130,13 @@ function toForm(config: IndustryConfigView): FormState {
     sourceTypes: snapshot.sourceTypes.length > 0 ? snapshot.sourceTypes : ['authority', 'news'],
     alertLevel: snapshot.alertLevel || '一般关注',
     isEnabled: config.isEnabled,
+    visibility: config.visibility ?? 'draft',
+    subscriptionMode: config.subscriptionMode ?? 'open',
+    autoProfileExpansion: config.autoProfileExpansion === true,
+    deliveryCron: config.deliveryCron ?? '0 9 * * *',
+    deliveryTimezone: config.deliveryTimezone ?? 'Asia/Shanghai',
+    deliveryEnabled: config.deliveryEnabled === true,
+    maxItemsPerEmail: config.maxItemsPerEmail ?? 10,
   };
 }
 
@@ -125,6 +153,13 @@ function toPayload(form: FormState): IndustryConfigInput {
     sourceTypes: form.sourceTypes,
     alertLevel: form.alertLevel,
     isEnabled: form.isEnabled,
+    visibility: form.visibility,
+    subscriptionMode: form.subscriptionMode,
+    autoProfileExpansion: form.autoProfileExpansion,
+    deliveryCron: form.deliveryCron,
+    deliveryTimezone: form.deliveryTimezone,
+    deliveryEnabled: form.deliveryEnabled,
+    maxItemsPerEmail: form.maxItemsPerEmail,
   };
 }
 
@@ -335,6 +370,12 @@ export default function IndustryConfigManager() {
                       <Badge variant={config.isEnabled ? 'default' : 'secondary'}>
                         {config.isEnabled ? '启用' : '停用'}
                       </Badge>
+                      <Badge variant={config.visibility === 'published' ? 'default' : 'secondary'}>
+                        {config.visibility === 'published' ? '已发布' : '草稿'}
+                      </Badge>
+                      <Badge variant={config.deliveryEnabled ? 'default' : 'outline'}>
+                        {config.deliveryEnabled ? '报送启用' : '报送关闭'}
+                      </Badge>
                       <Badge variant="outline">{snapshot.alertLevel}</Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -360,7 +401,8 @@ export default function IndustryConfigManager() {
                       )}
                     </div>
                     <div className="mt-3 text-xs text-muted-foreground">
-                      订阅建议：{config.suggestion.topic}
+                      订阅建议：{config.suggestion.topic} · 报送：{config.deliveryCron || '未配置'} · 每封最多{' '}
+                      {config.maxItemsPerEmail ?? 10} 条
                     </div>
                   </div>
 
@@ -496,6 +538,96 @@ export default function IndustryConfigManager() {
                 })}
               </div>
             </fieldset>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-2 text-sm font-medium">
+                发布状态
+                <Select
+                  value={form.visibility}
+                  onValueChange={(value) =>
+                    updateField('visibility', value as FormState['visibility'])
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">草稿</SelectItem>
+                    <SelectItem value="published">已发布</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                订阅模式
+                <Select
+                  value={form.subscriptionMode}
+                  onValueChange={(value) =>
+                    updateField('subscriptionMode', value as FormState['subscriptionMode'])
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">开放订阅</SelectItem>
+                    <SelectItem value="approval_required">需要审批</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="grid gap-2 text-sm font-medium">
+                报送 cron
+                <Input
+                  value={form.deliveryCron}
+                  onChange={(event) => updateField('deliveryCron', event.target.value)}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                报送时区
+                <Input
+                  value={form.deliveryTimezone}
+                  onChange={(event) => updateField('deliveryTimezone', event.target.value)}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                每封最多条数
+                <Input
+                  type="number"
+                  min={5}
+                  max={10}
+                  value={form.maxItemsPerEmail}
+                  onChange={(event) => updateField('maxItemsPerEmail', Number(event.target.value))}
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
+              <div>
+                <div className="text-sm font-medium">允许自动扩展采集池</div>
+                <div className="text-xs text-muted-foreground">
+                  用户条件不匹配已有需求簇时，自动创建新采集池。
+                </div>
+              </div>
+              <Switch
+                checked={form.autoProfileExpansion}
+                onCheckedChange={(value) => updateField('autoProfileExpansion', value)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
+              <div>
+                <div className="text-sm font-medium">启用邮件报送</div>
+                <div className="text-xs text-muted-foreground">
+                  按 cron 为活跃用户发送个性化邮件。
+                </div>
+              </div>
+              <Switch
+                checked={form.deliveryEnabled}
+                onCheckedChange={(value) => updateField('deliveryEnabled', value)}
+              />
+            </div>
 
             <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
               <div>

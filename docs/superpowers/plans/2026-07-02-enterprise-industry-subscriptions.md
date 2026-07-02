@@ -2822,7 +2822,7 @@ git commit -m "feat: add enterprise industry email delivery"
 - Modify: `src/components/industry-configs/IndustryConfigManager.tsx`
 - Test: `tests/enterpriseUiSource.test.ts`
 
-- [ ] **Step 1: Write failing UI source tests**
+- [x] **Step 1: Write failing UI source tests**
 
 Create `tests/enterpriseUiSource.test.ts`:
 
@@ -2868,7 +2868,7 @@ test('admin industry manager exposes enterprise delivery and publication fields'
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -2878,7 +2878,7 @@ npm test -- tests/enterpriseUiSource.test.ts
 
 Expected: FAIL because user catalog components and enterprise UI fields do not exist.
 
-- [ ] **Step 3: Add user catalog component**
+- [x] **Step 3: Add user catalog component**
 
 Create `src/components/enterprise/IndustryCatalog.tsx`:
 
@@ -2991,7 +2991,7 @@ export default function IndustryCatalog() {
 }
 ```
 
-- [ ] **Step 4: Add my subscriptions component**
+- [x] **Step 4: Add my subscriptions component**
 
 Create `src/components/enterprise/MyIndustrySubscriptions.tsx`:
 
@@ -3072,7 +3072,7 @@ export default function MyIndustrySubscriptions() {
 }
 ```
 
-- [ ] **Step 5: Render admin/user page variants**
+- [x] **Step 5: Render admin/user page variants**
 
 Modify `src/app/industry-configs/page.tsx`:
 
@@ -3117,7 +3117,7 @@ export default function IndustryConfigsPage() {
 }
 ```
 
-- [ ] **Step 6: Add enterprise fields to admin manager**
+- [x] **Step 6: Add enterprise fields to admin manager**
 
 Modify `src/components/industry-configs/IndustryConfigManager.tsx`:
 
@@ -3229,7 +3229,7 @@ Add form controls near the existing enabled switch:
 </div>
 ```
 
-- [ ] **Step 7: Run UI source tests and typecheck**
+- [x] **Step 7: Run UI source tests and typecheck**
 
 Run:
 
@@ -3240,7 +3240,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/components/enterprise src/components/industry-configs/IndustryConfigManager.tsx src/app/industry-configs/page.tsx tests/enterpriseUiSource.test.ts
