@@ -2093,7 +2093,7 @@ git commit -m "feat: provision monitoring profile collection pools"
 - Test: `tests/enterpriseDeliveryScoring.test.ts`
 - Test: `tests/enterpriseEmailTemplate.test.ts`
 
-- [ ] **Step 1: Write failing delivery scoring tests**
+- [x] **Step 1: Write failing delivery scoring tests**
 
 Create `tests/enterpriseDeliveryScoring.test.ts`:
 
@@ -2185,7 +2185,7 @@ test('renderIndustryDeliveryEmail includes summary and table rows', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -2195,7 +2195,7 @@ npm test -- tests/enterpriseDeliveryScoring.test.ts tests/enterpriseEmailTemplat
 
 Expected: FAIL because scoring and template modules do not exist.
 
-- [ ] **Step 3: Implement delivery scoring**
+- [x] **Step 3: Implement delivery scoring**
 
 Create `src/lib/enterprise/deliveryScoring.ts`:
 
@@ -2293,7 +2293,7 @@ export function scoreToLabel(score: number) {
 }
 ```
 
-- [ ] **Step 4: Implement email template**
+- [x] **Step 4: Implement email template**
 
 Create `src/lib/enterprise/emailTemplate.ts`:
 
@@ -2378,7 +2378,7 @@ export function renderIndustryDeliveryEmail(input: RenderIndustryDeliveryEmailIn
 }
 ```
 
-- [ ] **Step 5: Run scoring/template tests**
+- [x] **Step 5: Run scoring/template tests**
 
 Run:
 
@@ -2389,7 +2389,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/enterprise/deliveryScoring.ts src/lib/enterprise/emailTemplate.ts tests/enterpriseDeliveryScoring.test.ts tests/enterpriseEmailTemplate.test.ts
