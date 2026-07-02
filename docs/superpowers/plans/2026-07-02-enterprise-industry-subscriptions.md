@@ -1030,7 +1030,7 @@ git commit -m "feat: make industry configs admin managed"
 - Create: `src/lib/enterprise/profileMatcher.ts`
 - Test: `tests/enterpriseProfileMatcher.test.ts`
 
-- [ ] **Step 1: Write failing profile matcher tests**
+- [x] **Step 1: Write failing profile matcher tests**
 
 Create `tests/enterpriseProfileMatcher.test.ts`:
 
@@ -1104,7 +1104,7 @@ test('matchMonitoringProfile creates profile automatically when auto expansion i
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -1114,7 +1114,7 @@ npm test -- tests/enterpriseProfileMatcher.test.ts
 
 Expected: FAIL because matcher does not exist.
 
-- [ ] **Step 3: Implement rule-first profile matcher**
+- [x] **Step 3: Implement rule-first profile matcher**
 
 Create `src/lib/enterprise/profileMatcher.ts`:
 
@@ -1253,7 +1253,7 @@ export function matchMonitoringProfile(input: ProfileMatchInput): ProfileMatchRe
 }
 ```
 
-- [ ] **Step 4: Run matcher tests**
+- [x] **Step 4: Run matcher tests**
 
 Run:
 
@@ -1264,7 +1264,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/enterprise/profileMatcher.ts tests/enterpriseProfileMatcher.test.ts
