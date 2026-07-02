@@ -2407,7 +2407,7 @@ git commit -m "feat: add industry delivery scoring and email template"
 - Modify: `server.ts`
 - Test: `tests/enterpriseDeliverySource.test.ts`
 
-- [ ] **Step 1: Write failing delivery source tests**
+- [x] **Step 1: Write failing delivery source tests**
 
 Create `tests/enterpriseDeliverySource.test.ts`:
 
@@ -2451,7 +2451,7 @@ test('delivery run API requires admin access', async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -2461,7 +2461,7 @@ npm test -- tests/enterpriseDeliverySource.test.ts
 
 Expected: FAIL because delivery service, scheduler, and route do not exist.
 
-- [ ] **Step 3: Implement delivery service**
+- [x] **Step 3: Implement delivery service**
 
 Create `src/lib/enterprise/deliveryService.ts`:
 
@@ -2669,7 +2669,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
 }
 ```
 
-- [ ] **Step 4: Implement delivery scheduler**
+- [x] **Step 4: Implement delivery scheduler**
 
 Create `src/lib/enterprise/deliveryScheduler.ts`:
 
@@ -2732,7 +2732,7 @@ export async function initDeliveryScheduler() {
 }
 ```
 
-- [ ] **Step 5: Initialize scheduler in server**
+- [x] **Step 5: Initialize scheduler in server**
 
 Modify `server.ts` after `await initScheduler();`:
 
@@ -2741,7 +2741,7 @@ Modify `server.ts` after `await initScheduler();`:
   await initDeliveryScheduler();
 ```
 
-- [ ] **Step 6: Add delivery run admin API**
+- [x] **Step 6: Add delivery run admin API**
 
 Create `src/app/api/industry-delivery-runs/route.ts`:
 
@@ -2793,7 +2793,7 @@ export async function GET(req: Request) {
 }
 ```
 
-- [ ] **Step 7: Run tests and typecheck**
+- [x] **Step 7: Run tests and typecheck**
 
 Run:
 
@@ -2804,7 +2804,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/lib/enterprise/deliveryService.ts src/lib/enterprise/deliveryScheduler.ts src/app/api/industry-delivery-runs server.ts tests/enterpriseDeliverySource.test.ts

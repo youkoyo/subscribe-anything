@@ -1,5 +1,5 @@
 // server.ts — Custom Next.js server
-// Startup order: runMigrations → initScheduler → createServer
+// Startup order: runMigrations → initScheduler → initDeliveryScheduler → createServer
 //
 // Run dev:   tsx server.ts
 // Run prod:  node dist/server.js  (after tsc -p tsconfig.server.json)
@@ -26,7 +26,11 @@ async function main() {
   const { initScheduler } = await import('./src/lib/scheduler');
   await initScheduler();
 
-  // 3. Start Next.js
+  // 3. Init enterprise delivery scheduler — load enabled industry email jobs
+  const { initDeliveryScheduler } = await import('./src/lib/enterprise/deliveryScheduler');
+  await initDeliveryScheduler();
+
+  // 4. Start Next.js
   const app = next({ dev, hostname: 'localhost', port });
   const handle = app.getRequestHandler();
 
