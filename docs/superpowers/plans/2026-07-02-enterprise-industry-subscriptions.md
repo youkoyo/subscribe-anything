@@ -3254,7 +3254,7 @@ git commit -m "feat: add enterprise industry subscription UI"
 **Files:**
 - Modify only if verification reveals defects in files touched by Tasks 1-9.
 
-- [ ] **Step 1: Run all tests**
+- [x] **Step 1: Run all tests**
 
 Run:
 
@@ -3264,7 +3264,7 @@ npm test
 
 Expected: all tests pass. If the existing middleware icon test still fails, fix `src/middleware.ts` by adding `'/apple-icon'` to `STATIC_PATHS`, then rerun `npm test`.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run:
 
@@ -3274,7 +3274,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 3: Run production build**
+- [x] **Step 3: Run production build**
 
 Run:
 
@@ -3284,7 +3284,7 @@ npm run build
 
 Expected: PASS. If native module or local Node version fails, capture the exact error and `node -v` output in the final summary.
 
-- [ ] **Step 4: Start dev server**
+- [x] **Step 4: Start dev server**
 
 Run:
 
@@ -3294,7 +3294,7 @@ npm run dev
 
 Expected: server starts at `http://localhost:3000`.
 
-- [ ] **Step 5: Manual admin verification**
+- [x] **Step 5: Manual admin verification**
 
 In the browser:
 
@@ -3307,7 +3307,7 @@ In the browser:
 - Set delivery cron to `0 9 * * *`.
 - Save and verify the card shows published/delivery settings.
 
-- [ ] **Step 6: Manual user verification**
+- [x] **Step 6: Manual user verification**
 
 In the browser:
 
@@ -3319,7 +3319,7 @@ In the browser:
 - Add one extra valid email.
 - Submit and verify the item appears in “我的产业订阅”.
 
-- [ ] **Step 7: Manual profile verification**
+- [x] **Step 7: Manual profile verification**
 
 In the DB or admin page:
 
@@ -3328,7 +3328,7 @@ In the DB or admin page:
 - Approve the profile as admin.
 - Verify provisioning status changes to creating.
 
-- [ ] **Step 8: Manual delivery verification**
+- [x] **Step 8: Manual delivery verification**
 
 If the profile has an active shared subscription and message cards:
 
@@ -3337,7 +3337,12 @@ If the profile has an active shared subscription and message cards:
 - Verify `user_delivery_logs` contains `sent`, `skipped`, or `failed`.
 - Verify sent emails contain a table with title, source, authority, relevance, time, summary, and link.
 
-- [ ] **Step 9: Inspect git status**
+Verification note: the browser verification used isolated `tmp/enterprise-e2e.db` on port 3100. The profile approval
+created a shared subscription, then failed because the isolated DB has no active AI provider. Delivery was verified with
+seeded temporary message cards; the run completed and selected five cards, while the user delivery log was `failed`
+because SMTP is not configured in the isolated DB.
+
+- [x] **Step 9: Inspect git status**
 
 Run:
 
@@ -3347,7 +3352,7 @@ git status --short
 
 Expected: clean after commits or only intentional verification notes.
 
-- [ ] **Step 10: Commit verification fixes**
+- [x] **Step 10: Commit verification fixes**
 
 If verification required fixes:
 
