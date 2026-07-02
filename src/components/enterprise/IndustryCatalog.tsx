@@ -30,6 +30,10 @@ interface CatalogItem {
   };
 }
 
+interface IndustryCatalogProps {
+  onSubscriptionCreated?: () => void;
+}
+
 function parseEmailInput(value: string) {
   return value
     .split(/[\n,，;；]/)
@@ -37,7 +41,7 @@ function parseEmailInput(value: string) {
     .filter(Boolean);
 }
 
-export default function IndustryCatalog() {
+export default function IndustryCatalog({ onSubscriptionCreated }: IndustryCatalogProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [items, setItems] = useState<CatalogItem[]>([]);
@@ -80,6 +84,7 @@ export default function IndustryCatalog() {
     }
 
     toast({ title: selected.subscriptionMode === 'approval_required' ? '已提交审批' : '订阅已提交' });
+    onSubscriptionCreated?.();
     setSelected(null);
     setCustomCriteria('');
     setExtraRecipientEmails('');

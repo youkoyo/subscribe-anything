@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import IndustryCatalog from '@/components/enterprise/IndustryCatalog';
 import MyIndustrySubscriptions from '@/components/enterprise/MyIndustrySubscriptions';
 import IndustryConfigManager from '@/components/industry-configs/IndustryConfigManager';
@@ -8,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 export default function IndustryConfigsPage() {
   const { user } = useAuth();
   const isAdmin = user?.isAdmin ?? false;
+  const [subscriptionRefreshKey, setSubscriptionRefreshKey] = useState(0);
 
   if (isAdmin) {
     return (
@@ -31,8 +33,8 @@ export default function IndustryConfigsPage() {
           选择管理员发布的产业方向，补充你的监控条件，系统会按企业统一节奏发送个性化邮件。
         </p>
       </div>
-      <IndustryCatalog />
-      <MyIndustrySubscriptions />
+      <IndustryCatalog onSubscriptionCreated={() => setSubscriptionRefreshKey((key) => key + 1)} />
+      <MyIndustrySubscriptions refreshKey={subscriptionRefreshKey} />
     </div>
   );
 }

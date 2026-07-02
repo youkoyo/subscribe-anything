@@ -37,6 +37,29 @@ export function listMyIndustrySubscriptions(userId: string) {
     .all();
 }
 
+export function listIndustrySubscribersForAdmin(industryConfigId: string) {
+  const db = getDb();
+  return db
+    .select({
+      subscription: userIndustrySubscriptions,
+      user: {
+        id: users.id,
+        email: users.email,
+        name: users.name,
+      },
+      profile: industryMonitoringProfiles,
+    })
+    .from(userIndustrySubscriptions)
+    .innerJoin(users, eq(userIndustrySubscriptions.userId, users.id))
+    .leftJoin(
+      industryMonitoringProfiles,
+      eq(userIndustrySubscriptions.monitoringProfileId, industryMonitoringProfiles.id)
+    )
+    .where(eq(userIndustrySubscriptions.industryConfigId, industryConfigId))
+    .orderBy(desc(userIndustrySubscriptions.updatedAt))
+    .all();
+}
+
 export function createUserIndustrySubscription(input: CreateUserIndustrySubscriptionInput) {
   const db = getDb();
   const industry = getPublishedIndustryConfig(input.industryConfigId);

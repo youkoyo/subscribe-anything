@@ -14,6 +14,27 @@
 
 The approved spec covers enterprise catalog, profile matching, shared collection pools, and scheduled email delivery. This plan implements the first end-to-end version of those pieces. It does not implement organization departments, enterprise address books, cross-tenant isolation, historical backfill, or the separate event clustering data model.
 
+### 2026-07-02 Visibility Follow-up
+
+User review confirmed two first-version observability gaps after the enterprise subscription loop landed:
+
+- Admins need to see which users subscribed to each published industry direction, including each user's custom monitoring criteria, matched monitoring profile, recipient emails, and current processing status.
+- Normal users need a clear progress display after submitting a published industry subscription, so they can see whether the request is waiting for approval, matching a shared collection pool, creating a collection pool, running, paused, or failed.
+
+Implementation stays table-free for this follow-up. It reuses `user_industry_subscriptions`, `industry_monitoring_profiles`, and `users`, adds an admin subscriber-list API, adds a small status-to-progress helper, and refreshes the normal user's subscription list immediately after catalog subscription creation.
+
+### 2026-07-02 Admin Todo Center Follow-up
+
+User review confirmed that profile expansion approval should not be hidden inside an industry detail dialog. Add a global admin todo center at `/admin/todos` with a red navigation badge for pending work.
+
+First-version todo data comes from existing enterprise subscription tables:
+
+- `user_industry_subscriptions.status = 'pending_approval'`: admins can approve a user's industry subscription.
+- `industry_monitoring_profiles.requires_admin_approval = true`: admins can confirm creation of a new shared collection pool.
+- `industry_monitoring_profiles.status = 'failed'`: admins can retry shared collection pool provisioning.
+
+The nav badge uses a lightweight summary API and hides when the count is zero. The full page uses a list API and calls action endpoints, then refreshes the todo list and badge count.
+
 ## File Structure
 
 - Modify `src/lib/db/schema.ts`: add enterprise fields to `industryConfigs`; add `industryMonitoringProfiles`, `userIndustrySubscriptions`, `industryDeliveryRuns`, and `userDeliveryLogs`.

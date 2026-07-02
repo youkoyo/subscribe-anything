@@ -44,3 +44,18 @@ test('my subscription routes are scoped to the current user', async () => {
   assert.match(itemRoute, /session\.userId/);
   assert.match(pauseRoute, /session\.userId/);
 });
+
+test('admin industry subscriber route lists users and monitoring progress', async () => {
+  const route = await readFile(
+    'src/app/api/industry-configs/[id]/subscriptions/route.ts',
+    'utf8'
+  );
+  const service = await readFile('src/lib/enterprise/subscriptionService.ts', 'utf8');
+
+  assert.match(route, /requireAdmin/);
+  assert.match(route, /listIndustrySubscribersForAdmin/);
+  assert.match(service, /export function listIndustrySubscribersForAdmin/);
+  assert.match(service, /users/);
+  assert.match(service, /userIndustrySubscriptions\.industryConfigId/);
+  assert.match(service, /industryMonitoringProfiles/);
+});

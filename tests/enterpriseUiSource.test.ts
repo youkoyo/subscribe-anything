@@ -18,6 +18,7 @@ test('user industry catalog calls enterprise subscription APIs', async () => {
   assert.match(source, /\/api\/enterprise\/industry-subscriptions/);
   assert.match(source, /customCriteria/);
   assert.match(source, /extraRecipientEmails/);
+  assert.match(source, /onSubscriptionCreated/);
 });
 
 test('my industry subscriptions component supports pause and edit', async () => {
@@ -26,6 +27,8 @@ test('my industry subscriptions component supports pause and edit', async () => 
   assert.match(source, /\/api\/enterprise\/my-industry-subscriptions/);
   assert.match(source, /\/pause/);
   assert.match(source, /recipientEmailsJson/);
+  assert.match(source, /getIndustrySubscriptionProgress/);
+  assert.match(source, /refreshKey/);
 });
 
 test('admin industry manager exposes enterprise delivery and publication fields', async () => {
@@ -39,4 +42,36 @@ test('admin industry manager exposes enterprise delivery and publication fields'
   assert.match(source, /autoProfileExpansion/);
   assert.match(source, /deliveryCron/);
   assert.match(source, /maxItemsPerEmail/);
+});
+
+test('admin industry manager exposes direct publish and unpublish actions', async () => {
+  const source = await readFile(
+    'src/components/industry-configs/IndustryConfigManager.tsx',
+    'utf8'
+  );
+
+  assert.match(source, /handlePublish/);
+  assert.match(source, /\/api\/industry-configs\/\$\{config\.id\}\/publish/);
+  assert.match(source, /published:\s*config\.visibility !== 'published'/);
+  assert.match(source, /onClick=\{\(\) => handlePublish\(config\)\}/);
+});
+
+test('admin industry manager exposes subscriber details for each industry', async () => {
+  const source = await readFile(
+    'src/components/industry-configs/IndustryConfigManager.tsx',
+    'utf8'
+  );
+
+  assert.match(source, /IndustrySubscriberRow/);
+  assert.match(source, /openSubscribers/);
+  assert.match(source, /\/api\/industry-configs\/\$\{config\.id\}\/subscriptions/);
+  assert.match(source, /订阅详情/);
+});
+
+test('industry page refreshes my subscriptions after catalog subscription creation', async () => {
+  const source = await readFile('src/app/industry-configs/page.tsx', 'utf8');
+
+  assert.match(source, /subscriptionRefreshKey/);
+  assert.match(source, /onSubscriptionCreated/);
+  assert.match(source, /refreshKey=\{subscriptionRefreshKey\}/);
 });

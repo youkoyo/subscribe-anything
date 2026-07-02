@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pause, Pencil, Play, Save } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { parseRecipientEmailsJson } from '@/lib/enterprise/recipientEmails';
+import { getIndustrySubscriptionProgress } from '@/lib/enterprise/subscriptionProgress';
 
 interface MySubscriptionRow {
   subscription: {
@@ -23,16 +25,11 @@ interface MySubscriptionRow {
     recipientEmailsJson: string;
   };
   industry: { name: string };
-  profile: { title: string; status: string } | null;
+  profile: { title: string; status: string; provisioningError?: string | null } | null;
 }
 
-function parseRecipientEmailsJson(value: string) {
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
-  } catch {
-    return [];
-  }
+interface MyIndustrySubscriptionsProps {
+  refreshKey?: number;
 }
 
 function parseEmailInput(value: string) {
@@ -42,7 +39,7 @@ function parseEmailInput(value: string) {
     .filter(Boolean);
 }
 
-export default function MyIndustrySubscriptions() {
+export default function MyIndustrySubscriptions({ refreshKey = 0 }: MyIndustrySubscriptionsProps) {
   const { toast } = useToast();
   const [rows, setRows] = useState<MySubscriptionRow[]>([]);
   const [editing, setEditing] = useState<MySubscriptionRow | null>(null);
@@ -50,19 +47,18 @@ export default function MyIndustrySubscriptions() {
   const [extraRecipientEmails, setExtraRecipientEmails] = useState('');
   const [saving, setSaving] = useState(false);
 
-  async function loadRows() {
+  const loadRows = useCallback(async () => {
     const res = await fetch('/api/enterprise/my-industry-subscriptions');
     if (!res.ok) {
       toast({ title: '加载我的订阅失败', variant: 'destructive' });
       return;
     }
     setRows(await res.json());
-  }
+  }, [toast]);
 
   useEffect(() => {
-    loadRows();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void loadRows();
+  }, [loadRows, refreshKey]);
 
   function openEdit(row: MySubscriptionRow) {
     setEditing(row);
@@ -114,17 +110,35 @@ export default function MyIndustrySubscriptions() {
         {rows.map((row) => {
           const paused = row.subscription.status === 'paused';
           const recipients = parseRecipientEmailsJson(row.subscription.recipientEmailsJson);
+          const progress = getIndustrySubscriptionProgress({
+            subscriptionStatus: row.subscription.status,
+            profileStatus: row.profile?.status ?? null,
+            provisioningError: row.profile?.provisioningError ?? null,
+          });
+          const progressPercent = `${Math.round((progress.step / progress.totalSteps) * 100)}%`;
+
           return (
             <article key={row.subscription.id} className="rounded-lg border border-border bg-card p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-medium text-cyan-50">{row.industry.name}</div>
-                    <Badge variant={paused ? 'secondary' : 'default'}>{row.subscription.status}</Badge>
+                    <Badge variant={progress.badgeVariant}>{progress.label}</Badge>
                   </div>
                   <div className="mt-2 text-sm text-muted-foreground">{row.subscription.customCriteria}</div>
                   <div className="mt-2 text-xs text-muted-foreground">
                     需求簇：{row.profile?.title ?? '匹配中'} · 收件邮箱：{recipients.join('、') || '未配置'}
+                  </div>
+                  <div className="mt-3 max-w-xl">
+                    <div className="mb-1 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>{progress.detail}</span>
+                      <span>
+                        {progress.step}/{progress.totalSteps}
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-secondary">
+                      <div className="h-full rounded-full bg-primary" style={{ width: progressPercent }} />
+                    </div>
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-2">
