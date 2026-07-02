@@ -27,7 +27,8 @@ export function UserMenu() {
     return null;
   }
 
-  const displayName = user.isGuest ? '游客' : (user.name || user.email || '用户');
+  const displayName = user.name || user.email || '用户';
+  const roleLabel = user.isAdmin ? '管理员' : '普通用户';
 
   return (
     <DropdownMenu>
@@ -44,6 +45,9 @@ export function UserMenu() {
           )}
           <span className="hidden sm:inline max-w-32 truncate">{displayName}</span>
           {user.isAdmin && <Shield className="w-3 h-3 text-yellow-500" />}
+          <span className="hidden rounded-sm border border-cyan-300/20 px-1.5 py-0.5 text-[10px] text-cyan-100/70 md:inline">
+            {roleLabel}
+          </span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -55,20 +59,16 @@ export function UserMenu() {
                 {user.email}
               </span>
             )}
+            <span className="mt-1 text-xs text-cyan-100/65 font-normal">
+              {roleLabel}
+            </span>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {user.isAdmin && (
-          <DropdownMenuItem className="text-xs text-muted-foreground">
-            <Shield className="w-3 h-3 mr-2" />
-            管理员
-          </DropdownMenuItem>
-        )}
-        {user.isGuest && (
-          <DropdownMenuItem className="text-xs text-muted-foreground">
-            游客模式 - 数据将保留
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem className="text-xs text-muted-foreground">
+          {user.isAdmin ? <Shield className="w-3 h-3 mr-2" /> : <User className="w-3 h-3 mr-2" />}
+          {roleLabel}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout} className="text-red-600 dark:text-red-400">
           <LogOut className="w-4 h-4 mr-2" />
