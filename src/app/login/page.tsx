@@ -10,7 +10,7 @@ import { APP_NAME, APP_SHORT_NAME, APP_TAGLINE } from '@/lib/branding';
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, register, loginAsGuest } = useAuth();
+  const { login, register } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -42,20 +42,6 @@ function LoginContent() {
       } else {
         await login(email, password);
       }
-      router.push(redirect);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGuestLogin = async () => {
-    setError(null);
-    setLoading(true);
-
-    try {
-      await loginAsGuest();
       router.push(redirect);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -117,25 +103,26 @@ function LoginContent() {
           onToggleMode={() => setMode(mode === 'login' ? 'register' : 'login')}
         />
 
-        <div className="space-y-3">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-cyan-400/18" />
+        {googleOAuthEnabled && (
+          <div className="space-y-3">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-cyan-400/18" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-card px-2 text-cyan-100/54">
+                  或者
+                </span>
+              </div>
             </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="bg-card px-2 text-cyan-100/54">
-                或者
-              </span>
-            </div>
-          </div>
 
-          <OAuthButtons
-            onGoogleLogin={handleGoogleLogin}
-            onGuestLogin={handleGuestLogin}
-            loading={loading}
-            googleOAuthEnabled={googleOAuthEnabled}
-          />
-        </div>
+            <OAuthButtons
+              onGoogleLogin={handleGoogleLogin}
+              loading={loading}
+              googleOAuthEnabled={googleOAuthEnabled}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

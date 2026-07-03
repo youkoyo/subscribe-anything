@@ -1,14 +1,18 @@
-import { requireAuth } from '@/lib/auth';
+import { requireAdmin, requireAuth } from '@/lib/auth';
 import {
-  deleteIndustryConfig,
-  getIndustryConfigForUser,
-  updateIndustryConfig,
+  deleteIndustryConfigForAdmin,
+  getIndustryConfigForAdmin,
+  getPublishedIndustryConfig,
+  updateIndustryConfigForAdmin,
 } from '@/lib/industry-configs/service';
 import type { IndustryConfigInput } from '@/lib/industry-configs/types';
 
 function handleAuthError(err: unknown): Response | null {
   if (err instanceof Error && err.message === 'UNAUTHORIZED') {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (err instanceof Error && err.message === 'FORBIDDEN') {
+    return Response.json({ error: 'Admin access required' }, { status: 403 });
   }
   return null;
 }
@@ -27,7 +31,9 @@ export async function GET(
   try {
     const session = await requireAuth();
     const { id } = await params;
-    const config = getIndustryConfigForUser(id, session.userId);
+    const config = session.isAdmin
+      ? getIndustryConfigForAdmin(id)
+      : getPublishedIndustryConfig(id);
     if (!config) return Response.json({ error: 'Not found' }, { status: 404 });
     return Response.json(config);
   } catch (err) {
@@ -43,13 +49,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    await requireAdmin();
     const { id } = await params;
     const body = await req.json().catch(() => ({})) as IndustryConfigInput;
     const error = validateInput(body);
     if (error) return Response.json({ error }, { status: 400 });
 
-    const updated = updateIndustryConfig(id, session.userId, body);
+    const updated = updateIndustryConfigForAdmin(id, body);
     if (!updated) return Response.json({ error: 'Not found' }, { status: 404 });
     return Response.json(updated);
   } catch (err) {
@@ -65,9 +71,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    await requireAdmin();
     const { id } = await params;
-    const deleted = deleteIndustryConfig(id, session.userId);
+    const deleted = deleteIndustryConfigForAdmin(id);
     if (!deleted) return Response.json({ error: 'Not found' }, { status: 404 });
     return new Response(null, { status: 204 });
   } catch (err) {

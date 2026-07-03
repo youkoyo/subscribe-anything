@@ -12,11 +12,13 @@ test('navigation exposes industry config page', async () => {
   assert.match(bottomNav, /产业配置/);
 });
 
-test('industry config page renders the manager component', async () => {
+test('industry config page renders admin manager and user subscription variants', async () => {
   const page = await readFile('src/app/industry-configs/page.tsx', 'utf8');
 
   assert.match(page, /IndustryConfigManager/);
-  assert.match(page, /产业配置/);
+  assert.match(page, /IndustryCatalog/);
+  assert.match(page, /产业方向管理/);
+  assert.match(page, /产业订阅/);
 });
 
 test('industry config manager uses API and exposes core fields', async () => {

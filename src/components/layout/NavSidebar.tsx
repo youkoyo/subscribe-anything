@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Factory, Heart, Settings } from 'lucide-react';
+import { BookOpen, ClipboardList, Factory, Heart, Settings } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { APP_SHORT_NAME, APP_TAGLINE } from '@/lib/branding';
+import { AdminTodoBadge } from './AdminTodoBadge';
 import { UserMenu } from './UserMenu';
 
 interface NavSidebarProps {
@@ -13,10 +15,12 @@ interface NavSidebarProps {
 
 export function NavSidebar({ className }: NavSidebarProps) {
   const pathname = usePathname();
+  const { user } = useAuth();
 
   const navItems = [
     { href: '/subscriptions', label: '订阅', icon: BookOpen },
     { href: '/industry-configs', label: '产业配置', icon: Factory },
+    ...(user?.isAdmin ? [{ href: '/admin/todos', label: '待办', icon: ClipboardList }] : []),
     { href: '/favorites', label: '收藏', icon: Heart },
     { href: '/settings', label: '配置', icon: Settings },
   ];
@@ -59,7 +63,8 @@ export function NavSidebar({ className }: NavSidebarProps) {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0 text-cyan-200/80 transition-colors group-hover:text-cyan-50" />
-                {label}
+                <span>{label}</span>
+                {href === '/admin/todos' ? <AdminTodoBadge /> : null}
               </Link>
             </li>
           ))}

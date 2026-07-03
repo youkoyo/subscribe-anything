@@ -34,30 +34,45 @@ function toDbValues(input: IndustryConfigInput) {
     sourceTypesJson: JSON.stringify(normalizeSourceTypes(input.sourceTypes)),
     alertLevel: input.alertLevel?.trim() || '一般关注',
     isEnabled: input.isEnabled !== false,
+    visibility: input.visibility ?? 'draft',
+    subscriptionMode: input.subscriptionMode ?? 'open',
+    autoProfileExpansion: input.autoProfileExpansion === true,
+    deliveryCron: input.deliveryCron?.trim() || null,
+    deliveryTimezone: input.deliveryTimezone?.trim() || 'Asia/Shanghai',
+    deliveryEnabled: input.deliveryEnabled === true,
+    maxItemsPerEmail: Math.min(10, Math.max(5, Number(input.maxItemsPerEmail ?? 10))),
   };
 }
 
-export function listIndustryConfigs(userId: string, enabledOnly = false) {
+export function listIndustryConfigsForAdmin() {
   const db = getDb();
-  const whereClause = enabledOnly
-    ? and(eq(industryConfigs.userId, userId), eq(industryConfigs.isEnabled, true))
-    : eq(industryConfigs.userId, userId);
-
   return db
     .select()
     .from(industryConfigs)
-    .where(whereClause)
     .orderBy(desc(industryConfigs.updatedAt))
     .all()
     .map(toApi);
 }
 
-export function seedDefaultIndustryConfigsForUser(userId: string) {
+export function listPublishedIndustryConfigsForUser(enabledOnly = true) {
+  const db = getDb();
+  const conditions = [eq(industryConfigs.visibility, 'published')];
+  if (enabledOnly) conditions.push(eq(industryConfigs.isEnabled, true));
+
+  return db
+    .select()
+    .from(industryConfigs)
+    .where(and(...conditions))
+    .orderBy(desc(industryConfigs.updatedAt))
+    .all()
+    .map(toApi);
+}
+
+export function seedDefaultIndustryConfigsForAdmin(adminUserId: string) {
   const db = getDb();
   const existing = db
     .select({ id: industryConfigs.id })
     .from(industryConfigs)
-    .where(eq(industryConfigs.userId, userId))
     .limit(1)
     .get();
 
@@ -67,8 +82,9 @@ export function seedDefaultIndustryConfigsForUser(userId: string) {
   db.insert(industryConfigs)
     .values(
       DEFAULT_INDUSTRY_CONFIGS.map((input) => ({
-        userId,
-        ...toDbValues(input),
+        userId: adminUserId,
+        createdBy: adminUserId,
+        ...toDbValues({ ...input, visibility: 'draft' }),
         createdAt: now,
         updatedAt: now,
       }))
@@ -78,24 +94,36 @@ export function seedDefaultIndustryConfigsForUser(userId: string) {
   return DEFAULT_INDUSTRY_CONFIGS.length;
 }
 
-export function getIndustryConfigForUser(id: string, userId: string) {
+export function getIndustryConfigForAdmin(id: string) {
+  const db = getDb();
+  const row = db.select().from(industryConfigs).where(eq(industryConfigs.id, id)).get();
+  return row ? toApi(row) : null;
+}
+
+export function getPublishedIndustryConfig(id: string) {
   const db = getDb();
   const row = db
     .select()
     .from(industryConfigs)
-    .where(and(eq(industryConfigs.id, id), eq(industryConfigs.userId, userId)))
+    .where(
+      and(
+        eq(industryConfigs.id, id),
+        eq(industryConfigs.visibility, 'published'),
+        eq(industryConfigs.isEnabled, true)
+      )
+    )
     .get();
-
   return row ? toApi(row) : null;
 }
 
-export function createIndustryConfig(userId: string, input: IndustryConfigInput) {
+export function createIndustryConfigForAdmin(adminUserId: string, input: IndustryConfigInput) {
   const db = getDb();
   const now = new Date();
   const row = db
     .insert(industryConfigs)
     .values({
-      userId,
+      userId: adminUserId,
+      createdBy: adminUserId,
       ...toDbValues(input),
       createdAt: now,
       updatedAt: now,
@@ -106,8 +134,8 @@ export function createIndustryConfig(userId: string, input: IndustryConfigInput)
   return toApi(row);
 }
 
-export function updateIndustryConfig(id: string, userId: string, input: IndustryConfigInput) {
-  const existing = getIndustryConfigForUser(id, userId);
+export function updateIndustryConfigForAdmin(id: string, input: IndustryConfigInput) {
+  const existing = getIndustryConfigForAdmin(id);
   if (!existing) return null;
 
   const db = getDb();
@@ -116,20 +144,46 @@ export function updateIndustryConfig(id: string, userId: string, input: Industry
       ...toDbValues(input),
       updatedAt: new Date(),
     })
-    .where(and(eq(industryConfigs.id, id), eq(industryConfigs.userId, userId)))
+    .where(eq(industryConfigs.id, id))
     .run();
 
-  return getIndustryConfigForUser(id, userId);
+  return getIndustryConfigForAdmin(id);
 }
 
-export function deleteIndustryConfig(id: string, userId: string): boolean {
-  const existing = getIndustryConfigForUser(id, userId);
+export function deleteIndustryConfigForAdmin(id: string): boolean {
+  const existing = getIndustryConfigForAdmin(id);
   if (!existing) return false;
 
   const db = getDb();
-  db.delete(industryConfigs)
-    .where(and(eq(industryConfigs.id, id), eq(industryConfigs.userId, userId)))
-    .run();
-
+  db.delete(industryConfigs).where(eq(industryConfigs.id, id)).run();
   return true;
 }
+
+export function publishIndustryConfig(id: string, published: boolean) {
+  const db = getDb();
+  db.update(industryConfigs)
+    .set({
+      visibility: published ? 'published' : 'draft',
+      updatedAt: new Date(),
+    })
+    .where(eq(industryConfigs.id, id))
+    .run();
+
+  return getIndustryConfigForAdmin(id);
+}
+
+export const listIndustryConfigs = (_userId: string, enabledOnly = false) =>
+  listPublishedIndustryConfigsForUser(enabledOnly);
+
+export const seedDefaultIndustryConfigsForUser = seedDefaultIndustryConfigsForAdmin;
+
+export const createIndustryConfig = createIndustryConfigForAdmin;
+
+export const updateIndustryConfig = (id: string, _userId: string, input: IndustryConfigInput) =>
+  updateIndustryConfigForAdmin(id, input);
+
+export const deleteIndustryConfig = (id: string, _userId: string) =>
+  deleteIndustryConfigForAdmin(id);
+
+export const getIndustryConfigForUser = (id: string, _userId: string) =>
+  getPublishedIndustryConfig(id);

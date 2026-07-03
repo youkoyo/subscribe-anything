@@ -38,6 +38,28 @@ export default function NewSubscriptionPage() {
     );
   }
 
+  if (!isAdmin) {
+    return (
+      <div className="p-4 md:p-6 max-w-lg mx-auto pt-16">
+        <div className="flex flex-col items-center text-center gap-4">
+          <AlertCircle className="h-12 w-12 text-cyan-300" />
+          <h2 className="text-xl font-semibold">请从产业订阅发起</h2>
+          <p className="text-muted-foreground">
+            普通用户请在产业订阅中选择管理员发布的产业方向，再补充监控条件和收件邮箱配置。
+          </p>
+          <div className="flex gap-3 mt-2">
+            <Button variant="outline" onClick={() => router.back()}>
+              返回
+            </Button>
+            <Link href="/industry-configs">
+              <Button>前往产业订阅</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!hasActiveProvider) {
     return (
       <div className="p-4 md:p-6 max-w-lg mx-auto pt-16">

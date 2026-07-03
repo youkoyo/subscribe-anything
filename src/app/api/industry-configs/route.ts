@@ -1,8 +1,9 @@
-import { requireAuth } from '@/lib/auth';
+import { requireAdmin, requireAuth } from '@/lib/auth';
 import {
-  createIndustryConfig,
-  listIndustryConfigs,
-  seedDefaultIndustryConfigsForUser,
+  createIndustryConfigForAdmin,
+  listIndustryConfigsForAdmin,
+  listPublishedIndustryConfigsForUser,
+  seedDefaultIndustryConfigsForAdmin,
 } from '@/lib/industry-configs/service';
 import type { IndustryConfigInput } from '@/lib/industry-configs/types';
 
@@ -11,6 +12,9 @@ import type { IndustryConfigInput } from '@/lib/industry-configs/types';
 function handleAuthError(err: unknown): Response | null {
   if (err instanceof Error && err.message === 'UNAUTHORIZED') {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (err instanceof Error && err.message === 'FORBIDDEN') {
+    return Response.json({ error: 'Admin access required' }, { status: 403 });
   }
   return null;
 }
@@ -28,9 +32,12 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const enabledOnly = searchParams.get('enabledOnly') === 'true';
 
-    seedDefaultIndustryConfigsForUser(session.userId);
+    if (session.isAdmin) {
+      seedDefaultIndustryConfigsForAdmin(session.userId);
+      return Response.json(listIndustryConfigsForAdmin());
+    }
 
-    return Response.json(listIndustryConfigs(session.userId, enabledOnly));
+    return Response.json(listPublishedIndustryConfigsForUser(enabledOnly));
   } catch (err) {
     const authError = handleAuthError(err);
     if (authError) return authError;
@@ -41,12 +48,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const session = await requireAuth();
+    const session = await requireAdmin();
     const body = await req.json().catch(() => ({})) as IndustryConfigInput;
     const error = validateInput(body);
     if (error) return Response.json({ error }, { status: 400 });
 
-    const created = createIndustryConfig(session.userId, body);
+    const created = createIndustryConfigForAdmin(session.userId, body);
     return Response.json(created, { status: 201 });
   } catch (err) {
     const authError = handleAuthError(err);

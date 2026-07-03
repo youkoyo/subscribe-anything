@@ -14,6 +14,27 @@
 
 The approved spec covers enterprise catalog, profile matching, shared collection pools, and scheduled email delivery. This plan implements the first end-to-end version of those pieces. It does not implement organization departments, enterprise address books, cross-tenant isolation, historical backfill, or the separate event clustering data model.
 
+### 2026-07-02 Visibility Follow-up
+
+User review confirmed two first-version observability gaps after the enterprise subscription loop landed:
+
+- Admins need to see which users subscribed to each published industry direction, including each user's custom monitoring criteria, matched monitoring profile, recipient emails, and current processing status.
+- Normal users need a clear progress display after submitting a published industry subscription, so they can see whether the request is waiting for approval, matching a shared collection pool, creating a collection pool, running, paused, or failed.
+
+Implementation stays table-free for this follow-up. It reuses `user_industry_subscriptions`, `industry_monitoring_profiles`, and `users`, adds an admin subscriber-list API, adds a small status-to-progress helper, and refreshes the normal user's subscription list immediately after catalog subscription creation.
+
+### 2026-07-02 Admin Todo Center Follow-up
+
+User review confirmed that profile expansion approval should not be hidden inside an industry detail dialog. Add a global admin todo center at `/admin/todos` with a red navigation badge for pending work.
+
+First-version todo data comes from existing enterprise subscription tables:
+
+- `user_industry_subscriptions.status = 'pending_approval'`: admins can approve a user's industry subscription.
+- `industry_monitoring_profiles.requires_admin_approval = true`: admins can confirm creation of a new shared collection pool.
+- `industry_monitoring_profiles.status = 'failed'`: admins can retry shared collection pool provisioning.
+
+The nav badge uses a lightweight summary API and hides when the count is zero. The full page uses a list API and calls action endpoints, then refreshes the todo list and badge count.
+
 ## File Structure
 
 - Modify `src/lib/db/schema.ts`: add enterprise fields to `industryConfigs`; add `industryMonitoringProfiles`, `userIndustrySubscriptions`, `industryDeliveryRuns`, and `userDeliveryLogs`.
@@ -693,7 +714,7 @@ git commit -m "feat: add enterprise recipient email utilities"
 - Create: `src/app/api/industry-configs/[id]/publish/route.ts`
 - Test: `tests/enterpriseIndustryConfigApi.test.ts`
 
-- [ ] **Step 1: Write failing API source tests**
+- [x] **Step 1: Write failing API source tests**
 
 Create `tests/enterpriseIndustryConfigApi.test.ts`:
 
@@ -729,7 +750,7 @@ test('ordinary catalog reads only published enabled industry configs', async () 
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -739,7 +760,7 @@ npm test -- tests/enterpriseIndustryConfigApi.test.ts
 
 Expected: FAIL because route/service semantics are still user-scoped.
 
-- [ ] **Step 3: Update industry config service**
+- [x] **Step 3: Update industry config service**
 
 Modify `src/lib/industry-configs/service.ts`.
 
@@ -901,7 +922,7 @@ export const getIndustryConfigForUser = (id: string, _userId: string) =>
   getPublishedIndustryConfig(id);
 ```
 
-- [ ] **Step 4: Update industry config routes**
+- [x] **Step 4: Update industry config routes**
 
 Modify `src/app/api/industry-configs/route.ts`:
 
@@ -972,7 +993,7 @@ export async function POST(req: Request) {
 
 Modify `src/app/api/industry-configs/[id]/route.ts` to use `requireAdmin` for `PATCH` and `DELETE`, and use `getIndustryConfigForAdmin` for admin GET while non-admin GET uses `getPublishedIndustryConfig`.
 
-- [ ] **Step 5: Add publish route**
+- [x] **Step 5: Add publish route**
 
 Create `src/app/api/industry-configs/[id]/publish/route.ts`:
 
@@ -1004,7 +1025,7 @@ export async function POST(
 }
 ```
 
-- [ ] **Step 6: Run API tests and typecheck**
+- [x] **Step 6: Run API tests and typecheck**
 
 Run:
 
@@ -1015,7 +1036,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/industry-configs src/app/api/industry-configs tests/enterpriseIndustryConfigApi.test.ts
@@ -1030,7 +1051,7 @@ git commit -m "feat: make industry configs admin managed"
 - Create: `src/lib/enterprise/profileMatcher.ts`
 - Test: `tests/enterpriseProfileMatcher.test.ts`
 
-- [ ] **Step 1: Write failing profile matcher tests**
+- [x] **Step 1: Write failing profile matcher tests**
 
 Create `tests/enterpriseProfileMatcher.test.ts`:
 
@@ -1104,7 +1125,7 @@ test('matchMonitoringProfile creates profile automatically when auto expansion i
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -1114,7 +1135,7 @@ npm test -- tests/enterpriseProfileMatcher.test.ts
 
 Expected: FAIL because matcher does not exist.
 
-- [ ] **Step 3: Implement rule-first profile matcher**
+- [x] **Step 3: Implement rule-first profile matcher**
 
 Create `src/lib/enterprise/profileMatcher.ts`:
 
@@ -1253,7 +1274,7 @@ export function matchMonitoringProfile(input: ProfileMatchInput): ProfileMatchRe
 }
 ```
 
-- [ ] **Step 4: Run matcher tests**
+- [x] **Step 4: Run matcher tests**
 
 Run:
 
@@ -1264,7 +1285,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/enterprise/profileMatcher.ts tests/enterpriseProfileMatcher.test.ts
@@ -1284,7 +1305,7 @@ git commit -m "feat: add monitoring profile matcher"
 - Create: `src/app/api/enterprise/my-industry-subscriptions/[id]/pause/route.ts`
 - Test: `tests/enterpriseSubscriptionApiSource.test.ts`
 
-- [ ] **Step 1: Write failing API source tests**
+- [x] **Step 1: Write failing API source tests**
 
 Create `tests/enterpriseSubscriptionApiSource.test.ts`:
 
@@ -1328,7 +1349,7 @@ test('my subscription routes are scoped to the current user', async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -1338,7 +1359,7 @@ npm test -- tests/enterpriseSubscriptionApiSource.test.ts
 
 Expected: FAIL because enterprise routes/service do not exist.
 
-- [ ] **Step 3: Implement subscription service**
+- [x] **Step 3: Implement subscription service**
 
 Create `src/lib/enterprise/subscriptionService.ts`:
 
@@ -1562,7 +1583,7 @@ export function pauseMyIndustrySubscription(id: string, userId: string, paused: 
 
 The `adminUserId` parameter in `approveUserIndustrySubscription` is intentionally accepted for audit extension; this task does not write an audit row.
 
-- [ ] **Step 4: Add enterprise catalog route**
+- [x] **Step 4: Add enterprise catalog route**
 
 Create `src/app/api/enterprise/industry-catalog/route.ts`:
 
@@ -1584,7 +1605,7 @@ export async function GET() {
 }
 ```
 
-- [ ] **Step 5: Add user subscription routes**
+- [x] **Step 5: Add user subscription routes**
 
 Create `src/app/api/enterprise/industry-subscriptions/route.ts`:
 
@@ -1712,7 +1733,7 @@ export async function POST(
 }
 ```
 
-- [ ] **Step 6: Run API source tests and typecheck**
+- [x] **Step 6: Run API source tests and typecheck**
 
 Run:
 
@@ -1723,7 +1744,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/enterprise src/app/api/enterprise tests/enterpriseSubscriptionApiSource.test.ts
@@ -1741,7 +1762,7 @@ git commit -m "feat: add user enterprise industry subscriptions"
 - Create: `src/app/api/industry-profiles/[id]/retry/route.ts`
 - Test: `tests/enterpriseProfileProvisioningSource.test.ts`
 
-- [ ] **Step 1: Write failing source tests**
+- [x] **Step 1: Write failing source tests**
 
 Create `tests/enterpriseProfileProvisioningSource.test.ts`:
 
@@ -1778,7 +1799,7 @@ test('profile approval can trigger provisioning', async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -1788,7 +1809,7 @@ npm test -- tests/enterpriseProfileProvisioningSource.test.ts
 
 Expected: FAIL because profile provisioner and admin profile routes do not exist.
 
-- [ ] **Step 3: Implement profile provisioner**
+- [x] **Step 3: Implement profile provisioner**
 
 Create `src/lib/enterprise/profileProvisioner.ts`:
 
@@ -1963,7 +1984,7 @@ export async function startProfileProvisioning(profileId: string) {
 }
 ```
 
-- [ ] **Step 4: Add admin profile routes**
+- [x] **Step 4: Add admin profile routes**
 
 Create `src/app/api/industry-configs/[id]/profiles/route.ts`:
 
@@ -2053,7 +2074,7 @@ export async function POST(
 }
 ```
 
-- [ ] **Step 5: Trigger automatic provisioning for auto-created profiles**
+- [x] **Step 5: Trigger automatic provisioning for auto-created profiles**
 
 Modify `src/lib/enterprise/subscriptionService.ts` inside the `match.action === 'create'` path after profile insert:
 
@@ -2065,7 +2086,7 @@ Modify `src/lib/enterprise/subscriptionService.ts` inside the `match.action === 
   }
 ```
 
-- [ ] **Step 6: Run tests and typecheck**
+- [x] **Step 6: Run tests and typecheck**
 
 Run:
 
@@ -2076,7 +2097,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/enterprise src/app/api/industry-configs src/app/api/industry-profiles tests/enterpriseProfileProvisioningSource.test.ts
@@ -2093,7 +2114,7 @@ git commit -m "feat: provision monitoring profile collection pools"
 - Test: `tests/enterpriseDeliveryScoring.test.ts`
 - Test: `tests/enterpriseEmailTemplate.test.ts`
 
-- [ ] **Step 1: Write failing delivery scoring tests**
+- [x] **Step 1: Write failing delivery scoring tests**
 
 Create `tests/enterpriseDeliveryScoring.test.ts`:
 
@@ -2185,7 +2206,7 @@ test('renderIndustryDeliveryEmail includes summary and table rows', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -2195,7 +2216,7 @@ npm test -- tests/enterpriseDeliveryScoring.test.ts tests/enterpriseEmailTemplat
 
 Expected: FAIL because scoring and template modules do not exist.
 
-- [ ] **Step 3: Implement delivery scoring**
+- [x] **Step 3: Implement delivery scoring**
 
 Create `src/lib/enterprise/deliveryScoring.ts`:
 
@@ -2293,7 +2314,7 @@ export function scoreToLabel(score: number) {
 }
 ```
 
-- [ ] **Step 4: Implement email template**
+- [x] **Step 4: Implement email template**
 
 Create `src/lib/enterprise/emailTemplate.ts`:
 
@@ -2378,7 +2399,7 @@ export function renderIndustryDeliveryEmail(input: RenderIndustryDeliveryEmailIn
 }
 ```
 
-- [ ] **Step 5: Run scoring/template tests**
+- [x] **Step 5: Run scoring/template tests**
 
 Run:
 
@@ -2389,7 +2410,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/enterprise/deliveryScoring.ts src/lib/enterprise/emailTemplate.ts tests/enterpriseDeliveryScoring.test.ts tests/enterpriseEmailTemplate.test.ts
@@ -2407,7 +2428,7 @@ git commit -m "feat: add industry delivery scoring and email template"
 - Modify: `server.ts`
 - Test: `tests/enterpriseDeliverySource.test.ts`
 
-- [ ] **Step 1: Write failing delivery source tests**
+- [x] **Step 1: Write failing delivery source tests**
 
 Create `tests/enterpriseDeliverySource.test.ts`:
 
@@ -2451,7 +2472,7 @@ test('delivery run API requires admin access', async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -2461,7 +2482,7 @@ npm test -- tests/enterpriseDeliverySource.test.ts
 
 Expected: FAIL because delivery service, scheduler, and route do not exist.
 
-- [ ] **Step 3: Implement delivery service**
+- [x] **Step 3: Implement delivery service**
 
 Create `src/lib/enterprise/deliveryService.ts`:
 
@@ -2669,7 +2690,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
 }
 ```
 
-- [ ] **Step 4: Implement delivery scheduler**
+- [x] **Step 4: Implement delivery scheduler**
 
 Create `src/lib/enterprise/deliveryScheduler.ts`:
 
@@ -2732,7 +2753,7 @@ export async function initDeliveryScheduler() {
 }
 ```
 
-- [ ] **Step 5: Initialize scheduler in server**
+- [x] **Step 5: Initialize scheduler in server**
 
 Modify `server.ts` after `await initScheduler();`:
 
@@ -2741,7 +2762,7 @@ Modify `server.ts` after `await initScheduler();`:
   await initDeliveryScheduler();
 ```
 
-- [ ] **Step 6: Add delivery run admin API**
+- [x] **Step 6: Add delivery run admin API**
 
 Create `src/app/api/industry-delivery-runs/route.ts`:
 
@@ -2793,7 +2814,7 @@ export async function GET(req: Request) {
 }
 ```
 
-- [ ] **Step 7: Run tests and typecheck**
+- [x] **Step 7: Run tests and typecheck**
 
 Run:
 
@@ -2804,7 +2825,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/lib/enterprise/deliveryService.ts src/lib/enterprise/deliveryScheduler.ts src/app/api/industry-delivery-runs server.ts tests/enterpriseDeliverySource.test.ts
@@ -2822,7 +2843,7 @@ git commit -m "feat: add enterprise industry email delivery"
 - Modify: `src/components/industry-configs/IndustryConfigManager.tsx`
 - Test: `tests/enterpriseUiSource.test.ts`
 
-- [ ] **Step 1: Write failing UI source tests**
+- [x] **Step 1: Write failing UI source tests**
 
 Create `tests/enterpriseUiSource.test.ts`:
 
@@ -2868,7 +2889,7 @@ test('admin industry manager exposes enterprise delivery and publication fields'
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -2878,7 +2899,7 @@ npm test -- tests/enterpriseUiSource.test.ts
 
 Expected: FAIL because user catalog components and enterprise UI fields do not exist.
 
-- [ ] **Step 3: Add user catalog component**
+- [x] **Step 3: Add user catalog component**
 
 Create `src/components/enterprise/IndustryCatalog.tsx`:
 
@@ -2991,7 +3012,7 @@ export default function IndustryCatalog() {
 }
 ```
 
-- [ ] **Step 4: Add my subscriptions component**
+- [x] **Step 4: Add my subscriptions component**
 
 Create `src/components/enterprise/MyIndustrySubscriptions.tsx`:
 
@@ -3072,7 +3093,7 @@ export default function MyIndustrySubscriptions() {
 }
 ```
 
-- [ ] **Step 5: Render admin/user page variants**
+- [x] **Step 5: Render admin/user page variants**
 
 Modify `src/app/industry-configs/page.tsx`:
 
@@ -3117,7 +3138,7 @@ export default function IndustryConfigsPage() {
 }
 ```
 
-- [ ] **Step 6: Add enterprise fields to admin manager**
+- [x] **Step 6: Add enterprise fields to admin manager**
 
 Modify `src/components/industry-configs/IndustryConfigManager.tsx`:
 
@@ -3229,7 +3250,7 @@ Add form controls near the existing enabled switch:
 </div>
 ```
 
-- [ ] **Step 7: Run UI source tests and typecheck**
+- [x] **Step 7: Run UI source tests and typecheck**
 
 Run:
 
@@ -3240,7 +3261,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/components/enterprise src/components/industry-configs/IndustryConfigManager.tsx src/app/industry-configs/page.tsx tests/enterpriseUiSource.test.ts
@@ -3254,7 +3275,7 @@ git commit -m "feat: add enterprise industry subscription UI"
 **Files:**
 - Modify only if verification reveals defects in files touched by Tasks 1-9.
 
-- [ ] **Step 1: Run all tests**
+- [x] **Step 1: Run all tests**
 
 Run:
 
@@ -3264,7 +3285,7 @@ npm test
 
 Expected: all tests pass. If the existing middleware icon test still fails, fix `src/middleware.ts` by adding `'/apple-icon'` to `STATIC_PATHS`, then rerun `npm test`.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run:
 
@@ -3274,7 +3295,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 3: Run production build**
+- [x] **Step 3: Run production build**
 
 Run:
 
@@ -3284,7 +3305,7 @@ npm run build
 
 Expected: PASS. If native module or local Node version fails, capture the exact error and `node -v` output in the final summary.
 
-- [ ] **Step 4: Start dev server**
+- [x] **Step 4: Start dev server**
 
 Run:
 
@@ -3294,7 +3315,7 @@ npm run dev
 
 Expected: server starts at `http://localhost:3000`.
 
-- [ ] **Step 5: Manual admin verification**
+- [x] **Step 5: Manual admin verification**
 
 In the browser:
 
@@ -3307,7 +3328,7 @@ In the browser:
 - Set delivery cron to `0 9 * * *`.
 - Save and verify the card shows published/delivery settings.
 
-- [ ] **Step 6: Manual user verification**
+- [x] **Step 6: Manual user verification**
 
 In the browser:
 
@@ -3319,7 +3340,7 @@ In the browser:
 - Add one extra valid email.
 - Submit and verify the item appears in “我的产业订阅”.
 
-- [ ] **Step 7: Manual profile verification**
+- [x] **Step 7: Manual profile verification**
 
 In the DB or admin page:
 
@@ -3328,7 +3349,7 @@ In the DB or admin page:
 - Approve the profile as admin.
 - Verify provisioning status changes to creating.
 
-- [ ] **Step 8: Manual delivery verification**
+- [x] **Step 8: Manual delivery verification**
 
 If the profile has an active shared subscription and message cards:
 
@@ -3337,7 +3358,12 @@ If the profile has an active shared subscription and message cards:
 - Verify `user_delivery_logs` contains `sent`, `skipped`, or `failed`.
 - Verify sent emails contain a table with title, source, authority, relevance, time, summary, and link.
 
-- [ ] **Step 9: Inspect git status**
+Verification note: the browser verification used isolated `tmp/enterprise-e2e.db` on port 3100. The profile approval
+created a shared subscription, then failed because the isolated DB has no active AI provider. Delivery was verified with
+seeded temporary message cards; the run completed and selected five cards, while the user delivery log was `failed`
+because SMTP is not configured in the isolated DB.
+
+- [x] **Step 9: Inspect git status**
 
 Run:
 
@@ -3347,7 +3373,7 @@ git status --short
 
 Expected: clean after commits or only intentional verification notes.
 
-- [ ] **Step 10: Commit verification fixes**
+- [x] **Step 10: Commit verification fixes**
 
 If verification required fixes:
 

@@ -23,6 +23,7 @@ export function LoginForm({ mode, loading, onSubmit, onToggleMode }: LoginFormPr
   const [codeSent, setCodeSent] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [canResetPassword, setCanResetPassword] = useState(false);
+  const [isFirstUser, setIsFirstUser] = useState(false);
 
   // Turnstile state
   const [turnstileToken, setTurnstileToken] = useState('');
@@ -36,8 +37,12 @@ export function LoginForm({ mode, loading, onSubmit, onToggleMode }: LoginFormPr
       .then(data => {
         setNeedsVerification(!!data.needsVerification);
         setCanResetPassword(!!data.canResetPassword);
+        setIsFirstUser(!!data.isFirstUser);
       })
-      .catch(() => setNeedsVerification(false));
+      .catch(() => {
+        setNeedsVerification(false);
+        setIsFirstUser(false);
+      });
   }, [mode]);
 
   // Reset turnstile token when mode changes
@@ -118,17 +123,24 @@ export function LoginForm({ mode, loading, onSubmit, onToggleMode }: LoginFormPr
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {mode === 'register' && (
-        <div>
-          <Label htmlFor="name">姓名（可选）</Label>
-          <Input
-            id="name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="您的名字"
-            disabled={loading}
-          />
-        </div>
+        <>
+          <div className="rounded-md border border-cyan-300/25 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100/80">
+            {isFirstUser
+              ? '当前是首个账号，注册后将成为管理员'
+              : '注册后将成为普通用户也可以向首个账号申请成为管理员'}
+          </div>
+          <div>
+            <Label htmlFor="name">姓名（可选）</Label>
+            <Input
+              id="name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="您的名字"
+              disabled={loading}
+            />
+          </div>
+        </>
       )}
 
       <div>

@@ -3,13 +3,47 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import MyIndustrySubscriptions from '@/components/enterprise/MyIndustrySubscriptions';
 import SubscriptionList from '@/components/subscriptions/SubscriptionList';
+import { useAuth } from '@/contexts/AuthContext';
 
 function markNewWizard() {
   sessionStorage.setItem('wizard-new', '1');
 }
 
 export default function SubscriptionsPage() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user?.isAdmin) {
+    return (
+      <div className="p-4 md:p-6 max-w-4xl mx-auto">
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">我的产业订阅</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              普通用户请从管理员发布的产业方向中选择订阅，并补充自己的监控条件和收件邮箱配置。
+            </p>
+          </div>
+          <Link href="/industry-configs">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              选择产业订阅
+            </Button>
+          </Link>
+        </div>
+        <MyIndustrySubscriptions />
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
       {/* Page header — desktop */}
@@ -40,4 +74,3 @@ export default function SubscriptionsPage() {
     </div>
   );
 }
-

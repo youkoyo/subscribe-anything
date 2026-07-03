@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Archive,
   Check,
   Pencil,
   Plus,
   Power,
   RefreshCw,
   Save,
+  Send,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,6 +34,8 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { parseRecipientEmailsJson } from '@/lib/enterprise/recipientEmails';
+import { getIndustrySubscriptionProgress } from '@/lib/enterprise/subscriptionProgress';
 import {
   SOURCE_TYPE_LABELS,
   SOURCE_TYPE_OPTIONS,
@@ -48,9 +53,36 @@ interface IndustryConfigView {
   subCategory: string | null;
   alertLevel: string | null;
   isEnabled: boolean;
+  visibility?: 'draft' | 'published';
+  subscriptionMode?: 'open' | 'approval_required';
+  autoProfileExpansion?: boolean;
+  deliveryCron?: string | null;
+  deliveryTimezone?: string;
+  deliveryEnabled?: boolean;
+  maxItemsPerEmail?: number;
   updatedAt?: string;
   snapshot: IndustryConfigSnapshot;
   suggestion: IndustrySubscriptionSuggestion;
+}
+
+interface IndustrySubscriberRow {
+  subscription: {
+    id: string;
+    status: string;
+    customCriteria: string;
+    recipientEmailsJson: string;
+    updatedAt?: string;
+  };
+  user: {
+    id: string;
+    email: string | null;
+    name: string | null;
+  };
+  profile: {
+    title: string;
+    status: string;
+    provisioningError?: string | null;
+  } | null;
 }
 
 interface FormState {
@@ -65,6 +97,13 @@ interface FormState {
   sourceTypes: IndustrySourceType[];
   alertLevel: string;
   isEnabled: boolean;
+  visibility: 'draft' | 'published';
+  subscriptionMode: 'open' | 'approval_required';
+  autoProfileExpansion: boolean;
+  deliveryCron: string;
+  deliveryTimezone: string;
+  deliveryEnabled: boolean;
+  maxItemsPerEmail: number;
 }
 
 const emptyForm: FormState = {
@@ -79,6 +118,13 @@ const emptyForm: FormState = {
   sourceTypes: ['authority', 'news'],
   alertLevel: '一般关注',
   isEnabled: true,
+  visibility: 'draft',
+  subscriptionMode: 'open',
+  autoProfileExpansion: false,
+  deliveryCron: '0 9 * * *',
+  deliveryTimezone: 'Asia/Shanghai',
+  deliveryEnabled: false,
+  maxItemsPerEmail: 10,
 };
 
 const alertLevels = ['一般关注', '重点关注', '高风险预警'];
@@ -109,6 +155,13 @@ function toForm(config: IndustryConfigView): FormState {
     sourceTypes: snapshot.sourceTypes.length > 0 ? snapshot.sourceTypes : ['authority', 'news'],
     alertLevel: snapshot.alertLevel || '一般关注',
     isEnabled: config.isEnabled,
+    visibility: config.visibility ?? 'draft',
+    subscriptionMode: config.subscriptionMode ?? 'open',
+    autoProfileExpansion: config.autoProfileExpansion === true,
+    deliveryCron: config.deliveryCron ?? '0 9 * * *',
+    deliveryTimezone: config.deliveryTimezone ?? 'Asia/Shanghai',
+    deliveryEnabled: config.deliveryEnabled === true,
+    maxItemsPerEmail: config.maxItemsPerEmail ?? 10,
   };
 }
 
@@ -125,6 +178,13 @@ function toPayload(form: FormState): IndustryConfigInput {
     sourceTypes: form.sourceTypes,
     alertLevel: form.alertLevel,
     isEnabled: form.isEnabled,
+    visibility: form.visibility,
+    subscriptionMode: form.subscriptionMode,
+    autoProfileExpansion: form.autoProfileExpansion,
+    deliveryCron: form.deliveryCron,
+    deliveryTimezone: form.deliveryTimezone,
+    deliveryEnabled: form.deliveryEnabled,
+    maxItemsPerEmail: form.maxItemsPerEmail,
   };
 }
 
@@ -146,6 +206,9 @@ export default function IndustryConfigManager() {
   const [editing, setEditing] = useState<IndustryConfigView | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [subscriberConfig, setSubscriberConfig] = useState<IndustryConfigView | null>(null);
+  const [subscriberRows, setSubscriberRows] = useState<IndustrySubscriberRow[]>([]);
+  const [subscriberLoading, setSubscriberLoading] = useState(false);
 
   const enabledCount = useMemo(() => configs.filter((item) => item.isEnabled).length, [configs]);
 
@@ -264,6 +327,47 @@ export default function IndustryConfigManager() {
     [fetchConfigs, toast]
   );
 
+  const handlePublish = useCallback(
+    async (config: IndustryConfigView) => {
+      const shouldPublish = config.visibility !== 'published';
+
+      try {
+        const res = await fetch(`/api/industry-configs/${config.id}/publish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ published: config.visibility !== 'published' }),
+        });
+
+        if (!res.ok) throw new Error('Failed to update industry config visibility');
+        await fetchConfigs();
+        toast({ title: shouldPublish ? '产业方向已发布' : '产业方向已下架' });
+      } catch {
+        toast({ title: shouldPublish ? '发布失败' : '下架失败', variant: 'destructive' });
+      }
+    },
+    [fetchConfigs, toast]
+  );
+
+  const openSubscribers = useCallback(
+    async (config: IndustryConfigView) => {
+      setSubscriberConfig(config);
+      setSubscriberRows([]);
+      setSubscriberLoading(true);
+
+      try {
+        const res = await fetch(`/api/industry-configs/${config.id}/subscriptions`);
+        if (!res.ok) throw new Error('Failed to load industry subscribers');
+        const data = (await res.json()) as IndustrySubscriberRow[];
+        setSubscriberRows(Array.isArray(data) ? data : []);
+      } catch {
+        toast({ title: '加载订阅详情失败', variant: 'destructive' });
+      } finally {
+        setSubscriberLoading(false);
+      }
+    },
+    [toast]
+  );
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -335,6 +439,12 @@ export default function IndustryConfigManager() {
                       <Badge variant={config.isEnabled ? 'default' : 'secondary'}>
                         {config.isEnabled ? '启用' : '停用'}
                       </Badge>
+                      <Badge variant={config.visibility === 'published' ? 'default' : 'secondary'}>
+                        {config.visibility === 'published' ? '已发布' : '草稿'}
+                      </Badge>
+                      <Badge variant={config.deliveryEnabled ? 'default' : 'outline'}>
+                        {config.deliveryEnabled ? '报送启用' : '报送关闭'}
+                      </Badge>
                       <Badge variant="outline">{snapshot.alertLevel}</Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -360,7 +470,8 @@ export default function IndustryConfigManager() {
                       )}
                     </div>
                     <div className="mt-3 text-xs text-muted-foreground">
-                      订阅建议：{config.suggestion.topic}
+                      订阅建议：{config.suggestion.topic} · 报送：{config.deliveryCron || '未配置'} · 每封最多{' '}
+                      {config.maxItemsPerEmail ?? 10} 条
                     </div>
                   </div>
 
@@ -368,6 +479,18 @@ export default function IndustryConfigManager() {
                     <Button variant="outline" size="sm" onClick={() => handleToggleEnabled(config)}>
                       <Power className="h-4 w-4" />
                       {config.isEnabled ? '停用' : '启用'}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handlePublish(config)}>
+                      {config.visibility === 'published' ? (
+                        <Archive className="h-4 w-4" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                      {config.visibility === 'published' ? '下架' : '发布'}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openSubscribers(config)}>
+                      <Users className="h-4 w-4" />
+                      订阅详情
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => openEdit(config)}>
                       <Pencil className="h-4 w-4" />
@@ -497,6 +620,96 @@ export default function IndustryConfigManager() {
               </div>
             </fieldset>
 
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-2 text-sm font-medium">
+                发布状态
+                <Select
+                  value={form.visibility}
+                  onValueChange={(value) =>
+                    updateField('visibility', value as FormState['visibility'])
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">草稿</SelectItem>
+                    <SelectItem value="published">已发布</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                订阅模式
+                <Select
+                  value={form.subscriptionMode}
+                  onValueChange={(value) =>
+                    updateField('subscriptionMode', value as FormState['subscriptionMode'])
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">开放订阅</SelectItem>
+                    <SelectItem value="approval_required">需要审批</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="grid gap-2 text-sm font-medium">
+                报送 cron
+                <Input
+                  value={form.deliveryCron}
+                  onChange={(event) => updateField('deliveryCron', event.target.value)}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                报送时区
+                <Input
+                  value={form.deliveryTimezone}
+                  onChange={(event) => updateField('deliveryTimezone', event.target.value)}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                每封最多条数
+                <Input
+                  type="number"
+                  min={5}
+                  max={10}
+                  value={form.maxItemsPerEmail}
+                  onChange={(event) => updateField('maxItemsPerEmail', Number(event.target.value))}
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
+              <div>
+                <div className="text-sm font-medium">允许自动扩展采集池</div>
+                <div className="text-xs text-muted-foreground">
+                  用户条件不匹配已有需求簇时，自动创建新采集池。
+                </div>
+              </div>
+              <Switch
+                checked={form.autoProfileExpansion}
+                onCheckedChange={(value) => updateField('autoProfileExpansion', value)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
+              <div>
+                <div className="text-sm font-medium">启用邮件报送</div>
+                <div className="text-xs text-muted-foreground">
+                  按 cron 为活跃用户发送个性化邮件。
+                </div>
+              </div>
+              <Switch
+                checked={form.deliveryEnabled}
+                onCheckedChange={(value) => updateField('deliveryEnabled', value)}
+              />
+            </div>
+
             <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
               <div>
                 <div className="text-sm font-medium">启用</div>
@@ -515,6 +728,101 @@ export default function IndustryConfigManager() {
               {submitting ? '保存中...' : '保存'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!subscriberConfig}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSubscriberConfig(null);
+            setSubscriberRows([]);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>订阅详情{subscriberConfig ? `：${subscriberConfig.name}` : ''}</DialogTitle>
+            <DialogDescription>
+              查看普通用户的个性化监控条件、匹配到的需求簇、收件邮箱和当前处理进度。
+            </DialogDescription>
+          </DialogHeader>
+
+          {subscriberLoading ? (
+            <div className="grid gap-3">
+              {[1, 2].map((item) => (
+                <div key={item} className="h-24 animate-pulse rounded-lg border border-border bg-card" />
+              ))}
+            </div>
+          ) : subscriberRows.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-cyan-300/35 bg-secondary/30 px-6 py-10 text-center text-sm text-muted-foreground">
+              暂时还没有普通用户订阅这个产业方向。
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              <div className="grid gap-2 rounded-lg border border-border bg-secondary/25 p-3 text-sm md:grid-cols-4">
+                <div>
+                  <div className="text-muted-foreground">订阅人数</div>
+                  <div className="mt-1 text-lg font-semibold text-cyan-50">{subscriberRows.length}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">运行中</div>
+                  <div className="mt-1 text-lg font-semibold text-cyan-50">
+                    {subscriberRows.filter((row) => row.subscription.status === 'active').length}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">待处理</div>
+                  <div className="mt-1 text-lg font-semibold text-cyan-50">
+                    {
+                      subscriberRows.filter((row) =>
+                        ['pending_approval', 'pending_profile'].includes(row.subscription.status)
+                      ).length
+                    }
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">已暂停</div>
+                  <div className="mt-1 text-lg font-semibold text-cyan-50">
+                    {subscriberRows.filter((row) => row.subscription.status === 'paused').length}
+                  </div>
+                </div>
+              </div>
+
+              {subscriberRows.map((row) => {
+                const recipients = parseRecipientEmailsJson(row.subscription.recipientEmailsJson);
+                const progress = getIndustrySubscriptionProgress({
+                  subscriptionStatus: row.subscription.status,
+                  profileStatus: row.profile?.status ?? null,
+                  provisioningError: row.profile?.provisioningError ?? null,
+                });
+
+                return (
+                  <article key={row.subscription.id} className="rounded-lg border border-border bg-card p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="font-medium text-cyan-50">
+                            {row.user.name || row.user.email || '未命名用户'}
+                          </div>
+                          {row.user.email ? (
+                            <span className="text-xs text-muted-foreground">{row.user.email}</span>
+                          ) : null}
+                          <Badge variant={progress.badgeVariant}>{progress.label}</Badge>
+                        </div>
+                        <p className="mt-2 text-sm text-cyan-50/80">{row.subscription.customCriteria}</p>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          需求簇：{row.profile?.title ?? '匹配中'} · 收件邮箱：
+                          {recipients.join('、') || '未配置'} · 更新：{formatUpdatedAt(row.subscription.updatedAt)}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">{progress.detail}</div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

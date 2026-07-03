@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Factory, Heart, Settings } from 'lucide-react';
+import { BookOpen, ClipboardList, Factory, Heart, Settings } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { AdminTodoBadge } from './AdminTodoBadge';
 
 interface BottomNavProps {
   className?: string;
@@ -11,10 +13,12 @@ interface BottomNavProps {
 
 export function BottomNav({ className }: BottomNavProps) {
   const pathname = usePathname();
+  const { user } = useAuth();
 
   const navItems = [
     { href: '/subscriptions', label: '订阅', icon: BookOpen },
     { href: '/industry-configs', label: '产业配置', icon: Factory },
+    ...(user?.isAdmin ? [{ href: '/admin/todos', label: '待办', icon: ClipboardList }] : []),
     { href: '/favorites', label: '收藏', icon: Heart },
     { href: '/settings', label: '配置', icon: Settings },
   ];
@@ -39,7 +43,12 @@ export function BottomNav({ className }: BottomNavProps) {
               active ? 'text-cyan-100' : 'text-cyan-100/55'
             )}
           >
-            <Icon className="h-5 w-5 shrink-0" />
+            <span className="relative">
+              <Icon className="h-5 w-5 shrink-0" />
+              {href === '/admin/todos' ? (
+                <AdminTodoBadge className="absolute -right-3 -top-2 ml-0 h-4 min-w-4 px-1 text-[9px]" />
+              ) : null}
+            </span>
             <span className="text-[10px] font-medium">{label}</span>
           </Link>
         );

@@ -4,12 +4,11 @@ import { Button } from '@/components/ui/button';
 
 interface OAuthButtonsProps {
   onGoogleLogin: () => void;
-  onGuestLogin: () => void;
   loading: boolean;
   googleOAuthEnabled?: boolean;
 }
 
-export function OAuthButtons({ onGoogleLogin, onGuestLogin, loading, googleOAuthEnabled }: OAuthButtonsProps) {
+export function OAuthButtons({ onGoogleLogin, loading, googleOAuthEnabled }: OAuthButtonsProps) {
   return (
     <div className="space-y-3">
       {googleOAuthEnabled && (
@@ -41,16 +40,6 @@ export function OAuthButtons({ onGoogleLogin, onGuestLogin, loading, googleOAuth
           使用 Google 登录
         </Button>
       )}
-
-      <Button
-        type="button"
-        variant="ghost"
-        className="w-full"
-        onClick={onGuestLogin}
-        disabled={loading}
-      >
-        以游客身份继续
-      </Button>
     </div>
   );
 }
