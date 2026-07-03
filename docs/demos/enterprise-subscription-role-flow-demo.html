@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>星云棱镜企业产业订阅流程 demo</title>
+  <style>
+    :root {
+      --bg: #061833;
+      --bg2: #0a2450;
+      --panel: rgba(8, 31, 70, 0.78);
+      --panel2: rgba(10, 39, 84, 0.9);
+      --line: rgba(111, 211, 255, 0.22);
+      --line2: rgba(111, 211, 255, 0.38);
+      --text: #eef8ff;
+      --muted: #9bb9cf;
+      --faint: #6f8ca5;
+      --cyan: #35d5ff;
+      --cyan2: #16a6ff;
+      --green: #31d39b;
+      --amber: #ffbd5b;
+      --red: #ff5e7a;
+      --violet: #a7a3ff;
+      --shadow: 0 24px 70px rgba(0, 6, 23, 0.46);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      background:
+        linear-gradient(90deg, rgba(84, 202, 255, 0.055) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(84, 202, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(135deg, #061833 0%, #081d43 42%, #07142d 100%);
+      background-size: 40px 40px, 40px 40px, auto;
+    }
+
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    a { color: inherit; }
+
+    .app {
+      display: grid;
+      grid-template-columns: 264px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid rgba(53, 213, 255, 0.25);
+      background: rgba(7, 25, 70, 0.92);
+      box-shadow: 12px 0 40px rgba(2, 10, 31, 0.45);
+      backdrop-filter: blur(18px);
+      overflow: auto;
+    }
+
+    .brand {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 86px;
+      padding: 18px;
+      border-bottom: 1px solid rgba(53, 213, 255, 0.2);
+    }
+
+    .brand::after {
+      content: "";
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(53, 213, 255, 0.78), transparent);
+    }
+
+    .brand img {
+      width: 50px;
+      height: 50px;
+      border-radius: 8px;
+      border: 1px solid rgba(53, 213, 255, 0.45);
+      box-shadow: 0 0 20px rgba(53, 213, 255, 0.25);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 21px;
+      line-height: 1.1;
+      color: #f5fbff;
+    }
+
+    .brand span {
+      display: block;
+      margin-top: 5px;
+      color: #8fc8ea;
+      font-size: 12px;
+    }
+
+    .role-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 16px 14px 4px;
+      padding: 4px;
+      border: 1px solid rgba(53, 213, 255, 0.18);
+      border-radius: var(--radius);
+      background: rgba(2, 12, 35, 0.38);
+    }
+
+    .role-tabs button {
+      min-height: 36px;
+      border: 0;
+      border-radius: 6px;
+      color: #94c6e1;
+      background: transparent;
+      font-weight: 800;
+    }
+
+    .role-tabs button.active {
+      color: #031325;
+      background: linear-gradient(180deg, #7de7ff, #25baff);
+      box-shadow: 0 0 18px rgba(53, 213, 255, 0.28);
+    }
+
+    .nav-title {
+      margin: 18px 18px 8px;
+      color: #70a9cb;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+      padding: 0 12px;
+    }
+
+    .nav button {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 46px;
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      color: rgba(222, 242, 255, 0.72);
+      background: transparent;
+      text-align: left;
+      font-weight: 800;
+      transition: 0.18s ease;
+    }
+
+    .nav button:hover {
+      color: #f2fbff;
+      border-color: rgba(53, 213, 255, 0.22);
+      background: rgba(53, 213, 255, 0.08);
+    }
+
+    .nav button.active {
+      color: #ffffff;
+      border-color: rgba(53, 213, 255, 0.48);
+      background: linear-gradient(90deg, rgba(22, 166, 255, 0.75), rgba(53, 213, 255, 0.16));
+      box-shadow: 0 0 22px rgba(32, 160, 255, 0.28);
+    }
+
+    .sidebar-note {
+      margin: auto 14px 14px;
+      padding: 12px;
+      border: 1px solid rgba(53, 213, 255, 0.18);
+      border-radius: var(--radius);
+      color: #91bdd4;
+      background: rgba(2, 12, 35, 0.32);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 28px 34px 44px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: flex-start;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: #b7ecff;
+      font-weight: 900;
+      font-size: 13px;
+    }
+
+    .pulse {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 0 7px rgba(49, 211, 155, 0.12), 0 0 18px rgba(49, 211, 155, 0.7);
+    }
+
+    h1 {
+      max-width: 1040px;
+      margin: 12px 0 10px;
+      font-size: clamp(31px, 4.2vw, 56px);
+      line-height: 1.05;
+      letter-spacing: 0;
+      color: #f3fbff;
+      text-shadow: 0 0 28px rgba(53, 213, 255, 0.16);
+    }
+
+    h2, h3, p { margin: 0; }
+    h2 { font-size: 22px; line-height: 1.25; }
+    h3 { font-size: 16px; line-height: 1.35; }
+    .intro { max-width: 920px; color: #a6c6d9; line-height: 1.8; }
+    .body { color: #9fbcd0; line-height: 1.72; }
+    .small { font-size: 12px; line-height: 1.45; }
+    .muted { color: var(--muted); }
+    .faint { color: var(--faint); }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 8px 13px;
+      border: 1px solid rgba(118, 216, 255, 0.24);
+      border-radius: var(--radius);
+      color: #d8f5ff;
+      background: rgba(7, 27, 62, 0.72);
+      font-weight: 850;
+      transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(53, 213, 255, 0.7);
+      box-shadow: 0 10px 28px rgba(0, 12, 35, 0.3);
+    }
+
+    .btn.primary {
+      color: #031325;
+      border-color: transparent;
+      background: linear-gradient(180deg, #73e9ff, #16a6ff);
+      box-shadow: 0 0 24px rgba(22, 166, 255, 0.25);
+    }
+
+    .btn.green { color: #032018; background: linear-gradient(180deg, #6ff0c4, #25c68b); border-color: transparent; }
+    .btn.warn { color: #291703; background: linear-gradient(180deg, #ffd58b, #ffad3d); border-color: transparent; }
+    .btn.danger { color: #fff; background: rgba(255, 94, 122, 0.26); border-color: rgba(255, 94, 122, 0.55); }
+    .btn.ghost { background: transparent; }
+
+    .view { display: none; animation: rise 0.2s ease both; }
+    .view.active { display: block; }
+    body[data-role="admin"] .nav-user,
+    body[data-role="user"] .nav-admin { display: none; }
+    body[data-role="admin"] .admin-only-view.active { display: block; }
+    body[data-role="user"] .user-only-view.active { display: block; }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .metric, .panel, .card, .modal {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .metric { padding: 16px; }
+    .metric strong {
+      display: block;
+      margin-bottom: 7px;
+      color: #f1fbff;
+      font-size: 30px;
+      line-height: 1;
+    }
+
+    .panel { padding: 18px; }
+    .section { margin-top: 16px; }
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .layout-build { display: block; }
+    .layout-split { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr); gap: 16px; }
+
+    .card {
+      padding: 15px;
+      background: rgba(9, 34, 79, 0.72);
+      box-shadow: none;
+    }
+
+    .card h3 { margin-top: 8px; }
+    .card .body { margin-top: 7px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(111, 211, 255, 0.28);
+      color: #cdefff;
+      background: rgba(53, 213, 255, 0.1);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .badge.green { color: #bdfbe4; border-color: rgba(49, 211, 155, 0.36); background: rgba(49, 211, 155, 0.13); }
+    .badge.amber { color: #ffe0a9; border-color: rgba(255, 189, 91, 0.42); background: rgba(255, 189, 91, 0.13); }
+    .badge.red { color: #ffc1cb; border-color: rgba(255, 94, 122, 0.45); background: rgba(255, 94, 122, 0.14); }
+    .badge.violet { color: #d8d5ff; border-color: rgba(167, 163, 255, 0.4); background: rgba(167, 163, 255, 0.14); }
+
+    .step-list {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(140px, 1fr));
+      gap: 0;
+      margin-bottom: 18px;
+      padding: 18px 16px 14px;
+      overflow-x: auto;
+      border: 1px solid rgba(111, 211, 255, 0.2);
+      border-radius: var(--radius);
+      background: rgba(2, 12, 35, 0.36);
+    }
+
+    .step-list::before {
+      content: "";
+      position: absolute;
+      left: 52px;
+      right: 52px;
+      top: 31px;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(53, 213, 255, 0.55), rgba(53, 213, 255, 0.12));
+    }
+
+    .step-button {
+      position: relative;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      min-width: 140px;
+      width: 100%;
+      padding: 0 10px;
+      border: 0;
+      color: #a9cce1;
+      background: transparent;
+      text-align: center;
+      transition: 0.16s ease;
+      z-index: 1;
+    }
+
+    .step-button::before {
+      content: "";
+      display: block;
+      width: 28px;
+      height: 28px;
+      border: 2px solid rgba(111, 211, 255, 0.42);
+      border-radius: 999px;
+      background: #061833;
+      box-shadow: 0 0 0 5px rgba(6, 24, 51, 0.96);
+      transition: 0.16s ease;
+    }
+
+    .step-button.active {
+      color: #f4fbff;
+    }
+
+    .step-button.active::before {
+      border-color: rgba(53, 213, 255, 0.95);
+      background: radial-gradient(circle at 50% 50%, #e7fbff 0 22%, #35d5ff 24% 48%, #0b2f65 50%);
+      box-shadow: 0 0 0 5px rgba(6, 24, 51, 0.96), 0 0 24px rgba(53, 213, 255, 0.46);
+    }
+
+    .step-title {
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+      font-weight: 950;
+    }
+
+    .step-content {
+      border-top: 1px solid rgba(111, 211, 255, 0.16);
+      padding-top: 18px;
+    }
+
+    .step-pane { display: none; }
+    .step-pane.active { display: block; animation: rise 0.18s ease both; }
+
+    .form-grid { display: grid; gap: 12px; }
+    label { display: grid; gap: 7px; color: #cdeafe; font-size: 13px; font-weight: 850; }
+    input, select, textarea {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid rgba(111, 211, 255, 0.24);
+      border-radius: var(--radius);
+      color: #effaff;
+      background: rgba(2, 12, 35, 0.62);
+      padding: 9px 10px;
+      outline: 0;
+    }
+    textarea { min-height: 92px; resize: vertical; line-height: 1.6; }
+    input:focus, select:focus, textarea:focus {
+      border-color: rgba(53, 213, 255, 0.8);
+      box-shadow: 0 0 0 4px rgba(53, 213, 255, 0.12);
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 4px;
+      border: 1px solid rgba(111, 211, 255, 0.18);
+      border-radius: var(--radius);
+      background: rgba(2, 12, 35, 0.35);
+    }
+
+    .tab {
+      min-height: 36px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: #9fc9df;
+      background: transparent;
+      padding: 7px 12px;
+      font-weight: 850;
+    }
+
+    .tab.active {
+      color: #021528;
+      background: #72e7ff;
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid rgba(111, 211, 255, 0.2);
+      border-radius: var(--radius);
+      background: rgba(2, 12, 35, 0.38);
+    }
+
+    table {
+      width: 100%;
+      min-width: 850px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(111, 211, 255, 0.14);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #b9dcf0;
+      background: rgba(20, 68, 126, 0.42);
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    td strong { color: #f2fbff; }
+
+    .source-row.selected {
+      background: rgba(53, 213, 255, 0.08);
+    }
+
+    .log-stack { display: grid; gap: 9px; }
+    .log {
+      padding: 11px 12px;
+      border: 1px solid rgba(111, 211, 255, 0.16);
+      border-radius: var(--radius);
+      color: #b9d7e8;
+      background: rgba(2, 12, 35, 0.46);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .llm-card {
+      border: 1px solid rgba(111, 211, 255, 0.2);
+      border-radius: var(--radius);
+      background: rgba(2, 12, 35, 0.5);
+      overflow: hidden;
+    }
+
+    .llm-head {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(111, 211, 255, 0.14);
+      color: #d9f6ff;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .stream-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--cyan);
+      box-shadow: 0 0 12px rgba(53, 213, 255, 0.85);
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink { 50% { opacity: 0.35; } }
+
+    .llm-body {
+      padding: 12px;
+      color: #b7d7e8;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .code {
+      max-height: 330px;
+      overflow: auto;
+      padding: 14px;
+      border-radius: var(--radius);
+      color: #d9fff8;
+      background: #020c23;
+      border: 1px solid rgba(111, 211, 255, 0.2);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      white-space: pre;
+    }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 9px;
+      border: 1px solid rgba(111, 211, 255, 0.22);
+      border-radius: 999px;
+      color: #c1e6fa;
+      background: rgba(2, 12, 35, 0.38);
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(2, 8, 23, 0.72);
+      z-index: 30;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: min(1040px, 100%);
+      max-height: min(88vh, 900px);
+      overflow: hidden;
+      background: rgba(6, 24, 55, 0.98);
+    }
+    .modal.small { width: min(680px, 100%); }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px;
+      border-bottom: 1px solid rgba(111, 211, 255, 0.18);
+      background: rgba(9, 35, 78, 0.92);
+    }
+    .modal-content {
+      max-height: calc(88vh - 84px);
+      overflow: auto;
+      padding: 18px;
+    }
+    .close {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(111, 211, 255, 0.3);
+      border-radius: var(--radius);
+      color: #e7f8ff;
+      background: rgba(2, 12, 35, 0.45);
+      font-size: 18px;
+      font-weight: 950;
+    }
+
+    .mail {
+      overflow: hidden;
+      border: 1px solid rgba(111, 211, 255, 0.22);
+      border-radius: var(--radius);
+      background: #f8fcff;
+      color: #0b2330;
+    }
+    .mail-head {
+      padding: 18px;
+      color: #fff;
+      background: #071946;
+    }
+    .mail-body { padding: 18px; color: #17303b; }
+    .mail .body { color: #4e6570; }
+    .mail table { color: #17303b; background: #fff; }
+    .mail th { color: #294d60; background: #eaf6fb; }
+    .mail td { border-color: #ddebf0; }
+    .mail-summary {
+      margin: 12px 0;
+      padding: 12px;
+      border-left: 4px solid #16a6ff;
+      background: #edf8ff;
+      color: #24485a;
+    }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      display: none;
+      max-width: 360px;
+      padding: 13px 15px;
+      border: 1px solid rgba(111, 211, 255, 0.3);
+      border-radius: var(--radius);
+      color: #eaf8ff;
+      background: rgba(7, 25, 70, 0.96);
+      box-shadow: var(--shadow);
+      z-index: 40;
+      line-height: 1.55;
+      font-weight: 850;
+    }
+    .toast.show { display: block; animation: rise 0.18s ease both; }
+
+    @media (max-width: 1180px) {
+      .layout-build, .layout-split { grid-template-columns: 1fr; }
+      .step-list { position: static; }
+      .metrics, .grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 840px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: relative; height: auto; }
+      .main { padding: 22px 14px 36px; }
+      .topbar { flex-direction: column; }
+      .actions { justify-content: flex-start; }
+      .metrics, .grid.two, .grid.three, .grid.four { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body data-role="admin">
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="../../src/app/icon.svg" alt="" aria-hidden="true" />
+        <div>
+          <strong>星云棱镜</strong>
+          <span>产业信息订阅平台</span>
+        </div>
+      </div>
+
+      <div class="role-tabs">
+        <button class="active" data-role="admin" type="button">管理员</button>
+        <button data-role="user" type="button">普通用户</button>
+      </div>
+
+      <div class="nav-admin">
+        <div class="nav-title">管理员真实看到</div>
+        <nav class="nav">
+          <button class="active" data-view="admin-home" type="button"><span>工作台</span></button>
+          <button data-view="admin-build" type="button"><span>新建产业配置</span></button>
+          <button data-view="admin-pools" type="button"><span>产业信息池</span></button>
+          <button data-view="admin-monitor" type="button"><span>实时监控</span></button>
+          <button data-view="admin-settings" type="button"><span>配置</span></button>
+        </nav>
+      </div>
+
+      <div class="nav-user">
+        <div class="nav-title">普通用户真实看到</div>
+        <nav class="nav">
+          <button class="active" data-view="user-subscriptions" type="button"><span>我的订阅</span></button>
+          <button data-view="user-catalog" type="button"><span>产业目录</span></button>
+          <button data-view="user-settings" type="button"><span>个人配置</span></button>
+        </nav>
+      </div>
+
+      <div class="sidebar-note">
+        企业版保留当前项目主题和订阅生成流程。变化点是：脚本与信息池归管理员，普通用户只订阅已发布信息池并配置筛选条件。
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <div class="eyebrow"><span class="pulse"></span><span id="roleLabel">管理员工作台</span></div>
+          <h1 id="pageTitle">企业级产业信息池，由管理员走完整订阅生成流程。</h1>
+          <p class="intro" id="pageIntro">主题、发现源、生成脚本、LLM 调用日志、预览和确认这些关键过程全部保留，只是从个人订阅创建转为管理员创建企业级产业配置。</p>
+        </div>
+        <div class="actions" id="topActions">
+          <button class="btn primary" data-view="admin-build" type="button">新建产业配置</button>
+          <button class="btn" data-view="admin-monitor" type="button">查看监控</button>
+        </div>
+      </div>
+
+      <section class="view admin-only-view active" id="view-admin-home">
+        <div class="metrics">
+          <div class="metric"><strong>4</strong><span class="small muted">已发布产业信息池</span></div>
+          <div class="metric"><strong>18</strong><span class="small muted">企业订阅者</span></div>
+          <div class="metric"><strong>126</strong><span class="small muted">今日入池消息</span></div>
+          <div class="metric"><strong>3</strong><span class="small muted">源质量提示</span></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>企业版主链路</h2>
+              <p class="body" style="margin-top:8px;">管理员把当前“新增订阅”流程升级成企业信息池生产流程。普通用户的条件不生成脚本，只用于池内筛选。</p>
+            </div>
+            <button class="btn primary" data-view="admin-build" type="button">查看完整流程</button>
+          </div>
+          <div class="grid four">
+            <div class="card"><span class="badge">1</span><h3>主题与产业画像</h3><p class="body">复用产业配置字段，沉淀关键词、风险词、地区和关注对象。</p></div>
+            <div class="card"><span class="badge">2</span><h3>发现源与人工选源</h3><p class="body">AI 推荐源，管理员挑选、禁用、补充手动源。</p></div>
+            <div class="card"><span class="badge">3</span><h3>脚本生成与预览</h3><p class="body">保留流式 LLM 调用日志、脚本预览、采集样本预览。</p></div>
+            <div class="card"><span class="badge">4</span><h3>发布与个性化报送</h3><p class="body">发布后普通用户订阅，邮件按用户条件筛选 5-10 条。</p></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="panel">
+            <h2>今天的运行重点</h2>
+            <div class="log-stack section">
+              <div class="log">09:00 食品安全信息池完成报送：8 人发送，1 人因高相关内容不足跳过。</div>
+              <div class="log">10:20 化工原料信息池生成脚本完成：3 个源通过，1 个源需手动配置。</div>
+              <div class="log">11:05 水产/海参养殖源质量提示：一个转载源重复率偏高，建议禁用。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view admin-only-view" id="view-admin-build">
+        <div class="layout-build">
+          <div class="step-list">
+            <button class="step-button active" data-step="topic" type="button"><span class="step-title">1. 主题与产业画像 <span class="badge green">已填</span></span><span class="small muted">主题、关键词、风险词、产业快照</span></button>
+            <button class="step-button" data-step="sources" type="button"><span class="step-title">2. 发现源 <span class="badge">AI 推荐</span></span><span class="small muted">管理员挑选源，可手动新增</span></button>
+            <button class="step-button" data-step="quality" type="button"><span class="step-title">3. 源筛选与去重 <span class="badge amber">待确认</span></span><span class="small muted">权威性、频率、内容质量</span></button>
+            <button class="step-button" data-step="script" type="button"><span class="step-title">4. 生成脚本 <span class="badge violet">流式日志</span></span><span class="small muted">LLM 调用、脚本、样本预览</span></button>
+            <button class="step-button" data-step="verify" type="button"><span class="step-title">5. 初始验证 <span class="badge">样本检查</span></span><span class="small muted">抓取结果、失败源、质量结论</span></button>
+            <button class="step-button" data-step="confirm" type="button"><span class="step-title">6. 确认发布 <span class="badge">待发布</span></span><span class="small muted">报送时间、条数、可见性</span></button>
+          </div>
+
+          <div class="step-content">
+          <div class="panel">
+            <div class="step-pane active" id="step-topic">
+              <div class="panel-head">
+                <div>
+                  <h2>主题与产业画像</h2>
+                  <p class="body" style="margin-top:8px;">保留当前订阅第一步的直观填写体验，同时把产业配置从个人模板升级为管理员维护的企业模板。</p>
+                </div>
+                <button class="btn" data-modal="industry-snapshot" type="button">查看产业快照</button>
+              </div>
+              <div class="grid two">
+                <label>产业配置名称<input value="食品安全" /></label>
+                <label>发布后名称<input value="食品安全产业信息池" /></label>
+                <label>订阅主题<textarea>食品安全监管政策、处罚、召回与餐饮企业经营影响监测</textarea></label>
+                <label>监控条件<textarea>关注监管政策变化、食品抽检、处罚案例、召回通报，以及对餐饮企业合规成本和经营风险的影响。</textarea></label>
+                <label>关键词<textarea>食品安全、餐饮、抽检、处罚、召回、标签、留样、进货查验、合规成本</textarea></label>
+                <label>风险词<textarea>行政处罚、责令整改、召回、抽检不合格、停业、舆情扩散、监管升级</textarea></label>
+              </div>
+              <div class="actions section">
+                <button class="btn primary next-step" type="button">下一步：发现源</button>
+              </div>
+            </div>
+
+            <div class="step-pane" id="step-sources">
+              <div class="panel-head">
+                <div>
+                  <h2>发现源</h2>
+                  <p class="body" style="margin-top:8px;">AI 推荐候选源，但管理员要能挑选、禁用和手动补充源，这一步不能黑盒。</p>
+                </div>
+                <div class="actions">
+                  <button class="btn" data-modal="find-source-log" type="button">查看 AI 找源日志</button>
+                  <button class="btn primary" data-modal="manual-source" type="button">手动新增源</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>选择</th><th>数据源</th><th>类型</th><th>权威性</th><th>更新频率</th><th>推荐理由</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr class="source-row selected">
+                      <td><button class="btn green source-toggle" type="button">已选</button></td>
+                      <td><strong>国家市场监督管理总局</strong><br /><span class="muted">samr.gov.cn</span></td>
+                      <td>权威事实源</td><td><span class="badge green">高</span></td><td>工作日</td><td>一手政策、抽检、处罚、召回信息。</td>
+                      <td><button class="btn" data-modal="source-detail-samr" type="button">详情</button></td>
+                    </tr>
+                    <tr class="source-row selected">
+                      <td><button class="btn green source-toggle" type="button">已选</button></td>
+                      <td><strong>国家食品安全风险评估中心</strong><br /><span class="muted">cfsa.net.cn</span></td>
+                      <td>专业机构源</td><td><span class="badge green">高</span></td><td>每周</td><td>补充标准、风险评估和专业解读。</td>
+                      <td><button class="btn" data-modal="source-detail-cfsa" type="button">详情</button></td>
+                    </tr>
+                    <tr class="source-row selected">
+                      <td><button class="btn green source-toggle" type="button">已选</button></td>
+                      <td><strong>中国连锁经营协会</strong><br /><span class="muted">ccfa.org.cn</span></td>
+                      <td>行业协会源</td><td><span class="badge">中高</span></td><td>不定期</td><td>更贴近餐饮企业经营影响。</td>
+                      <td><button class="btn" data-modal="source-detail-ccfa" type="button">详情</button></td>
+                    </tr>
+                    <tr class="source-row">
+                      <td><button class="btn source-toggle" type="button">未选</button></td>
+                      <td><strong>主流财经新闻食品安全频道</strong></td>
+                      <td>新闻发现源</td><td><span class="badge amber">中</span></td><td>每日</td><td>适合发现企业案例，但需去重降噪。</td>
+                      <td><button class="btn" data-modal="source-detail-media" type="button">详情</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="actions section">
+                <button class="btn ghost prev-step" type="button">上一步</button>
+                <button class="btn primary next-step" type="button">下一步：源筛选</button>
+              </div>
+            </div>
+
+            <div class="step-pane" id="step-quality">
+              <div class="panel-head">
+                <div>
+                  <h2>源筛选与去重</h2>
+                  <p class="body" style="margin-top:8px;">这里回应你之前提的三个问题：来源权威性、同一事件多源重复、低质量车轱辘话。</p>
+                </div>
+                <button class="btn" data-modal="quality-rules" type="button">查看评分规则</button>
+              </div>
+              <div class="grid three">
+                <div class="card"><span class="badge green">权威性</span><h3>官方与专业源优先</h3><p class="body">监管机构、直属机构、专业协会分层评分，新闻源作为发现补充。</p></div>
+                <div class="card"><span class="badge">事件归并</span><h3>同一事件多源佐证</h3><p class="body">同政策、同处罚、同召回按事件折叠，不在邮件里刷屏。</p></div>
+                <div class="card"><span class="badge amber">质量过滤</span><h3>低信息密度过滤</h3><p class="body">无明确来源、重复转载、空泛复述不进入默认报送候选。</p></div>
+              </div>
+              <div class="table-wrap section">
+                <table>
+                  <thead><tr><th>来源</th><th>权威等级</th><th>稳定性</th><th>可采集性</th><th>质量结论</th></tr></thead>
+                  <tbody>
+                    <tr><td>国家市场监督管理总局</td><td>高</td><td>高</td><td>高</td><td><span class="badge green">保留</span></td></tr>
+                    <tr><td>中国连锁经营协会</td><td>中高</td><td>中</td><td>中</td><td><span class="badge green">保留</span></td></tr>
+                    <tr><td>财经新闻食品频道</td><td>中</td><td>高</td><td>高</td><td><span class="badge amber">降权，作为发现源</span></td></tr>
+                    <tr><td>转载聚合站</td><td>低</td><td>高</td><td>高</td><td><span class="badge red">过滤</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="actions section">
+                <button class="btn ghost prev-step" type="button">上一步</button>
+                <button class="btn primary next-step" type="button">下一步：生成脚本</button>
+              </div>
+            </div>
+
+            <div class="step-pane" id="step-script">
+              <div class="panel-head">
+                <div>
+                  <h2>生成脚本</h2>
+                  <p class="body" style="margin-top:8px;">保留当前项目最直观的部分：流式 LLM 调用日志、工具调用、脚本预览、采集样本预览。</p>
+                </div>
+                <div class="actions">
+                  <button class="btn primary" id="runScriptBtn" type="button">开始生成脚本</button>
+                  <button class="btn" data-modal="llm-log-full" type="button">完整 LLM 日志</button>
+                </div>
+              </div>
+              <div class="layout-split">
+                <div class="grid">
+                  <div class="card">
+                    <div class="panel-head">
+                      <div><h3>国家市场监督管理总局</h3><p class="body">生成状态：<span id="scriptStatusText">等待生成</span></p></div>
+                      <span class="badge violet">RSS / HTML</span>
+                    </div>
+                    <div class="actions">
+                      <button class="btn" data-modal="script-preview-samr" type="button">脚本预览</button>
+                      <button class="btn" data-modal="sample-preview-samr" type="button">采集预览</button>
+                      <button class="btn" data-modal="source-retry-prompt" type="button">补充提示</button>
+                    </div>
+                  </div>
+                  <div class="card">
+                    <div class="panel-head">
+                      <div><h3>中国连锁经营协会</h3><p class="body">生成状态：等待队列</p></div>
+                      <span class="badge">HTML</span>
+                    </div>
+                    <div class="actions">
+                      <button class="btn" data-modal="script-preview-ccfa" type="button">脚本预览</button>
+                      <button class="btn" data-modal="sample-preview-ccfa" type="button">采集预览</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="grid">
+                  <div class="llm-card">
+                    <div class="llm-head"><span class="stream-dot"></span><strong>LLM #1</strong><span>gpt-4.1 · tools: webFetchBrowser, validateScript</span></div>
+                    <div class="llm-body" id="streamLog">等待脚本生成。点击“开始生成脚本”后，这里模拟流式输出。</div>
+                  </div>
+                  <div class="log-stack">
+                    <div class="log">[progress] 已准备 3 个已选数据源。</div>
+                    <div class="log">[info] 每个源会生成独立脚本、cron 和初始采集样本。</div>
+                    <div class="log">[info] 管理员可打开脚本预览和采集预览确认质量。</div>
+                  </div>
+                </div>
+              </div>
+              <div class="actions section">
+                <button class="btn ghost prev-step" type="button">上一步</button>
+                <button class="btn primary next-step" type="button">下一步：初始验证</button>
+              </div>
+            </div>
+
+            <div class="step-pane" id="step-verify">
+              <div class="panel-head">
+                <div>
+                  <h2>初始采集验证</h2>
+                  <p class="body" style="margin-top:8px;">发布前必须看见抓到了什么、是否重复、哪些源失败，不能只给一个“成功”。</p>
+                </div>
+                <button class="btn" data-modal="all-samples" type="button">查看完整样本</button>
+              </div>
+              <div class="metrics">
+                <div class="metric"><strong>42</strong><span class="small muted">初始抓取文章</span></div>
+                <div class="metric"><strong>31</strong><span class="small muted">通过质量过滤</span></div>
+                <div class="metric"><strong>11</strong><span class="small muted">归并为事件</span></div>
+                <div class="metric"><strong>2</strong><span class="small muted">来源需复查</span></div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>代表事件</th><th>来源</th><th>权威性</th><th>相关性</th><th>质量结论</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr><td><strong>多地开展餐饮食品安全专项检查</strong></td><td>市场监管总局、省级监管局</td><td>高</td><td>94</td><td><span class="badge green">可入池</span></td><td><button class="btn" data-modal="event-detail-1" type="button">详情</button></td></tr>
+                    <tr><td><strong>食品标签管理处罚案例增加</strong></td><td>省市场监管局、财经媒体</td><td>高</td><td>88</td><td><span class="badge green">可入池</span></td><td><button class="btn" data-modal="event-detail-2" type="button">详情</button></td></tr>
+                    <tr><td><strong>转载站重复发布旧抽检名单</strong></td><td>转载站</td><td>低</td><td>39</td><td><span class="badge red">过滤</span></td><td><button class="btn" data-modal="event-detail-3" type="button">详情</button></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="actions section">
+                <button class="btn ghost prev-step" type="button">上一步</button>
+                <button class="btn primary next-step" type="button">下一步：确认发布</button>
+              </div>
+            </div>
+
+            <div class="step-pane" id="step-confirm">
+              <div class="panel-head">
+                <div>
+                  <h2>确认发布</h2>
+                  <p class="body" style="margin-top:8px;">这一步对应当前确认页，但企业版多了发布状态、报送规则和普通用户可见范围。</p>
+                </div>
+                <span class="badge amber">待发布</span>
+              </div>
+              <div class="grid two">
+                <label>发布状态<select><option>发布给普通用户</option><option>保存为草稿</option></select></label>
+                <label>报送时间<input value="每日 09:00 Asia/Shanghai" /></label>
+                <label>每封邮件最多条数<input value="8" /></label>
+                <label>低相关处理<input value="低于 70 分则跳过发送，并记录原因" /></label>
+              </div>
+              <div class="table-wrap section">
+                <table>
+                  <thead><tr><th>源名称</th><th>启用</th><th>频率</th><th>初始样本</th><th>状态</th></tr></thead>
+                  <tbody>
+                    <tr><td>国家市场监督管理总局</td><td>是</td><td>每 4 小时</td><td>18 条</td><td><span class="badge green">通过</span></td></tr>
+                    <tr><td>国家食品安全风险评估中心</td><td>是</td><td>每日</td><td>6 条</td><td><span class="badge green">通过</span></td></tr>
+                    <tr><td>中国连锁经营协会</td><td>是</td><td>每日</td><td>7 条</td><td><span class="badge amber">需观察</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="actions section">
+                <button class="btn ghost prev-step" type="button">上一步</button>
+                <button class="btn primary" data-modal="publish-confirm" type="button">确认发布产业信息池</button>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view admin-only-view" id="view-admin-pools">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>产业信息池</h2>
+              <p class="body" style="margin-top:8px;">这里不是简化后的列表，而是管理员能回看每个信息池的源、脚本、样本和发布配置。</p>
+            </div>
+            <button class="btn primary" data-view="admin-build" type="button">新建产业配置</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>信息池</th><th>状态</th><th>数据源</th><th>今日入池</th><th>订阅者</th><th>报送</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td><strong>食品安全</strong><br /><span class="muted">监管、处罚、召回、餐饮影响</span></td><td><span class="badge green">已发布</span></td><td>14 个</td><td>31 条 / 11 事件</td><td>9 人</td><td>每日 09:00</td><td><button class="btn" data-modal="pool-food-detail" type="button">详情</button><button class="btn" data-view="admin-monitor" type="button">监控</button></td></tr>
+                <tr><td><strong>水产/海参养殖</strong><br /><span class="muted">病害、赤潮、价格、政策</span></td><td><span class="badge green">已发布</span></td><td>9 个</td><td>22 条 / 8 事件</td><td>5 人</td><td>每日 08:30</td><td><button class="btn" data-modal="pool-aqua-detail" type="button">详情</button><button class="btn" data-view="admin-monitor" type="button">监控</button></td></tr>
+                <tr><td><strong>化工原料</strong></td><td><span class="badge amber">草稿</span></td><td>4 个候选</td><td>验证中</td><td>0 人</td><td>未启用</td><td><button class="btn" data-view="admin-build" type="button">继续配置</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view admin-only-view" id="view-admin-monitor">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>实时监控</h2>
+              <p class="body" style="margin-top:8px;">替代待办审批。管理员看已发布产业被谁订阅、最近推送了哪些消息、哪些用户因为低相关被跳过。</p>
+            </div>
+            <button class="btn" data-modal="runtime-log" type="button">运行日志</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>产业信息池</th><th>采集状态</th><th>订阅者</th><th>最近推送</th><th>覆盖提示</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td><strong>食品安全</strong></td><td><span class="badge green">运行中</span><br /><span class="muted">最近采集 11:20</span></td><td>9 人</td><td>8 人发送，1 人跳过</td><td><span class="badge amber">餐饮经营影响内容偏少</span></td><td><button class="btn" data-modal="subscribers-food" type="button">订阅者</button><button class="btn" data-modal="push-food" type="button">推送详情</button></td></tr>
+                <tr><td><strong>水产/海参养殖</strong></td><td><span class="badge green">运行中</span></td><td>5 人</td><td>5 人发送</td><td><span class="badge green">覆盖正常</span></td><td><button class="btn" data-modal="subscribers-aqua" type="button">订阅者</button><button class="btn" data-modal="push-aqua" type="button">推送详情</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view admin-only-view" id="view-admin-settings">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>配置</h2>
+              <p class="body" style="margin-top:8px;">保留当前项目配置菜单页的内容，不因为企业版而消失。</p>
+            </div>
+          </div>
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-settings-tab="prompts" type="button">提示词模板</button>
+            <button class="tab" data-settings-tab="llm" type="button">AI 供应商</button>
+            <button class="tab" data-settings-tab="search" type="button">搜索供应商</button>
+            <button class="tab" data-settings-tab="auth" type="button">用户服务</button>
+          </div>
+          <div class="section">
+            <div class="tab-pane active" id="settings-prompts">
+              <div class="grid two">
+                <div class="card"><span class="badge">find-sources</span><h3>发现数据源提示词</h3><p class="body">控制 AI 如何搜索权威源、RSS 源、行业源，并输出推荐理由。</p><div class="actions section"><button class="btn" data-modal="prompt-find" type="button">编辑</button></div></div>
+                <div class="card"><span class="badge">generate-script</span><h3>生成采集脚本提示词</h3><p class="body">控制脚本生成、验证、修复和最终输出格式。</p><div class="actions section"><button class="btn" data-modal="prompt-script" type="button">编辑</button></div></div>
+                <div class="card"><span class="badge">validate-script</span><h3>脚本质量审查提示词</h3><p class="body">审查字段完整性、内容质量和是否采到目标信息。</p><div class="actions section"><button class="btn" data-modal="prompt-validate" type="button">编辑</button></div></div>
+                <div class="card"><span class="badge">email-digest</span><h3>邮件摘要提示词</h3><p class="body">企业版新增：对用户筛选结果生成邮件概要和相关性解释。</p><div class="actions section"><button class="btn" data-modal="prompt-email" type="button">编辑</button></div></div>
+              </div>
+            </div>
+            <div class="tab-pane" id="settings-llm">
+              <div class="table-wrap">
+                <table><thead><tr><th>供应商</th><th>模型</th><th>Base URL</th><th>状态</th><th>操作</th></tr></thead><tbody><tr><td>OpenAI Compatible</td><td>gpt-4.1</td><td>https://api.example.com/v1</td><td><span class="badge green">启用</span></td><td><button class="btn">测试</button></td></tr><tr><td>Local Gateway</td><td>qwen-max</td><td>http://ai-gateway.local</td><td><span class="badge">备用</span></td><td><button class="btn">启用</button></td></tr></tbody></table>
+              </div>
+            </div>
+            <div class="tab-pane" id="settings-search">
+              <div class="grid two">
+                <label>搜索供应商<select><option>Serper / Tavily</option><option>企业内网搜索</option></select></label>
+                <label>RSSHub 实例<input value="https://rsshub.example.com" /></label>
+                <label>RSS 雷达规则<input value="启用，失败时允许降级继续" /></label>
+                <label>搜索结果上限<input value="30" /></label>
+              </div>
+            </div>
+            <div class="tab-pane" id="settings-auth">
+              <div class="grid two">
+                <label>SMTP Host<input value="smtp.company.com" /></label>
+                <label>SMTP Port<input value="465" /></label>
+                <label>发件人<input value="nebula-prism@company.com" /></label>
+                <label>用户验证邮件<input value="启用，首个账号自动管理员" /></label>
+              </div>
+              <div class="actions section"><button class="btn primary">保存邮件服务配置</button><button class="btn">发送测试邮件</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view user-only-view" id="view-user-subscriptions">
+        <div class="metrics">
+          <div class="metric"><strong>2</strong><span class="small muted">我的产业订阅</span></div>
+          <div class="metric"><strong>1</strong><span class="small muted">今日已接收</span></div>
+          <div class="metric"><strong>1</strong><span class="small muted">今日跳过</span></div>
+          <div class="metric"><strong>3</strong><span class="small muted">接收邮箱</span></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div><h2>我的订阅</h2><p class="body" style="margin-top:8px;">普通用户不看脚本生成流程，只看自己的监控条件、接收邮箱和接收信息预览。</p></div>
+            <button class="btn primary" data-view="user-catalog" type="button">订阅新方向</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>产业方向</th><th>我的监控条件</th><th>接收邮箱</th><th>最近状态</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td><strong>食品安全</strong></td><td>食品安全对餐饮公司经营、合规成本和处罚风险的影响</td><td>userB@company.com<br />compliance@company.com</td><td><span class="badge amber">今日跳过</span><br /><span class="muted">高相关内容不足</span></td><td><button class="btn primary" data-modal="mail-preview-food" type="button">接收信息预览</button><button class="btn" data-modal="edit-user-food" type="button">编辑</button><button class="btn danger" data-modal="cancel-sub" type="button">取消</button></td></tr>
+                <tr><td><strong>水产/海参养殖</strong></td><td>最近一个季度的海参养殖病害预警和赤潮影响</td><td>userB@company.com</td><td><span class="badge green">今日已发送</span><br /><span class="muted">08:30，8 条</span></td><td><button class="btn primary" data-modal="mail-preview-aqua" type="button">接收信息预览</button><button class="btn" data-modal="edit-user-aqua" type="button">编辑</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view user-only-view" id="view-user-catalog">
+        <div class="panel">
+          <h2>产业目录</h2>
+          <p class="body" style="margin-top:8px;">只展示管理员已发布的信息池。订阅时填写监控条件和接收邮箱。</p>
+          <div class="grid two section">
+            <div class="card"><div class="panel-head"><div><h3>食品安全</h3><p class="body">监管政策、处罚、召回、餐饮影响。每日 09:00 报送。</p></div><span class="badge green">可订阅</span></div><div class="actions section"><button class="btn primary" data-modal="subscribe-food" type="button">订阅</button><button class="btn" data-modal="pool-range-food" type="button">信息池范围</button></div></div>
+            <div class="card"><div class="panel-head"><div><h3>水产/海参养殖</h3><p class="body">病害、赤潮、价格、政策。每日 08:30 报送。</p></div><span class="badge green">可订阅</span></div><div class="actions section"><button class="btn primary" data-modal="subscribe-aqua" type="button">订阅</button><button class="btn" data-modal="pool-range-aqua" type="button">信息池范围</button></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view user-only-view" id="view-user-settings">
+        <div class="panel">
+          <h2>个人配置</h2>
+          <p class="body" style="margin-top:8px;">普通用户只管理自己的接收邮箱偏好，不看到 LLM、RSSHub、SMTP 等管理员配置。</p>
+          <div class="grid two section">
+            <label>账号邮箱<input value="userB@company.com" /></label>
+            <label>默认附加邮箱<textarea>compliance@company.com</textarea></label>
+          </div>
+          <div class="actions section"><button class="btn primary">保存</button></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true">
+    <div class="modal" id="modalBox" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="modalTitle">详情</h2>
+          <p class="body" id="modalSub" style="margin-top:6px;"></p>
+        </div>
+        <button class="close" id="modalClose" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-content" id="modalContent"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const roleCopy = {
+      admin: {
+        label: '管理员工作台',
+        home: 'admin-home',
+        title: '企业级产业信息池，由管理员走完整订阅生成流程。',
+        intro: '主题、发现源、生成脚本、LLM 调用日志、预览和确认这些关键过程全部保留，只是从个人订阅创建转为管理员创建企业级产业配置。',
+        actions: [['新建产业配置', 'admin-build', 'primary'], ['查看监控', 'admin-monitor', '']]
+      },
+      user: {
+        label: '普通用户工作台',
+        home: 'user-subscriptions',
+        title: '普通用户订阅已发布产业信息池，配置自己的监控条件。',
+        intro: '普通用户不参与数据源和脚本生成，只从管理员发布的信息池里接收与自己条件相关的消息。',
+        actions: [['订阅新方向', 'user-catalog', 'primary'], ['我的订阅', 'user-subscriptions', '']]
+      }
+    };
+
+    const viewText = {
+      'admin-home': [roleCopy.admin.title, roleCopy.admin.intro],
+      'admin-build': ['新建产业配置：完整保留从主题到确认的订阅流程。', '管理员可以挑选源、手动新增源，查看流式 LLM 日志、脚本预览和采集预览。'],
+      'admin-pools': ['产业信息池：回看源、脚本、样本和发布规则。', '已发布信息池供普通用户订阅，用户条件只影响筛选，不影响脚本。'],
+      'admin-monitor': ['实时监控：看谁订阅了、推送了什么、哪里覆盖不足。', '这里不做订阅审批，只做运行可视化和优化提示。'],
+      'admin-settings': ['配置：保留当前项目配置菜单页内容。', '提示词模板、AI 供应商、搜索供应商、用户服务都保留在管理员端。'],
+      'user-subscriptions': [roleCopy.user.title, roleCopy.user.intro],
+      'user-catalog': ['产业目录：普通用户只看到已发布信息池。', '订阅时填写监控条件和接收邮箱，可查看信息池覆盖范围。'],
+      'user-settings': ['个人配置：普通用户只维护自己的邮箱偏好。', '系统级配置仍只属于管理员。']
+    };
+
+    const stepOrder = ['topic', 'sources', 'quality', 'script', 'verify', 'confirm'];
+    let currentStep = 0;
+
+    const modalData = {
+      'industry-snapshot': ['产业配置快照', '订阅创建时保存，用于后续审计和报告追溯。', `<div class="grid two"><div class="card"><span class="badge">关键词</span><h3>食品安全、餐饮、抽检、处罚、召回</h3><p class="body">后续 AI 找源和脚本生成都带入这组语义。</p></div><div class="card"><span class="badge">风险词</span><h3>整改、停业、舆情扩散、监管升级</h3><p class="body">用于判断消息重要性和邮件摘要重点。</p></div></div>`],
+      'manual-source': ['手动新增数据源', '管理员可以补充 AI 没发现但业务上确认重要的来源。', `<div class="form-grid"><label>源名称<input value="地方市场监管局处罚公示" /></label><label>URL<input value="https://example.gov.cn/food-penalty" /></label><label>源类型<select><option>权威事实源</option><option>行业协会源</option><option>新闻发现源</option></select></label><label>管理员说明<textarea>地方处罚案例更新快，适合补充餐饮企业经营影响。</textarea></label><div class="actions"><button class="btn primary" data-action="save">加入候选源</button><button class="btn" data-action="close">取消</button></div></div>`],
+      'find-source-log': ['AI 找源日志', '模拟保留当前项目 LLM 调用可追踪能力。', `<div class="llm-card"><div class="llm-head"><span class="stream-dot"></span><strong>LLM #1</strong><span>find-sources · tools: webSearch, rssRadar, checkFeed</span></div><div class="llm-body">[system] 你是数据源发现助手，优先寻找权威、稳定、可采集来源。\n[user] 食品安全监管政策、处罚、召回与餐饮企业经营影响监测\n[tool_call] webSearch({ query: "食品安全 监管 抽检 处罚 site:gov.cn" })\n[tool_call] rssRadar({ keyword: "市场监管 食品安全" })\n[text] 推荐 4 类来源：监管机构、专业机构、行业协会、新闻发现源。</div></div>`],
+      'source-detail-samr': ['国家市场监督管理总局', '推荐理由与采集建议。', `<div class="grid two"><div class="card"><span class="badge green">高权威</span><h3>监管部门官网</h3><p class="body">适合政策、抽检、处罚和召回一手信息。</p></div><div class="card"><span class="badge">采集建议</span><h3>优先 RSS，其次列表页 HTML</h3><p class="body">保留标题、发布时间、栏目、原文链接。</p></div></div>`],
+      'source-detail-cfsa': ['国家食品安全风险评估中心', '专业机构源。', `<p class="body">补充标准、风险评估和专业解读，可提升邮件摘要可信度。</p>`],
+      'source-detail-ccfa': ['中国连锁经营协会', '行业协会源。', `<p class="body">适合观察监管政策对连锁餐饮企业经营实践的影响。</p>`],
+      'source-detail-media': ['主流财经新闻食品安全频道', '新闻发现源。', `<p class="body">适合发现企业案例和舆情，但默认权重低于官方源，并需要事件归并去重。</p>`],
+      'quality-rules': ['评分规则', '进入信息池前先做来源和内容质量判断。', `<div class="grid two"><div class="card"><span class="badge">来源评分</span><h3>权威性 25% + 稳定性 15% + 可采集性 15%</h3><p class="body">官方和专业机构权重更高。</p></div><div class="card"><span class="badge">内容评分</span><h3>相关性 30% + 信息密度 15%</h3><p class="body">过滤车轱辘话、重复转载和无明确来源内容。</p></div></div>`],
+      'llm-log-full': ['完整 LLM 调用日志', '优化样式后的调用日志，保留请求、工具调用、响应和 token 信息。', `<div class="llm-card"><div class="llm-head"><span class="stream-dot"></span><strong>LLM #2</strong><span>generate-script · gpt-4.1 · 3120 tokens</span></div><div class="llm-body">请求：\n[system] 你是采集脚本生成助手，需要输出完整 TypeScript 脚本。\n[user] 来源：国家市场监督管理总局；目标：食品安全抽检、处罚、召回。\n\n工具调用：\n[tool_call] webFetchBrowser({ url: "https://www.samr.gov.cn/..." })\n[tool_call] validateScript({ script: "...", sourceUrl: "..." })\n\n响应：\n已识别列表页结构，优先抽取 title、url、publishedAt、summary。验证通过，初始采集 18 条。</div></div>`],
+      'script-preview-samr': ['脚本预览：市场监管总局', '管理员可在确认前查看脚本。', `<div class="code">export async function collect(ctx) {\n  const html = await ctx.fetchText('https://www.samr.gov.cn/');\n  const links = ctx.selectLinks(html, { textIncludes: ['食品安全', '抽检', '召回'] });\n  const items = [];\n  for (const link of links.slice(0, 30)) {\n    const page = await ctx.fetchText(link.url);\n    items.push({\n      title: ctx.extractTitle(page),\n      url: link.url,\n      publishedAt: ctx.extractDate(page),\n      summary: ctx.extractMainText(page).slice(0, 260),\n    });\n  }\n  return items;\n}</div>`],
+      'script-preview-ccfa': ['脚本预览：中国连锁经营协会', '脚本会补充餐饮行业视角。', `<div class="code">export async function collect(ctx) {\n  const feed = await ctx.fetchText('https://www.ccfa.org.cn/');\n  return ctx.extractArticles(feed, {\n    keywords: ['食品安全', '餐饮', '合规', '检查'],\n    limit: 20,\n  });\n}</div>`],
+      'sample-preview-samr': ['采集预览：市场监管总局', '脚本初始验证样本。', `<div class="table-wrap"><table><thead><tr><th>标题</th><th>发布时间</th><th>相关性</th><th>摘要</th></tr></thead><tbody><tr><td>多地开展餐饮食品安全专项检查</td><td>2026-07-03</td><td>94</td><td>涉及后厨卫生、留样制度和采购台账。</td></tr><tr><td>食品标签管理处罚案例增加</td><td>2026-07-02</td><td>88</td><td>处罚集中在标签、保质期和进货查验记录。</td></tr></tbody></table></div>`],
+      'sample-preview-ccfa': ['采集预览：中国连锁经营协会', '行业侧样本。', `<div class="table-wrap"><table><thead><tr><th>标题</th><th>相关性</th><th>摘要</th></tr></thead><tbody><tr><td>连锁餐饮企业食品安全自查表更新建议</td><td>83</td><td>建议按新检查口径更新自查表和门店培训。</td></tr></tbody></table></div>`],
+      'source-retry-prompt': ['补充提示', '管理员可以给某个源追加生成提示。', `<div class="form-grid"><label>补充提示<textarea>优先采集食品安全抽检、处罚、召回栏目；忽略会议新闻和无实质内容的通知。</textarea></label><div class="actions"><button class="btn primary" data-action="save">保存并重试</button></div></div>`],
+      'all-samples': ['完整样本', '发布前的初始采集检查。', `<div class="table-wrap"><table><thead><tr><th>事件</th><th>来源</th><th>权威性</th><th>质量</th></tr></thead><tbody><tr><td>餐饮食品安全专项检查</td><td>监管部门、省级监管局</td><td>高</td><td>可入池</td></tr><tr><td>旧抽检名单重复转载</td><td>转载站</td><td>低</td><td>过滤</td></tr></tbody></table></div>`],
+      'event-detail-1': ['事件详情', '同一事件多源佐证。', `<div class="grid two"><div class="card"><span class="badge green">代表消息</span><h3>多地开展餐饮食品安全专项检查</h3><p class="body">来源：市场监管总局。相关性 94。</p></div><div class="card"><span class="badge">多源佐证</span><h3>省级监管局、地方处罚公示</h3><p class="body">归并为同一检查事件，邮件只展示代表消息。</p></div></div>`],
+      'event-detail-2': ['事件详情', '处罚案例事件。', `<p class="body">食品标签管理处罚案例增加，涉及原料标签、保质期和进货查验记录。</p>`],
+      'event-detail-3': ['过滤原因', '低质量内容不入池。', `<p class="body">该站点重复发布旧抽检名单，且没有新增事实，因此过滤。</p>`],
+      'publish-confirm': ['确认发布产业信息池', '发布后普通用户可订阅。', `<div class="grid two"><div class="card"><span class="badge green">可见范围</span><h3>普通用户产业目录</h3><p class="body">用户可订阅并填写自己的监控条件。</p></div><div class="card"><span class="badge">报送规则</span><h3>每日 09:00，最多 8 条</h3><p class="body">低相关内容不足时跳过发送。</p></div></div><div class="actions section"><button class="btn primary" data-action="publish">确认发布</button><button class="btn" data-action="close">取消</button></div>`],
+      'pool-food-detail': ['食品安全信息池详情', '源、脚本、样本、发布配置都能回看。', `<div class="grid two"><div class="card"><span class="badge green">14 个数据源</span><h3>官方源 6 / 专业源 3 / 行业源 2 / 新闻源 3</h3><p class="body">脚本均可回看和重试。</p></div><div class="card"><span class="badge">事件归并</span><h3>今日 31 条归并为 11 个事件</h3><p class="body">邮件默认展示代表消息和多源佐证。</p></div></div>`],
+      'pool-aqua-detail': ['水产/海参养殖信息池详情', '运行正常。', `<p class="body">病害、赤潮、价格和政策来源覆盖稳定，今日推送 5 人。</p>`],
+      'runtime-log': ['运行日志', '采集、归并、报送。', `<div class="log-stack"><div class="log">09:00 食品安全报送完成：8 发送，1 跳过。</div><div class="log">09:02 触发覆盖不足提示：餐饮经营影响内容偏少。</div><div class="log">11:20 食品安全采集完成：新增 31 条，归并 11 事件。</div></div>`],
+      'subscribers-food': ['食品安全订阅者', '管理员能看到谁订阅了已发布信息池。', `<div class="table-wrap"><table><thead><tr><th>用户</th><th>监控条件</th><th>邮箱</th><th>最近结果</th></tr></thead><tbody><tr><td>用户 A</td><td>食品安全管理条例相关</td><td>a@company.com</td><td><span class="badge green">发送 7 条</span></td></tr><tr><td>用户 B</td><td>食品安全对餐饮公司影响</td><td>userB@company.com<br>compliance@company.com</td><td><span class="badge amber">跳过</span></td></tr></tbody></table></div>`],
+      'subscribers-aqua': ['水产/海参养殖订阅者', '订阅者列表。', `<p class="body">用户 B、用户 E 等 5 人订阅，今日全部发送成功。</p>`],
+      'push-food': ['食品安全推送详情', '最近一次报送。', `<div class="table-wrap"><table><thead><tr><th>用户</th><th>标题</th><th>相关性</th><th>状态</th></tr></thead><tbody><tr><td>用户 A</td><td>食品安全管理条例修订</td><td>96</td><td>已发送</td></tr><tr><td>用户 B</td><td>候选内容不足</td><td>66</td><td>跳过</td></tr></tbody></table></div>`],
+      'push-aqua': ['水产/海参养殖推送详情', '最近一次报送。', `<p class="body">海参病害预测月报、赤潮预警等 8 条已发送。</p>`],
+      'prompt-find': ['编辑提示词模板：find-sources', '配置页内容保留。', `<div class="form-grid"><textarea>优先寻找权威事实源、行业协会源、RSS 源，并输出推荐理由、权威性和可采集性。</textarea><button class="btn primary" data-action="save">保存</button></div>`],
+      'prompt-script': ['编辑提示词模板：generate-script', '配置页内容保留。', `<div class="form-grid"><textarea>为选定来源生成完整采集脚本，必须验证并返回 initialItems。</textarea><button class="btn primary" data-action="save">保存</button></div>`],
+      'prompt-validate': ['编辑提示词模板：validate-script', '配置页内容保留。', `<div class="form-grid"><textarea>检查采集样本是否字段完整、内容相关、无明显垃圾内容。</textarea><button class="btn primary" data-action="save">保存</button></div>`],
+      'prompt-email': ['编辑提示词模板：email-digest', '企业版邮件摘要。', `<div class="form-grid"><textarea>基于用户监控条件生成摘要、相关性说明和风险提示。</textarea><button class="btn primary" data-action="save">保存</button></div>`],
+      'mail-preview-food': ['接收信息预览：食品安全', '本次高相关内容不足，将跳过发送。', `<div class="mail"><div class="mail-head"><div class="small">发往 userB@company.com, compliance@company.com</div><h2 style="margin-top:8px;">食品安全产业早报 - 餐饮公司经营影响</h2></div><div class="mail-body"><div class="mail-summary">本次从食品安全信息池中未筛选出足够高相关内容，系统不会发送空泛邮件。</div><div class="table-wrap"><table><thead><tr><th>候选标题</th><th>相关性</th><th>未发送原因</th></tr></thead><tbody><tr><td>食品安全抽检通报</td><td>61</td><td>偏政策通报，对餐饮经营影响不足。</td></tr><tr><td>食品标签处罚案例</td><td>66</td><td>样本不足，未达到阈值。</td></tr></tbody></table></div></div></div>`],
+      'mail-preview-aqua': ['接收信息预览：水产/海参养殖', '这是用户会收到的邮件预览。', `<div class="mail"><div class="mail-head"><div class="small">发往 userB@company.com</div><h2 style="margin-top:8px;">水产/海参养殖早报</h2></div><div class="mail-body"><p class="body">本次筛选出 8 条与你的条件高度相关的信息。</p><div class="mail-summary">高权威来源 4 条；同一赤潮事件已归并。</div><div class="table-wrap"><table><thead><tr><th>标题</th><th>来源</th><th>相关性</th><th>摘要</th></tr></thead><tbody><tr><td>海参养殖病害预测月报</td><td>全国水产技术推广总站</td><td>94</td><td>提示高温期病害风险上升。</td></tr><tr><td>赤潮预警影响养殖区</td><td>海洋环境预报中心</td><td>88</td><td>建议关注水体监测。</td></tr></tbody></table></div></div></div>`],
+      'edit-user-food': ['编辑监控条件', '只影响筛选和邮件，不影响采集脚本。', `<div class="form-grid"><label>监控条件<textarea>食品安全对餐饮公司经营、合规成本和处罚风险的影响</textarea></label><label>接收邮箱<textarea>userB@company.com, compliance@company.com</textarea></label><div class="actions"><button class="btn primary" data-action="save">保存</button></div></div>`],
+      'edit-user-aqua': ['编辑监控条件', '只影响筛选和邮件。', `<div class="form-grid"><label>监控条件<textarea>最近一个季度的海参养殖病害预警和赤潮影响</textarea></label><label>接收邮箱<textarea>userB@company.com</textarea></label><div class="actions"><button class="btn primary" data-action="save">保存</button></div></div>`],
+      'cancel-sub': ['取消订阅', '取消后不再接收该方向邮件。', `<p class="body">确认取消食品安全订阅吗？不会影响管理员维护的信息池。</p><div class="actions section"><button class="btn danger" data-action="cancel">确认取消</button><button class="btn" data-action="close">保留</button></div>`],
+      'subscribe-food': ['订阅食品安全', '填写监控条件和接收邮箱。', `<div class="form-grid"><label>我的监控条件<textarea>食品安全对餐饮公司经营、合规成本和处罚风险的影响</textarea></label><label>接收邮箱<textarea>userB@company.com, compliance@company.com</textarea></label><div class="actions"><button class="btn primary" data-action="subscribe">提交订阅</button></div></div>`],
+      'subscribe-aqua': ['订阅水产/海参养殖', '填写监控条件和接收邮箱。', `<div class="form-grid"><label>我的监控条件<textarea>最近一个季度的海参养殖病害预警和赤潮影响</textarea></label><label>接收邮箱<textarea>userB@company.com</textarea></label><div class="actions"><button class="btn primary" data-action="subscribe">提交订阅</button></div></div>`],
+      'pool-range-food': ['食品安全信息池范围', '用户可查看范围但不能编辑源和脚本。', `<div class="grid two"><div class="card"><span class="badge green">覆盖</span><h3>监管、处罚、召回</h3><p class="body">官方源覆盖较强。</p></div><div class="card"><span class="badge amber">可能不足</span><h3>餐饮经营影响</h3><p class="body">若长期低相关，管理员会在监控页看到提示。</p></div></div>`],
+      'pool-range-aqua': ['水产/海参养殖信息池范围', '用户可查看范围但不能编辑源和脚本。', `<p class="body">覆盖病害、赤潮、价格、政策，每日 08:30 报送。</p>`]
+    };
+
+    function setActions(role) {
+      const wrap = document.getElementById('topActions');
+      wrap.innerHTML = '';
+      roleCopy[role].actions.forEach(([label, view, tone]) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = tone === 'primary' ? 'btn primary' : 'btn';
+        button.dataset.view = view;
+        button.textContent = label;
+        wrap.appendChild(button);
+      });
+    }
+
+    function setRole(role) {
+      document.body.dataset.role = role;
+      document.querySelectorAll('.role-tabs button[data-role]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.role === role);
+      });
+      setActions(role);
+      showView(roleCopy[role].home);
+    }
+
+    function showView(view) {
+      document.querySelectorAll('.view').forEach((node) => node.classList.remove('active'));
+      const target = document.getElementById(`view-${view}`);
+      if (target) target.classList.add('active');
+      document.querySelectorAll('.nav button').forEach((button) => {
+        button.classList.toggle('active', button.dataset.view === view);
+      });
+      const role = document.body.dataset.role;
+      const text = viewText[view] || [roleCopy[role].title, roleCopy[role].intro];
+      document.getElementById('roleLabel').textContent = roleCopy[role].label;
+      document.getElementById('pageTitle').textContent = text[0];
+      document.getElementById('pageIntro').textContent = text[1];
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function setStep(step) {
+      const idx = stepOrder.indexOf(step);
+      currentStep = idx >= 0 ? idx : 0;
+      document.querySelectorAll('[data-step]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.step === stepOrder[currentStep]);
+      });
+      document.querySelectorAll('.step-pane').forEach((pane) => pane.classList.remove('active'));
+      document.getElementById(`step-${stepOrder[currentStep]}`).classList.add('active');
+    }
+
+    function openModal(key) {
+      const data = modalData[key];
+      if (!data) return;
+      document.getElementById('modalTitle').textContent = data[0];
+      document.getElementById('modalSub').textContent = data[1] || '';
+      document.getElementById('modalContent').innerHTML = data[2];
+      document.getElementById('modalBox').classList.toggle('small', key.includes('edit') || key.includes('subscribe') || key === 'manual-source' || key === 'cancel-sub');
+      document.getElementById('modalBackdrop').classList.add('open');
+      document.getElementById('modalBackdrop').setAttribute('aria-hidden', 'false');
+    }
+
+    function closeModal() {
+      document.getElementById('modalBackdrop').classList.remove('open');
+      document.getElementById('modalBackdrop').setAttribute('aria-hidden', 'true');
+    }
+
+    function toast(message) {
+      const node = document.getElementById('toast');
+      node.textContent = message;
+      node.classList.add('show');
+      clearTimeout(window.toastTimer);
+      window.toastTimer = setTimeout(() => node.classList.remove('show'), 2400);
+    }
+
+    document.addEventListener('click', (event) => {
+      const roleButton = event.target.closest('.role-tabs button[data-role]');
+      if (roleButton) setRole(roleButton.dataset.role);
+
+      const viewButton = event.target.closest('[data-view]');
+      if (viewButton) showView(viewButton.dataset.view);
+
+      const stepButton = event.target.closest('[data-step]');
+      if (stepButton) setStep(stepButton.dataset.step);
+
+      if (event.target.closest('.next-step')) setStep(stepOrder[Math.min(currentStep + 1, stepOrder.length - 1)]);
+      if (event.target.closest('.prev-step')) setStep(stepOrder[Math.max(currentStep - 1, 0)]);
+
+      const modalButton = event.target.closest('[data-modal]');
+      if (modalButton) openModal(modalButton.dataset.modal);
+
+      const tabButton = event.target.closest('[data-settings-tab]');
+      if (tabButton) {
+        const tab = tabButton.dataset.settingsTab;
+        document.querySelectorAll('[data-settings-tab]').forEach((button) => button.classList.toggle('active', button.dataset.settingsTab === tab));
+        document.querySelectorAll('.tab-pane').forEach((pane) => pane.classList.remove('active'));
+        document.getElementById(`settings-${tab}`).classList.add('active');
+      }
+
+      const sourceToggle = event.target.closest('.source-toggle');
+      if (sourceToggle) {
+        const row = sourceToggle.closest('.source-row');
+        row.classList.toggle('selected');
+        const selected = row.classList.contains('selected');
+        sourceToggle.textContent = selected ? '已选' : '未选';
+        sourceToggle.classList.toggle('green', selected);
+      }
+
+      const action = event.target.closest('[data-action]')?.dataset.action;
+      if (action) {
+        if (action === 'close') closeModal();
+        if (action === 'save') { closeModal(); toast('已保存。'); }
+        if (action === 'publish') { closeModal(); toast('产业信息池已发布，普通用户可订阅。'); }
+        if (action === 'subscribe') { closeModal(); toast('订阅已提交。'); }
+        if (action === 'cancel') { closeModal(); toast('订阅已取消。'); }
+      }
+    });
+
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('modalBackdrop').addEventListener('click', (event) => {
+      if (event.target.id === 'modalBackdrop') closeModal();
+    });
+
+    document.getElementById('runScriptBtn').addEventListener('click', () => {
+      document.getElementById('scriptStatusText').textContent = '生成成功，采集到 18 条样本';
+      document.getElementById('streamLog').textContent =
+        '[system] 你是采集脚本生成助手，需要输出完整可运行脚本。\\n' +
+        '[user] 来源：国家市场监督管理总局；目标：食品安全抽检、处罚、召回。\\n' +
+        '[tool_call] webFetchBrowser({ url: \"https://www.samr.gov.cn/...\" })\\n' +
+        '[tool_result] 已捕获列表页 HTML，发现标题、时间、详情链接结构。\\n' +
+        '[tool_call] validateScript({ script: \"...\" })\\n' +
+        '[text] 脚本验证通过，初始采集 18 条。建议 cron: 0 */4 * * *。';
+      toast('脚本生成完成，已更新 LLM 流式日志。');
+    });
+
+    setActions('admin');
+  </script>
+</body>
+</html>
