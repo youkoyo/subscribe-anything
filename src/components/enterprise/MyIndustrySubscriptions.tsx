@@ -103,7 +103,7 @@ export default function MyIndustrySubscriptions({ refreshKey = 0 }: MyIndustrySu
   return (
     <section className="mt-8">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">我的产业订阅</h2>
+        <h2 className="text-lg font-semibold">我的订阅</h2>
         <Badge variant="outline">{rows.length} 项</Badge>
       </div>
       <div className="grid gap-3">
@@ -127,7 +127,8 @@ export default function MyIndustrySubscriptions({ refreshKey = 0 }: MyIndustrySu
                   </div>
                   <div className="mt-2 text-sm text-muted-foreground">{row.subscription.customCriteria}</div>
                   <div className="mt-2 text-xs text-muted-foreground">
-                    需求簇：{row.profile?.title ?? '匹配中'} · 收件邮箱：{recipients.join('、') || '未配置'}
+                    信息池：{row.profile?.title ?? '等待管理员发布'} · 收件邮箱：
+                    {recipients.join('、') || '未配置'}
                   </div>
                   <div className="mt-3 max-w-xl">
                     <div className="mb-1 flex items-center justify-between gap-3 text-xs text-muted-foreground">

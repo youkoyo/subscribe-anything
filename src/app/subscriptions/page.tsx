@@ -27,15 +27,15 @@ export default function SubscriptionsPage() {
       <div className="p-4 md:p-6 max-w-4xl mx-auto">
         <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">我的产业订阅</h1>
+            <h1 className="text-2xl font-semibold">我的订阅</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              普通用户请从管理员发布的产业方向中选择订阅，并补充自己的监控条件和收件邮箱配置。
+              查看已订阅的信息池，维护你的个性化监控条件和收件邮箱配置。
             </p>
           </div>
           <Link href="/industry-configs">
             <Button>
               <Plus className="h-4 w-4 mr-2" />
-              选择产业订阅
+              打开产业目录
             </Button>
           </Link>
         </div>
@@ -46,7 +46,6 @@ export default function SubscriptionsPage() {
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
-      {/* Page header — desktop */}
       <div className="hidden md:flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">我的订阅</h1>
         <Link href="/subscriptions/new" onClick={markNewWizard}>
@@ -57,12 +56,10 @@ export default function SubscriptionsPage() {
         </Link>
       </div>
 
-      {/* Mobile page title */}
       <h1 className="text-2xl font-semibold mb-4 md:hidden">我的订阅</h1>
 
       <SubscriptionList />
 
-      {/* Mobile FAB — fixed above bottom nav */}
       <Link href="/subscriptions/new" className="md:hidden" onClick={markNewWizard}>
         <button
           aria-label="新建订阅"

@@ -55,7 +55,7 @@ export async function POST(
         const industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
           industryConfigId,
           industryConfigSnapshot,
-        });
+        }, { isAdmin: session.isAdmin });
         resolvedIndustryConfigId = industrySelection.industryConfigId;
         resolvedIndustryConfigSnapshot = industrySelection.industryConfigSnapshot;
       } catch (err) {

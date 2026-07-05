@@ -1,4 +1,4 @@
-import { getIndustryConfigForUser } from './service';
+import { getIndustryConfigForAdmin, getIndustryConfigForUser } from './service';
 import type { IndustryConfigSnapshot } from './types';
 
 export interface IndustrySelectionInput {
@@ -26,13 +26,16 @@ export function parseIndustryConfigSnapshot(value: string | null | undefined) {
 
 export function resolveSubscriptionIndustrySelection(
   userId: string,
-  input: IndustrySelectionInput
+  input: IndustrySelectionInput,
+  options: { isAdmin?: boolean } = {}
 ): SubscriptionIndustrySelection {
   const industryConfigId =
     typeof input.industryConfigId === 'string' ? input.industryConfigId.trim() : '';
 
   if (industryConfigId) {
-    const config = getIndustryConfigForUser(industryConfigId, userId);
+    const config = options.isAdmin
+      ? getIndustryConfigForAdmin(industryConfigId)
+      : getIndustryConfigForUser(industryConfigId, userId);
     if (!config) throw new Error(INDUSTRY_CONFIG_NOT_FOUND);
 
     return {

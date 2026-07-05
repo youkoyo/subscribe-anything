@@ -1,23 +1,21 @@
 'use client';
 
-import { useState } from 'react';
 import IndustryCatalog from '@/components/enterprise/IndustryCatalog';
-import MyIndustrySubscriptions from '@/components/enterprise/MyIndustrySubscriptions';
 import IndustryConfigManager from '@/components/industry-configs/IndustryConfigManager';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function IndustryConfigsPage() {
   const { user } = useAuth();
   const isAdmin = user?.isAdmin ?? false;
-  const [subscriptionRefreshKey, setSubscriptionRefreshKey] = useState(0);
 
   if (isAdmin) {
     return (
-      <div className="p-4 md:p-6 max-w-5xl mx-auto">
+      <div className="mx-auto max-w-6xl p-4 md:p-6">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold">产业方向管理</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            维护企业级产业方向、订阅权限、需求扩展策略和邮件报送规则。
+          <div className="text-sm font-medium text-cyan-100/78">管理员</div>
+          <h1 className="mt-2 text-2xl font-semibold text-cyan-50">产业信息池</h1>
+          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+            管理员维护企业级产业信息池，完成找源、脚本生成和验证后发布给普通用户订阅。
           </p>
         </div>
         <IndustryConfigManager />
@@ -26,15 +24,15 @@ export default function IndustryConfigsPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto">
+    <div className="mx-auto max-w-5xl p-4 md:p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold">产业订阅</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          选择管理员发布的产业方向，补充你的监控条件，系统会按企业统一节奏发送个性化邮件。
+        <div className="text-sm font-medium text-cyan-100/78">普通用户</div>
+        <h1 className="mt-2 text-2xl font-semibold text-cyan-50">产业目录</h1>
+        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+          选择管理员发布的产业信息池，补充你的监控条件和收件邮箱；采集源与脚本由管理员统一维护。
         </p>
       </div>
-      <IndustryCatalog onSubscriptionCreated={() => setSubscriptionRefreshKey((key) => key + 1)} />
-      <MyIndustrySubscriptions refreshKey={subscriptionRefreshKey} />
+      <IndustryCatalog />
     </div>
   );
 }

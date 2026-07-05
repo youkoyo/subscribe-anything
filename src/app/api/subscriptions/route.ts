@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     const session = await requireAuth();
     if (!session.isAdmin) {
       return Response.json(
-        { error: '普通用户请从产业订阅目录发起订阅' },
+        { error: '普通用户请从产业目录发起订阅' },
         { status: 403 }
       );
     }
@@ -98,7 +98,7 @@ export async function POST(req: Request) {
       industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
         industryConfigId,
         industryConfigSnapshot,
-      });
+      }, { isAdmin: session.isAdmin });
     } catch (err) {
       const response = industrySelectionErrorResponse(err);
       if (response) return response;

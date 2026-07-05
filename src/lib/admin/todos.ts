@@ -65,7 +65,7 @@ export function listAdminTodos(): AdminTodoItem[] {
       industryName: industry.name,
       userLabel: userLabel(user),
       customCriteria: subscription.customCriteria,
-      reason: '该产业方向需要管理员审批后才能进入采集池匹配流程。',
+      reason: '该产业方向需要管理员审批后才能进入信息池匹配流程。',
       actionLabel: '通过',
       actionEndpoint: `/api/admin/todos/subscriptions/${subscription.id}/approve`,
       updatedAt: subscription.updatedAt,
@@ -89,11 +89,11 @@ export function listAdminTodos(): AdminTodoItem[] {
     .map(({ profile, industry, user }) => ({
       id: `profile-approval:${profile.id}`,
       type: 'confirm_profile_expansion' as const,
-      title: '确认扩展采集池',
+      title: '确认扩展信息池',
       industryName: industry.name,
       userLabel: userLabel(user),
       customCriteria: profile.seedCriteria,
-      reason: '用户监控条件和已有采集池差异较大，需要确认是否扩展新的共享采集池。',
+      reason: '用户监控条件和已有信息池差异较大，需要确认是否扩展新的共享信息池。',
       actionLabel: '确认扩展',
       actionEndpoint: `/api/industry-profiles/${profile.id}/approve`,
       updatedAt: profile.updatedAt,
@@ -117,13 +117,13 @@ export function listAdminTodos(): AdminTodoItem[] {
     .map(({ profile, industry, user }) => ({
       id: `profile-retry:${profile.id}`,
       type: 'retry_profile_provisioning' as const,
-      title: '重试采集池创建',
+      title: '重试信息池创建',
       industryName: industry.name,
       userLabel: userLabel(user),
       customCriteria: profile.seedCriteria,
       reason: profile.provisioningError
-        ? `采集池创建失败：${profile.provisioningError}`
-        : '采集池创建失败，需要重新触发创建流程。',
+        ? `信息池创建失败：${profile.provisioningError}`
+        : '信息池创建失败，需要重新触发创建流程。',
       actionLabel: '重试创建',
       actionEndpoint: `/api/industry-profiles/${profile.id}/retry`,
       updatedAt: profile.updatedAt,

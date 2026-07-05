@@ -274,10 +274,10 @@ export default function Step2FindSources({
       <div>
         <h2 className="text-xl font-semibold mb-1">发现数据源</h2>
         <p className="text-sm text-muted-foreground">
-          主题：<span className="text-foreground font-medium">{state.topic}</span>
+          信息池：<span className="text-foreground font-medium">{state.topic}</span>
           {state.criteria && (
             <>
-              {' '}· 条件：<span className="text-foreground">{state.criteria}</span>
+              {' '}· 边界：<span className="text-foreground">{state.criteria}</span>
             </>
           )}
         </p>
@@ -456,7 +456,7 @@ export default function Step2FindSources({
               }}
               disabled={isDone && selectedCount === 0}
               className="flex-none text-amber-600 border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50"
-              title="AI 自动完成脚本生成，在后台创建订阅"
+              title="AI 自动完成脚本生成，在后台创建信息池"
             >
               <BotIcon className="h-4 w-4 mr-1.5" />
               帮我完成

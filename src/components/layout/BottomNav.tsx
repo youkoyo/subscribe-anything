@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, ClipboardList, Factory, Heart, Settings } from 'lucide-react';
+import {
+  Activity,
+  BookOpen,
+  Database,
+  Factory,
+  LayoutDashboard,
+  Plus,
+  Settings,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { AdminTodoBadge } from './AdminTodoBadge';
@@ -15,13 +24,19 @@ export function BottomNav({ className }: BottomNavProps) {
   const pathname = usePathname();
   const { user } = useAuth();
 
-  const navItems = [
-    { href: '/subscriptions', label: '订阅', icon: BookOpen },
-    { href: '/industry-configs', label: '产业配置', icon: Factory },
-    ...(user?.isAdmin ? [{ href: '/admin/todos', label: '待办', icon: ClipboardList }] : []),
-    { href: '/favorites', label: '收藏', icon: Heart },
-    { href: '/settings', label: '配置', icon: Settings },
-  ];
+  const navItems = user?.isAdmin
+    ? [
+        { href: '/admin/todos', label: '工作台', icon: LayoutDashboard },
+        { href: '/industry-configs/new', label: '新建', icon: Plus },
+        { href: '/industry-configs', label: '信息池', icon: Database, exact: true },
+        { href: '/industry-configs/monitoring', label: '监控', icon: Activity },
+        { href: '/settings', label: '配置', icon: Settings },
+      ]
+    : [
+        { href: '/subscriptions', label: '我的订阅', icon: BookOpen },
+        { href: '/industry-configs', label: '产业目录', icon: Factory, exact: true },
+        { href: '/settings', label: '个人配置', icon: SlidersHorizontal },
+      ];
 
   return (
     <nav
@@ -32,8 +47,8 @@ export function BottomNav({ className }: BottomNavProps) {
       )}
       style={{ touchAction: 'manipulation' }}
     >
-      {navItems.map(({ href, label, icon: Icon }) => {
-        const active = pathname.startsWith(href);
+      {navItems.map(({ href, label, icon: Icon, exact }) => {
+        const active = exact ? pathname === href : pathname.startsWith(href);
         return (
           <Link
             key={href}

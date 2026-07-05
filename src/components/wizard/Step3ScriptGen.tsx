@@ -379,7 +379,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
       <div className="flex-shrink-0">
         <h2 className="text-xl font-semibold mb-1">生成采集脚本</h2>
         <p className="text-sm text-muted-foreground">
-          AI 正在为已选数据源并行生成并验证采集脚本，未选中的数据源可手动开始
+          AI 正在为管理员选中的数据源并行生成并验证采集脚本，日志、脚本和初始样本都会保留到信息池
         </p>
       </div>
 
@@ -610,7 +610,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
               className="flex-none text-amber-600 border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50"
               title={anyInProgress
                 ? '中止当前生成，将已完成的源交给后台完成'
-                : '跳过确认步骤，在后台直接创建订阅'}
+                : '跳过确认步骤，在后台直接完成信息池创建'}
             >
               <Bot className="h-4 w-4 mr-1.5" />
               帮我完成

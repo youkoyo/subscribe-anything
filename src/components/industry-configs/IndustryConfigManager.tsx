@@ -1,15 +1,18 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   Check,
+  Database,
   Pencil,
   Plus,
   Power,
   RefreshCw,
   Save,
   Send,
+  Activity,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -63,6 +66,22 @@ interface IndustryConfigView {
   updatedAt?: string;
   snapshot: IndustryConfigSnapshot;
   suggestion: IndustrySubscriptionSuggestion;
+  poolStats?: {
+    profileId: string | null;
+    profileStatus: string | null;
+    sharedSubscriptionId: string | null;
+    profileCount: number;
+    sourceCount: number;
+    activeSourceCount: number;
+    failedSourceCount: number;
+    messageCount: number;
+    lastCollectedAt: string | Date | null;
+    subscriberCount: number;
+    activeSubscriberCount: number;
+    skippedSubscriberCount: number;
+    lastDeliveryStatus: string | null;
+    lastDeliveryAt: string | Date | null;
+  };
 }
 
 interface IndustrySubscriberRow {
@@ -211,6 +230,18 @@ export default function IndustryConfigManager() {
   const [subscriberLoading, setSubscriberLoading] = useState(false);
 
   const enabledCount = useMemo(() => configs.filter((item) => item.isEnabled).length, [configs]);
+  const publishedCount = useMemo(
+    () => configs.filter((item) => item.visibility === 'published').length,
+    [configs]
+  );
+  const activePoolCount = useMemo(
+    () => configs.filter((item) => !!item.poolStats?.sharedSubscriptionId).length,
+    [configs]
+  );
+  const subscriberCount = useMemo(
+    () => configs.reduce((total, item) => total + (item.poolStats?.subscriberCount ?? 0), 0),
+    [configs]
+  );
 
   const fetchConfigs = useCallback(async () => {
     try {
@@ -392,35 +423,51 @@ export default function IndustryConfigManager() {
 
   return (
     <>
-      <div className="mb-4 flex flex-col gap-3 rounded-lg border border-cyan-400/20 bg-card p-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-sm text-muted-foreground">已配置产业</div>
-          <div className="mt-1 text-2xl font-semibold text-cyan-50">
-            {configs.length}
-            <span className="ml-2 text-sm font-normal text-muted-foreground">个产业，{enabledCount} 个启用</span>
-          </div>
+      <div className="mb-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-lg border border-cyan-300/25 bg-card p-4">
+          <div className="text-sm text-muted-foreground">产业信息池</div>
+          <div className="mt-2 text-2xl font-semibold text-cyan-50">{configs.length}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{publishedCount} 个已发布</div>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          新建产业配置
-        </Button>
+        <div className="rounded-lg border border-cyan-300/25 bg-card p-4">
+          <div className="text-sm text-muted-foreground">已构建信息池</div>
+          <div className="mt-2 text-2xl font-semibold text-cyan-50">{activePoolCount}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{enabledCount} 个启用中</div>
+        </div>
+        <div className="rounded-lg border border-cyan-300/25 bg-card p-4">
+          <div className="text-sm text-muted-foreground">企业订阅者</div>
+          <div className="mt-2 text-2xl font-semibold text-cyan-50">{subscriberCount}</div>
+          <div className="mt-1 text-xs text-muted-foreground">按用户条件个性化筛选</div>
+        </div>
+        <div className="flex rounded-lg border border-cyan-300/25 bg-card p-4 md:items-center md:justify-end">
+          <Button asChild className="w-full md:w-auto">
+            <Link href="/industry-configs/new">
+              <Plus className="h-4 w-4" />
+              新建产业配置
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {configs.length === 0 ? (
         <div className="rounded-lg border border-dashed border-cyan-300/35 bg-card/70 px-6 py-14 text-center">
           <p className="text-lg font-medium">暂无产业配置</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            先沉淀一个产业画像，后续新建订阅时就能直接套用。
+            先沉淀一个产业画像，再进入向导完成找源、脚本生成和信息池发布。
           </p>
-          <Button className="mt-6" onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            新建产业配置
+          <Button asChild className="mt-6">
+            <Link href="/industry-configs/new">
+              <Plus className="h-4 w-4" />
+              新建产业配置
+            </Link>
           </Button>
         </div>
       ) : (
         <div className="grid gap-3">
           {configs.map((config) => {
             const snapshot = config.snapshot;
+            const pool = config.poolStats;
+            const hasPool = !!pool?.sharedSubscriptionId;
             const tags = [
               ...snapshot.keywords.slice(0, 4),
               ...snapshot.riskTerms.slice(0, 2),
@@ -444,6 +491,9 @@ export default function IndustryConfigManager() {
                       </Badge>
                       <Badge variant={config.deliveryEnabled ? 'default' : 'outline'}>
                         {config.deliveryEnabled ? '报送启用' : '报送关闭'}
+                      </Badge>
+                      <Badge variant={hasPool ? 'default' : 'outline'}>
+                        {hasPool ? '信息池就绪' : '待构建信息池'}
                       </Badge>
                       <Badge variant="outline">{snapshot.alertLevel}</Badge>
                     </div>
@@ -469,13 +519,56 @@ export default function IndustryConfigManager() {
                         <span className="text-sm text-muted-foreground">尚未填写关键词或区域</span>
                       )}
                     </div>
+                    <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
+                      <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
+                        <div className="flex items-center gap-1 text-cyan-50/80">
+                          <Database className="h-3.5 w-3.5" />
+                          数据源
+                        </div>
+                        <div className="mt-1 text-cyan-50">
+                          {pool?.sourceCount ?? 0} 个，{pool?.activeSourceCount ?? 0} 个启用
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
+                        <div className="flex items-center gap-1 text-cyan-50/80">
+                          <Activity className="h-3.5 w-3.5" />
+                          入池消息
+                        </div>
+                        <div className="mt-1 text-cyan-50">{pool?.messageCount ?? 0} 条</div>
+                      </div>
+                      <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
+                        <div className="flex items-center gap-1 text-cyan-50/80">
+                          <Users className="h-3.5 w-3.5" />
+                          订阅者
+                        </div>
+                        <div className="mt-1 text-cyan-50">
+                          {pool?.subscriberCount ?? 0} 人，{pool?.activeSubscriberCount ?? 0} 人运行中
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
+                        <div className="text-cyan-50/80">报送</div>
+                        <div className="mt-1 text-cyan-50">
+                          {config.deliveryCron || '未配置'} · 最多 {config.maxItemsPerEmail ?? 10} 条
+                        </div>
+                      </div>
+                    </div>
                     <div className="mt-3 text-xs text-muted-foreground">
-                      订阅建议：{config.suggestion.topic} · 报送：{config.deliveryCron || '未配置'} · 每封最多{' '}
-                      {config.maxItemsPerEmail ?? 10} 条
+                      订阅主题建议：{config.suggestion.topic}
                     </div>
                   </div>
 
                   <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
+                    <Button asChild size="sm">
+                      <Link
+                        href={`/subscriptions/new?industryConfigId=${config.id}`}
+                        onClick={() => {
+                          sessionStorage.setItem('wizard-new', '1');
+                        }}
+                      >
+                        <Database className="h-4 w-4" />
+                        {hasPool ? '重建信息池' : '构建信息池'}
+                      </Link>
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => handleToggleEnabled(config)}>
                       <Power className="h-4 w-4" />
                       {config.isEnabled ? '停用' : '启用'}
@@ -686,9 +779,9 @@ export default function IndustryConfigManager() {
 
             <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
               <div>
-                <div className="text-sm font-medium">允许自动扩展采集池</div>
+                <div className="text-sm font-medium">允许用户提交扩展需求</div>
                 <div className="text-xs text-muted-foreground">
-                  用户条件不匹配已有需求簇时，自动创建新采集池。
+                  用户条件超出当前信息池覆盖时，进入管理员待确认，不由普通用户直接生成脚本。
                 </div>
               </div>
               <Switch
@@ -744,7 +837,7 @@ export default function IndustryConfigManager() {
           <DialogHeader>
             <DialogTitle>订阅详情{subscriberConfig ? `：${subscriberConfig.name}` : ''}</DialogTitle>
             <DialogDescription>
-              查看普通用户的个性化监控条件、匹配到的需求簇、收件邮箱和当前处理进度。
+              查看普通用户的个性化监控条件、绑定的信息池、收件邮箱和当前处理进度。
             </DialogDescription>
           </DialogHeader>
 
@@ -812,7 +905,7 @@ export default function IndustryConfigManager() {
                         </div>
                         <p className="mt-2 text-sm text-cyan-50/80">{row.subscription.customCriteria}</p>
                         <div className="mt-2 text-xs text-muted-foreground">
-                          需求簇：{row.profile?.title ?? '匹配中'} · 收件邮箱：
+                          信息池：{row.profile?.title ?? '等待管理员发布'} · 收件邮箱：
                           {recipients.join('、') || '未配置'} · 更新：{formatUpdatedAt(row.subscription.updatedAt)}
                         </div>
                         <div className="mt-2 text-xs text-muted-foreground">{progress.detail}</div>

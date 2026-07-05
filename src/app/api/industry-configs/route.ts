@@ -1,7 +1,7 @@
 import { requireAdmin, requireAuth } from '@/lib/auth';
+import { listIndustryPoolSummariesForAdmin } from '@/lib/enterprise/industryPoolService';
 import {
   createIndustryConfigForAdmin,
-  listIndustryConfigsForAdmin,
   listPublishedIndustryConfigsForUser,
   seedDefaultIndustryConfigsForAdmin,
 } from '@/lib/industry-configs/service';
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
     if (session.isAdmin) {
       seedDefaultIndustryConfigsForAdmin(session.userId);
-      return Response.json(listIndustryConfigsForAdmin());
+      return Response.json(listIndustryPoolSummariesForAdmin());
     }
 
     return Response.json(listPublishedIndustryConfigsForUser(enabledOnly));

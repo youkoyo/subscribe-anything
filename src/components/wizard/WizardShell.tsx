@@ -15,7 +15,7 @@ import Step4Confirm from './Step4Confirm';
 
 const STORAGE_KEY = 'wizard-state';
 
-const STEP_LABELS = ['主题', '发现源', '生成脚本', '确认'] as const;
+const STEP_LABELS = ['产业画像', '发现源', '生成脚本', '发布'] as const;
 
 const DEFAULT_STATE: WizardState = {
   step: 1,
@@ -26,7 +26,11 @@ const DEFAULT_STATE: WizardState = {
   generatedSources: [],
 };
 
-export default function WizardShell() {
+interface WizardShellProps {
+  initialIndustryConfigId?: string | null;
+}
+
+export default function WizardShell({ initialIndustryConfigId = null }: WizardShellProps) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [state, setState] = useState<WizardState>(DEFAULT_STATE);
@@ -50,6 +54,9 @@ export default function WizardShell() {
 
     if (isNew) {
       sessionStorage.removeItem(STORAGE_KEY);
+      if (initialIndustryConfigId) {
+        setState({ ...DEFAULT_STATE, industryConfigId: initialIndustryConfigId });
+      }
       setMounted(true);
       return;
     }
@@ -80,6 +87,8 @@ export default function WizardShell() {
       if (saved) {
         const parsed = JSON.parse(saved) as WizardState;
         setState(parsed);
+      } else if (initialIndustryConfigId) {
+        setState({ ...DEFAULT_STATE, industryConfigId: initialIndustryConfigId });
       }
     } catch {
       // ignore parse errors
@@ -246,7 +255,7 @@ export default function WizardShell() {
     } catch {
       // ignore
     }
-    router.push(`/subscriptions/${subscriptionId}`);
+    router.push(state.industryConfigId ? '/industry-configs' : `/subscriptions/${subscriptionId}`);
   };
 
   // Discard: delete subscription if exists, clear session, go to list

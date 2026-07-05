@@ -120,18 +120,14 @@ export function bindSubscriptionToProfile(userSubscriptionId: string) {
     .where(eq(industryMonitoringProfiles.industryConfigId, row.industry.id))
     .all();
 
-  const match = matchMonitoringProfile({
-    customCriteria: row.subscription.customCriteria,
-    profiles,
-    autoProfileExpansion: row.industry.autoProfileExpansion,
-  });
+  const activePool = profiles.find((profile) => profile.status === 'active' && !!profile.sharedSubscriptionId);
 
   const now = new Date();
 
-  if (match.action === 'reuse') {
+  if (activePool) {
     db.update(userIndustrySubscriptions)
       .set({
-        monitoringProfileId: match.profileId,
+        monitoringProfileId: activePool.id,
         status: 'active',
         updatedAt: now,
       })
@@ -144,31 +140,39 @@ export function bindSubscriptionToProfile(userSubscriptionId: string) {
       .get();
   }
 
+  const match = matchMonitoringProfile({
+    customCriteria: row.subscription.customCriteria,
+    profiles,
+    autoProfileExpansion: false,
+  });
+  const pendingTitle =
+    match.action === 'reuse'
+      ? '待绑定信息池'
+      : match.suggestedTitle;
+  const criteriaSummary =
+    match.action === 'reuse'
+      ? '已有需求簇尚未绑定可用信息池，需要管理员确认'
+      : match.criteriaSummary;
+
   const profile = db
     .insert(industryMonitoringProfiles)
     .values({
       id: createId(),
       industryConfigId: row.industry.id,
-      title: match.suggestedTitle,
+      title: pendingTitle,
       seedCriteria: row.subscription.customCriteria,
-      criteriaSummary: match.criteriaSummary,
+      criteriaSummary,
       keywordsJson: JSON.stringify([]),
       targetEntitiesJson: JSON.stringify([]),
-      status: match.action === 'create' ? 'creating' : 'pending',
+      status: 'pending',
       sharedSubscriptionId: null,
       triggeredByUserId: row.subscription.userId,
-      requiresAdminApproval: match.action === 'pending',
+      requiresAdminApproval: true,
       createdAt: now,
       updatedAt: now,
     })
     .returning()
     .get();
-
-  if (match.action === 'create') {
-    import('./profileProvisioner')
-      .then(({ startProfileProvisioning }) => startProfileProvisioning(profile.id))
-      .catch((err) => console.error('[enterprise] profile auto provisioning failed', err));
-  }
 
   db.update(userIndustrySubscriptions)
     .set({

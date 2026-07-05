@@ -1,6 +1,6 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { industryConfigs } from '@/lib/db/schema';
+import { industryConfigs, industryMonitoringProfiles } from '@/lib/db/schema';
 import { DEFAULT_INDUSTRY_CONFIGS } from './defaults';
 import {
   buildIndustryConfigSnapshot,
@@ -65,6 +65,19 @@ export function listPublishedIndustryConfigsForUser(enabledOnly = true) {
     .where(and(...conditions))
     .orderBy(desc(industryConfigs.updatedAt))
     .all()
+    .filter((row) =>
+      !!db
+        .select({ id: industryMonitoringProfiles.id })
+        .from(industryMonitoringProfiles)
+        .where(
+          and(
+            eq(industryMonitoringProfiles.industryConfigId, row.id),
+            eq(industryMonitoringProfiles.status, 'active'),
+            isNotNull(industryMonitoringProfiles.sharedSubscriptionId)
+          )
+        )
+        .get()
+    )
     .map(toApi);
 }
 
@@ -113,7 +126,20 @@ export function getPublishedIndustryConfig(id: string) {
       )
     )
     .get();
-  return row ? toApi(row) : null;
+  if (!row) return null;
+  const activePool = db
+    .select({ id: industryMonitoringProfiles.id })
+    .from(industryMonitoringProfiles)
+    .where(
+      and(
+        eq(industryMonitoringProfiles.industryConfigId, row.id),
+        eq(industryMonitoringProfiles.status, 'active'),
+        isNotNull(industryMonitoringProfiles.sharedSubscriptionId)
+      )
+    )
+    .get();
+  if (!activePool) return null;
+  return toApi(row);
 }
 
 export function createIndustryConfigForAdmin(adminUserId: string, input: IndustryConfigInput) {

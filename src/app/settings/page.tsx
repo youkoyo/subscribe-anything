@@ -14,7 +14,12 @@ export default function SettingsPage() {
   if (isAdmin) {
     return (
       <div className="p-4 md:p-6 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-semibold mb-4">配置</h1>
+        <div className="mb-4">
+          <h1 className="text-2xl font-semibold">配置</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            管理 AI、搜索、提示词和用户服务等企业级能力。
+          </p>
+        </div>
         <Tabs defaultValue="prompts">
           <TabsList className="w-full overflow-x-auto flex">
             <TabsTrigger value="prompts">提示词模板</TabsTrigger>
@@ -41,7 +46,12 @@ export default function SettingsPage() {
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">配置</h1>
+      <div className="mb-4">
+        <h1 className="text-2xl font-semibold">个人配置</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          管理个人提示词偏好；产业信息池的源和脚本由管理员统一维护。
+        </p>
+      </div>
       <PromptTemplateEditor />
     </div>
   );

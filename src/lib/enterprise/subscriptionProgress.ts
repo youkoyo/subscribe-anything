@@ -54,8 +54,8 @@ export function getIndustrySubscriptionProgress(
     return {
       label: '创建失败',
       detail: input.provisioningError
-        ? `采集池创建失败：${input.provisioningError}`
-        : '采集池创建失败，需要管理员重试或调整数据源。',
+        ? `信息池创建失败：${input.provisioningError}`
+        : '信息池创建失败，需要管理员重试或调整数据源。',
       step: 2,
       totalSteps: 4,
       badgeVariant: 'destructive',
@@ -75,8 +75,8 @@ export function getIndustrySubscriptionProgress(
   if (subscriptionStatus === 'pending_profile') {
     if (profileStatus === 'creating') {
       return {
-        label: '创建采集池中',
-        detail: 'AI 正在为这个监控方向创建或扩展共享采集池。',
+        label: '信息池构建中',
+        detail: '管理员正在构建或更新这个产业方向的信息池。',
         step: 3,
         totalSteps: 4,
         badgeVariant: 'outline',
@@ -85,8 +85,8 @@ export function getIndustrySubscriptionProgress(
 
     if (profileStatus === 'pending') {
       return {
-        label: '等待扩展采集池',
-        detail: '你的监控条件和已有采集池差异较大，正在等待管理员确认扩展。',
+        label: '等待信息池就绪',
+        detail: '你的订阅已提交，正在等待管理员发布可用信息池。',
         step: 2,
         totalSteps: 4,
         badgeVariant: 'outline',
@@ -94,8 +94,8 @@ export function getIndustrySubscriptionProgress(
     }
 
     return {
-      label: '匹配采集池中',
-      detail: '系统正在判断是否复用已有采集池，或为该方向创建新的采集池。',
+      label: '等待信息池就绪',
+      detail: '订阅已提交，信息池就绪后会按你的条件筛选并报送。',
       step: 2,
       totalSteps: 4,
       badgeVariant: 'outline',

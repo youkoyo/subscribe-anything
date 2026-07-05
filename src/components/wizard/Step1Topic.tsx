@@ -74,7 +74,7 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
         }
       })
       .catch(() => {
-        if (!cancelled) setIndustryConfigError('产业配置加载失败，可继续手动创建订阅');
+        if (!cancelled) setIndustryConfigError('产业画像加载失败，可继续手动创建信息池');
       });
 
     return () => {
@@ -86,6 +86,20 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
     () => industryConfigs.find((item) => item.id === selectedIndustryConfigId) ?? null,
     [industryConfigs, selectedIndustryConfigId]
   );
+
+  useEffect(() => {
+    if (!selectedIndustryConfig) return;
+    if (topic.trim() || state.topic.trim()) return;
+
+    setTopic(selectedIndustryConfig.suggestion.topic);
+    setCriteria(selectedIndustryConfig.suggestion.criteria);
+    onStateChange({
+      topic: selectedIndustryConfig.suggestion.topic,
+      criteria: selectedIndustryConfig.suggestion.criteria,
+      industryConfigId: selectedIndustryConfig.id,
+      industryConfigSnapshot: selectedIndustryConfig.snapshot,
+    });
+  }, [onStateChange, selectedIndustryConfig, state.topic, topic]);
 
   const getIndustrySelection = () => {
     if (selectedIndustryConfig) {
@@ -133,7 +147,7 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
   const validate = (): string | null => {
     const trimmed = topic.trim();
     if (!trimmed) {
-      setTopicError('请输入订阅主题');
+      setTopicError('请输入信息池主题');
       return null;
     }
     setTopicError('');
@@ -188,9 +202,9 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
   return (
     <div className="flex flex-col gap-6 pt-4">
       <div>
-        <h2 className="text-xl font-semibold mb-1">设置订阅主题</h2>
+        <h2 className="text-xl font-semibold mb-1">设置产业信息池主题</h2>
         <p className="text-sm text-muted-foreground">
-          告诉我们你想订阅什么内容，AI 将自动为你发现相关数据源
+          管理员先定义产业画像，后续 AI 会按这个边界发现数据源并生成采集脚本
         </p>
       </div>
 
@@ -216,7 +230,7 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
             <p className="text-xs text-amber-400">{industryConfigError}</p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              选择后会带入建议主题和监控条件，并在订阅中保存产业快照。
+              选择后会带入建议主题和监控条件，并在信息池中保存产业快照。
             </p>
           )}
           {selectedIndustryConfig ? (
@@ -238,11 +252,11 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="topic" className="text-sm font-medium">
-            订阅主题 <span className="text-destructive">*</span>
+            信息池主题 <span className="text-destructive">*</span>
           </label>
           <Input
             id="topic"
-            placeholder="例如：GitHub 热门开源项目"
+            placeholder="例如：食品安全监管政策、处罚、召回监测"
             value={topic}
             onChange={(e) => {
               setTopic(e.target.value);
@@ -260,19 +274,19 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="criteria" className="text-sm font-medium">
-            监控条件{' '}
+            采集边界{' '}
             <span className="text-muted-foreground font-normal">（可选）</span>
           </label>
           <Textarea
             id="criteria"
-            placeholder="例如：Star 数超过 1000，最近一周更新"
+            placeholder="例如：关注监管政策变化、抽检、处罚案例、召回通报和经营风险"
             value={criteria}
             onChange={(e) => setCriteria(e.target.value)}
             rows={3}
             className="resize-none"
           />
           <p className="text-xs text-muted-foreground">
-            描述你感兴趣的内容筛选条件，让 AI 更精准地帮你筛选
+            描述这个信息池要采集和过滤的内容边界，普通用户的条件只用于后续个性化报送
           </p>
         </div>
       </div>
@@ -281,7 +295,7 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
       <div className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-[calc(4rem+env(safe-area-inset-bottom))] bg-background border-t md:static md:border-t-0 md:bg-transparent md:p-0 md:mt-6">
         <div className="flex gap-3">
           <Button onClick={handleSubmit} className="flex-1 md:flex-none" disabled={isLoading}>
-            {isLoading ? '创建中...' : '下一步'}
+            {isLoading ? '准备中...' : '下一步'}
           </Button>
           {onManagedCreate && (
             <Button
@@ -289,7 +303,7 @@ export default function Step1Topic({ state, onStateChange, onNext, onStep1Next, 
               onClick={handleManaged}
               disabled={isLoading}
               className="flex-none text-amber-600 border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50"
-              title="AI 自动完成所有步骤，在后台创建订阅"
+              title="AI 自动完成所有步骤，在后台创建信息池"
             >
               <Bot className="h-4 w-4 mr-1.5" />
               帮我完成

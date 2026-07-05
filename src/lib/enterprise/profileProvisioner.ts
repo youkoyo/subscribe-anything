@@ -159,7 +159,7 @@ export async function startProfileProvisioning(profileId: string) {
           )
           .run();
       } else {
-        const error = latest?.managedError ?? '共享采集池创建失败';
+        const error = latest?.managedError ?? '共享信息池创建失败';
         db.update(industryMonitoringProfiles)
           .set({ status: 'failed', provisioningError: error, updatedAt: new Date() })
           .where(eq(industryMonitoringProfiles.id, profile.id))

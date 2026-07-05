@@ -44,6 +44,7 @@ export default function Step4Confirm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [previewSource, setPreviewSource] = useState<GeneratedSource | null>(null);
+  const isIndustryPool = !!state.industryConfigId;
 
   const startEditTitle = (idx: number) => {
     setEditingTitleIdx(idx);
@@ -160,6 +161,19 @@ export default function Step4Confirm({
         createdId = created.id;
       }
 
+      if (state.industryConfigId) {
+        const bindRes = await fetch(`/api/industry-configs/${state.industryConfigId}/pool`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscriptionId: createdId }),
+        });
+
+        if (!bindRes.ok) {
+          const errText = await bindRes.text().catch(() => '');
+          throw new Error(errText || '信息池发布失败');
+        }
+      }
+
       // Update parent state then trigger completion
       onStateChange({ generatedSources: sources });
       onComplete(createdId);
@@ -174,15 +188,19 @@ export default function Step4Confirm({
   return (
     <div className="flex flex-col gap-4 pt-4">
       <div>
-        <h2 className="text-xl font-semibold mb-1">确认并创建订阅</h2>
+        <h2 className="text-xl font-semibold mb-1">
+          {isIndustryPool ? '确认并发布产业信息池' : '确认并创建订阅'}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          检查以下数据源配置，可调整采集频率和开关后提交
+          {isIndustryPool
+            ? '检查数据源、初始样本和采集频率，发布后普通用户即可订阅这个信息池'
+            : '检查以下数据源配置，可调整采集频率和开关后提交'}
         </p>
       </div>
 
       {/* Topic summary */}
       <div className="rounded-lg bg-muted/50 px-4 py-3 text-sm flex flex-col gap-0.5">
-        <span className="text-muted-foreground text-xs">订阅主题</span>
+        <span className="text-muted-foreground text-xs">{isIndustryPool ? '信息池主题' : '订阅主题'}</span>
         <span className="font-medium">{state.topic}</span>
         {state.industryConfigSnapshot && (
           <>
@@ -361,10 +379,10 @@ export default function Step4Confirm({
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                创建中...
+                {isIndustryPool ? '发布中...' : '创建中...'}
               </>
             ) : (
-              '完成创建'
+              isIndustryPool ? '发布信息池' : '完成创建'
             )}
           </Button>
           <Button variant="outline" onClick={onBack} disabled={isSubmitting} className="flex-none">

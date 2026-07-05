@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { AlertCircle } from 'lucide-react';
@@ -9,6 +9,8 @@ import WizardShell from '@/components/wizard/WizardShell';
 
 export default function NewSubscriptionPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const industryConfigId = searchParams.get('industryConfigId');
   const [checking, setChecking] = useState(true);
   const [hasActiveProvider, setHasActiveProvider] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -43,16 +45,16 @@ export default function NewSubscriptionPage() {
       <div className="p-4 md:p-6 max-w-lg mx-auto pt-16">
         <div className="flex flex-col items-center text-center gap-4">
           <AlertCircle className="h-12 w-12 text-cyan-300" />
-          <h2 className="text-xl font-semibold">请从产业订阅发起</h2>
+          <h2 className="text-xl font-semibold">请从产业目录发起</h2>
           <p className="text-muted-foreground">
-            普通用户请在产业订阅中选择管理员发布的产业方向，再补充监控条件和收件邮箱配置。
+            普通用户请在产业目录中选择管理员发布的信息池，再补充监控条件和收件邮箱配置。
           </p>
           <div className="flex gap-3 mt-2">
             <Button variant="outline" onClick={() => router.back()}>
               返回
             </Button>
             <Link href="/industry-configs">
-              <Button>前往产业订阅</Button>
+                <Button>前往产业目录</Button>
             </Link>
           </div>
         </div>
@@ -88,5 +90,5 @@ export default function NewSubscriptionPage() {
   }
 
   // Wizard
-  return <WizardShell />;
+  return <WizardShell initialIndustryConfigId={industryConfigId} />;
 }

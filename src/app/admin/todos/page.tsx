@@ -54,7 +54,7 @@ export default function AdminTodosPage() {
     const res = await fetch('/api/admin/todos');
     setLoadingTodos(false);
     if (!res.ok) {
-      toast({ title: '加载待办事项失败', variant: 'destructive' });
+      toast({ title: '加载工作台失败', variant: 'destructive' });
       return;
     }
     const data = (await res.json()) as AdminTodoItem[];
@@ -104,7 +104,7 @@ export default function AdminTodosPage() {
             <AlertTriangle className="h-5 w-5" />
             <h1 className="text-lg font-semibold">无权访问</h1>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">只有管理员可以查看待办事项。</p>
+          <p className="mt-2 text-sm text-muted-foreground">只有管理员可以查看工作台。</p>
         </div>
       </div>
     );
@@ -118,9 +118,9 @@ export default function AdminTodosPage() {
             <ClipboardList className="h-5 w-5" />
             <span className="text-sm font-medium">管理员工作台</span>
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-cyan-50">待办事项</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-cyan-50">工作台</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            集中处理订阅审批、采集池扩展确认和失败重试，后续管理员申请与系统异常也会收敛到这里。
+            集中处理订阅审批、信息池扩展确认和失败重试，后续管理员申请与系统异常也会收敛到这里。
           </p>
         </div>
         <Button variant="outline" onClick={loadTodos} disabled={loadingTodos}>
@@ -157,8 +157,8 @@ export default function AdminTodosPage() {
       ) : todos.length === 0 ? (
         <div className="rounded-lg border border-dashed border-cyan-300/35 bg-card/70 px-6 py-14 text-center">
           <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-300" />
-          <div className="mt-3 text-lg font-medium text-cyan-50">暂无待办事项</div>
-          <p className="mt-2 text-sm text-muted-foreground">当前没有需要管理员处理的产业订阅事项。</p>
+          <div className="mt-3 text-lg font-medium text-cyan-50">暂无待处理事项</div>
+          <p className="mt-2 text-sm text-muted-foreground">当前没有需要管理员处理的信息池或订阅事项。</p>
         </div>
       ) : (
         <div className="grid gap-3">
