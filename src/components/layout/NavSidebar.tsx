@@ -15,7 +15,6 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { APP_SHORT_NAME, APP_TAGLINE } from '@/lib/branding';
-import { AdminTodoBadge } from './AdminTodoBadge';
 import { UserMenu } from './UserMenu';
 
 interface NavSidebarProps {
@@ -81,7 +80,6 @@ export function NavSidebar({ className }: NavSidebarProps) {
               >
                 <Icon className="h-4 w-4 shrink-0 text-cyan-200/80 transition-colors group-hover:text-cyan-50" />
                 <span>{label}</span>
-                {href === '/admin/todos' ? <AdminTodoBadge /> : null}
               </Link>
             </li>
             );

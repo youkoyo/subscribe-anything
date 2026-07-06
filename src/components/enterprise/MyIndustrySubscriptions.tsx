@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { parseRecipientEmailsJson } from '@/lib/enterprise/recipientEmails';
 import { getIndustrySubscriptionProgress } from '@/lib/enterprise/subscriptionProgress';
+import { cn } from '@/lib/utils';
 
 interface MySubscriptionRow {
   subscription: {
@@ -30,6 +31,8 @@ interface MySubscriptionRow {
 
 interface MyIndustrySubscriptionsProps {
   refreshKey?: number;
+  className?: string;
+  title?: string;
 }
 
 function parseEmailInput(value: string) {
@@ -39,7 +42,11 @@ function parseEmailInput(value: string) {
     .filter(Boolean);
 }
 
-export default function MyIndustrySubscriptions({ refreshKey = 0 }: MyIndustrySubscriptionsProps) {
+export default function MyIndustrySubscriptions({
+  refreshKey = 0,
+  className,
+  title = '我的订阅',
+}: MyIndustrySubscriptionsProps) {
   const { toast } = useToast();
   const [rows, setRows] = useState<MySubscriptionRow[]>([]);
   const [editing, setEditing] = useState<MySubscriptionRow | null>(null);
@@ -101,9 +108,9 @@ export default function MyIndustrySubscriptions({ refreshKey = 0 }: MyIndustrySu
   }
 
   return (
-    <section className="mt-8">
+    <section className={cn('mt-8', className)}>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">我的订阅</h2>
+        <h2 className="text-lg font-semibold">{title}</h2>
         <Badge variant="outline">{rows.length} 项</Badge>
       </div>
       <div className="grid gap-3">

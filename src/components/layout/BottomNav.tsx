@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-import { AdminTodoBadge } from './AdminTodoBadge';
 
 interface BottomNavProps {
   className?: string;
@@ -60,9 +59,6 @@ export function BottomNav({ className }: BottomNavProps) {
           >
             <span className="relative">
               <Icon className="h-5 w-5 shrink-0" />
-              {href === '/admin/todos' ? (
-                <AdminTodoBadge className="absolute -right-3 -top-2 ml-0 h-4 min-w-4 px-1 text-[9px]" />
-              ) : null}
             </span>
             <span className="text-[10px] font-medium">{label}</span>
           </Link>

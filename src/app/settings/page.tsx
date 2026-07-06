@@ -5,6 +5,7 @@ import LLMProviderList from '@/components/settings/LLMProviderList';
 import PromptTemplateEditor from '@/components/settings/PromptTemplateEditor';
 import SearchProviderForm from '@/components/settings/SearchProviderForm';
 import SmtpConfigForm from '@/components/settings/SmtpConfigForm';
+import UserPersonalSettings from '@/components/settings/UserPersonalSettings';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function SettingsPage() {
@@ -49,10 +50,10 @@ export default function SettingsPage() {
       <div className="mb-4">
         <h1 className="text-2xl font-semibold">个人配置</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          管理个人提示词偏好；产业信息池的源和脚本由管理员统一维护。
+          管理你的订阅条件、接收邮箱和个人侧状态；平台能力由管理员统一配置。
         </p>
       </div>
-      <PromptTemplateEditor />
+      <UserPersonalSettings />
     </div>
   );
 }
