@@ -28,6 +28,7 @@ interface SmtpFormData {
   aliyunDirectMailAccessKeyId: string;
   aliyunDirectMailAccessKeySecret: string;
   aliyunDirectMailRegion: string;
+  tlsServername: string;
   fromEmail: string;
   fromName: string;
   requireVerification: boolean;
@@ -61,6 +62,7 @@ export default function SmtpConfigForm() {
     aliyunDirectMailAccessKeyId: '',
     aliyunDirectMailAccessKeySecret: '',
     aliyunDirectMailRegion: 'cn-hangzhou',
+    tlsServername: '',
     fromEmail: '',
     fromName: APP_NAME,
     requireVerification: true,
@@ -370,6 +372,21 @@ export default function SmtpConfigForm() {
                   onCheckedChange={val => set('secure', val)}
                 />
                 <Label htmlFor="smtp-secure">SSL/TLS（推荐开启，端口 465）</Label>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="smtp-tls-servername">TLS Server Name（可选）</Label>
+                <Input
+                  id="smtp-tls-servername"
+                  value={form.tlsServername}
+                  onChange={e => set('tlsServername', e.target.value)}
+                  placeholder="smtp.example.com"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">
+                  仅当 SMTP 服务器通过 IP 或与证书主机名不匹配的 CNAME 访问时需要填写。
+                  设置为证书上的主机名（如 <code className="font-mono">smtp.126.com</code>），TLS 主机名校验才能通过。
+                </p>
               </div>
 
               <div className="space-y-2">

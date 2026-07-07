@@ -649,6 +649,8 @@ export const smtpConfig = sqliteTable('smtp_config', {
   aliyunDirectMailAccessKeyId: text('aliyun_directmail_access_key_id'), // 阿里云 DirectMail AccessKey ID
   aliyunDirectMailAccessKeySecret: text('aliyun_directmail_access_key_secret'), // 阿里云 DirectMail AccessKey Secret
   aliyunDirectMailRegion: text('aliyun_directmail_region').default('cn-hangzhou'), // 阿里云 DirectMail 区域
+  // 可选：用 IP/CNAME 连中继但证书主机名不一致时，设置此字段让 SNI 和 TLS 主机名校验通过
+  tlsServername: text('tls_servername'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
     .$defaultFn(() => new Date())
     .notNull(),

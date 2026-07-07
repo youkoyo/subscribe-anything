@@ -25,6 +25,7 @@ export async function GET() {
         aliyunDirectMailAccessKeyId: '',
         aliyunDirectMailAccessKeySecret: '',
         aliyunDirectMailRegion: 'cn-hangzhou',
+        tlsServername: '',
         fromEmail: '',
         fromName: APP_NAME,
         requireVerification: true,
@@ -44,6 +45,7 @@ export async function GET() {
       aliyunDirectMailAccessKeyId: (row as any).aliyunDirectMailAccessKeyId ? '••••••••' : '', // mask key
       aliyunDirectMailAccessKeySecret: (row as any).aliyunDirectMailAccessKeySecret ? '••••••••' : '', // mask key
       aliyunDirectMailRegion: row.aliyunDirectMailRegion ?? 'cn-hangzhou',
+      tlsServername: (row as any).tlsServername ?? '',
       fromEmail: row.fromEmail ?? '',
       fromName: row.fromName ?? APP_NAME,
       requireVerification: row.requireVerification ?? true,
@@ -65,7 +67,7 @@ export async function PUT(req: Request) {
   try {
     await requireAdmin();
     const body = await req.json();
-    const { provider = 'smtp', host, port, secure, user, password, zeaburApiKey, resendApiKey, aliyunDirectMailAccessKeyId, aliyunDirectMailAccessKeySecret, aliyunDirectMailRegion, fromEmail, fromName, requireVerification } = body;
+    const { provider = 'smtp', host, port, secure, user, password, zeaburApiKey, resendApiKey, aliyunDirectMailAccessKeyId, aliyunDirectMailAccessKeySecret, aliyunDirectMailRegion, tlsServername, fromEmail, fromName, requireVerification } = body;
 
     if (provider === 'zeabur') {
       if (!fromEmail) {
@@ -115,6 +117,7 @@ export async function PUT(req: Request) {
         aliyunDirectMailAccessKeyId: finalAliyunDirectMailAccessKeyId,
         aliyunDirectMailAccessKeySecret: finalAliyunDirectMailAccessKeySecret,
         aliyunDirectMailRegion: aliyunDirectMailRegion || 'cn-hangzhou',
+        tlsServername: tlsServername || null,
         fromEmail: fromEmail || null,
         fromName: fromName || APP_NAME,
         requireVerification: requireVerification !== false,
@@ -134,6 +137,7 @@ export async function PUT(req: Request) {
           aliyunDirectMailAccessKeyId: finalAliyunDirectMailAccessKeyId,
           aliyunDirectMailAccessKeySecret: finalAliyunDirectMailAccessKeySecret,
           aliyunDirectMailRegion: aliyunDirectMailRegion || 'cn-hangzhou',
+          tlsServername: tlsServername || null,
           fromEmail: fromEmail || null,
           fromName: fromName || APP_NAME,
           requireVerification: requireVerification !== false,

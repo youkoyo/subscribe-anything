@@ -20,6 +20,8 @@ export interface SmtpConfigData {
   aliyunDirectMailAccessKeyId?: string | null;
   aliyunDirectMailAccessKeySecret?: string | null;
   aliyunDirectMailRegion?: string | null;
+  // TLS SNI / cert hostname override (use when connecting by IP or mismatched CNAME)
+  tlsServername?: string | null;
 }
 
 export interface SendEmailOptions {
@@ -55,6 +57,7 @@ export function getSmtpConfig(): SmtpConfigData | null {
     aliyunDirectMailAccessKeyId: (config as any).aliyunDirectMailAccessKeyId,
     aliyunDirectMailAccessKeySecret: (config as any).aliyunDirectMailAccessKeySecret,
     aliyunDirectMailRegion: config.aliyunDirectMailRegion ?? 'cn-hangzhou',
+    tlsServername: (config as any).tlsServername ?? null,
   };
 }
 
@@ -99,6 +102,10 @@ function createTransporter(config: SmtpConfigData) {
     },
     family: 4,
   };
+  // Override TLS SNI / cert hostname (needed when connecting by IP or mismatched CNAME)
+  if (config.tlsServername) {
+    options.tls = { servername: config.tlsServername };
+  }
   return nodemailer.createTransport(options);
 }
 

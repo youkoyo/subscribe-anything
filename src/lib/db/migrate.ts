@@ -920,6 +920,8 @@ function migrateEmailVerification(sqlite: InstanceType<typeof Database>) {
   try { sqlite.exec("ALTER TABLE smtp_config ADD COLUMN aliyun_directmail_region TEXT NOT NULL DEFAULT 'cn-hangzhou'"); } catch { /* already exists */ }
   try { sqlite.exec('ALTER TABLE smtp_config ADD COLUMN aliyun_directmail_access_key_id TEXT'); } catch { /* already exists */ }
   try { sqlite.exec('ALTER TABLE smtp_config ADD COLUMN aliyun_directmail_access_key_secret TEXT'); } catch { /* already exists */ }
+  // TLS SNI / cert hostname override (used when relaying via IP or mismatched CNAME)
+  try { sqlite.exec('ALTER TABLE smtp_config ADD COLUMN tls_servername TEXT'); } catch { /* already exists */ }
 
   // Migrate old aliyun_directmail_api_key (format: AccessKeyId:AccessKeySecret) to new separate columns
   const row = sqlite.prepare('SELECT aliyun_directmail_api_key FROM smtp_config WHERE id = ?').get('default') as { aliyun_directmail_api_key?: string } | undefined;
