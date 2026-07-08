@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { findEmailDeliverySlot } from '@/lib/industry-configs/types';
 
 interface CatalogItem {
   id: string;
@@ -133,7 +134,11 @@ export default function IndustryCatalog({ onSubscriptionCreated }: IndustryCatal
                   ))}
                 </div>
                 <p className="mt-3 text-xs text-muted-foreground">
-                  报送：{item.deliveryCron || '未启用'} · 每封最多 {item.maxItemsPerEmail ?? 10} 条
+                  报送：{' '}
+                  {item.deliveryCron
+                    ? findEmailDeliverySlot(item.deliveryCron)?.label ?? item.deliveryCron
+                    : '未启用'}{' '}
+                  · 每封最多 {item.maxItemsPerEmail ?? 10} 条
                 </p>
               </div>
               <Button onClick={() => setSelected(item)}>

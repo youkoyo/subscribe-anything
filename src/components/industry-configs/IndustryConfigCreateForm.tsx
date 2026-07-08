@@ -17,6 +17,8 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import {
+  DEFAULT_EMAIL_DELIVERY_CRON,
+  EMAIL_DELIVERY_SLOTS,
   SOURCE_TYPE_LABELS,
   SOURCE_TYPE_OPTIONS,
   type IndustryConfigInput,
@@ -56,7 +58,7 @@ const initialForm: FormState = {
   alertLevel: '一般关注',
   subscriptionMode: 'open',
   autoProfileExpansion: false,
-  deliveryCron: '0 9 * * *',
+  deliveryCron: DEFAULT_EMAIL_DELIVERY_CRON,
   deliveryTimezone: 'Asia/Shanghai',
   deliveryEnabled: true,
   maxItemsPerEmail: 10,
@@ -325,11 +327,25 @@ export default function IndustryConfigCreateForm() {
                 />
               </label>
               <label className="grid gap-2 text-sm font-medium">
-                报送 cron
-                <Input
+                邮件发送时间
+                <Select
                   value={form.deliveryCron}
-                  onChange={(event) => updateField('deliveryCron', event.target.value)}
-                />
+                  onValueChange={(value) => updateField('deliveryCron', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMAIL_DELIVERY_SLOTS.map((slot) => (
+                      <SelectItem key={slot.cron} value={slot.cron}>
+                        <span className="font-medium">{slot.label}</span>
+                        {slot.description ? (
+                          <span className="ml-2 text-xs text-muted-foreground">{slot.description}</span>
+                        ) : null}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
               <label className="grid gap-2 text-sm font-medium">
                 报送时区

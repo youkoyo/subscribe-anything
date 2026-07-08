@@ -29,6 +29,13 @@ export interface SendEmailOptions {
   subject: string;
   html?: string;
   text?: string;
+  attachments?: EmailAttachment[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  content: string | Buffer;
+  contentType?: string;
 }
 
 /**
@@ -114,7 +121,7 @@ function createTransporter(config: SmtpConfigData) {
  */
 async function sendEmailViaZeabur(
   config: SmtpConfigData,
-  { to, subject, html, text }: SendEmailOptions
+  { to, subject, html, text, attachments }: SendEmailOptions
 ): Promise<{ success: boolean; error?: string }> {
   const fromEmail = config.fromEmail || config.user;
   const fromName = config.fromName || APP_NAME;
@@ -131,6 +138,7 @@ async function sendEmailViaZeabur(
       subject,
       html,
       text,
+      ...(attachments?.length ? { attachments: attachments.map(toApiAttachment) } : {}),
     }),
   });
 
@@ -148,7 +156,7 @@ async function sendEmailViaZeabur(
  */
 async function sendEmailViaResend(
   config: SmtpConfigData,
-  { to, subject, html, text }: SendEmailOptions
+  { to, subject, html, text, attachments }: SendEmailOptions
 ): Promise<{ success: boolean; error?: string }> {
   const { Resend } = await import('resend');
   const resend = new Resend(config.resendApiKey!);
@@ -164,6 +172,11 @@ async function sendEmailViaResend(
       subject,
       html: html || undefined,
       text: text || undefined,
+      attachments: attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content: toBase64Content(attachment.content),
+        contentType: attachment.contentType,
+      })),
     } as any);
     return { success: true };
   } catch (error) {
@@ -178,7 +191,7 @@ async function sendEmailViaResend(
  */
 async function sendEmailViaAliyunDirectMail(
   config: SmtpConfigData,
-  { to, subject, html, text }: SendEmailOptions
+  { to, subject, html, text, attachments }: SendEmailOptions
 ): Promise<{ success: boolean; error?: string }> {
   const fromEmail = config.fromEmail || 'noreply@example.com';
   const fromName = config.fromName || APP_NAME;
@@ -188,6 +201,9 @@ async function sendEmailViaAliyunDirectMail(
 
   if (!accessKeyId || !accessKeySecret) {
     return { success: false, error: 'Aliyun DirectMail AccessKey ID and Secret are required' };
+  }
+  if (attachments?.length) {
+    return { success: false, error: 'Aliyun DirectMail single-send provider does not support attachments; use SMTP or Resend for digest CSV exports' };
   }
 
   try {
@@ -242,7 +258,22 @@ async function sendEmailViaAliyunDirectMail(
 /**
  * Send email using configured provider (SMTP, Zeabur Email, Resend, or Aliyun DirectMail)
  */
-export async function sendEmail({ to, subject, html, text }: SendEmailOptions): Promise<{ success: boolean; error?: string }> {
+function toBase64Content(content: string | Buffer) {
+  return Buffer.isBuffer(content)
+    ? content.toString('base64')
+    : Buffer.from(content, 'utf8').toString('base64');
+}
+
+function toApiAttachment(attachment: EmailAttachment) {
+  return {
+    filename: attachment.filename,
+    content: toBase64Content(attachment.content),
+    contentType: attachment.contentType,
+    content_type: attachment.contentType,
+  };
+}
+
+export async function sendEmail({ to, subject, html, text, attachments }: SendEmailOptions): Promise<{ success: boolean; error?: string }> {
   const config = getSmtpConfig();
 
   if (!config) {
@@ -250,15 +281,15 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
   }
 
   if (config.provider === 'zeabur') {
-    return sendEmailViaZeabur(config, { to, subject, html, text });
+    return sendEmailViaZeabur(config, { to, subject, html, text, attachments });
   }
 
   if (config.provider === 'resend') {
-    return sendEmailViaResend(config, { to, subject, html, text });
+    return sendEmailViaResend(config, { to, subject, html, text, attachments });
   }
 
   if (config.provider === 'aliyun') {
-    return sendEmailViaAliyunDirectMail(config, { to, subject, html, text });
+    return sendEmailViaAliyunDirectMail(config, { to, subject, html, text, attachments });
   }
 
   const transporter = createTransporter(config);
@@ -273,6 +304,11 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
       subject,
       html,
       text,
+      attachments: attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content: attachment.content,
+        contentType: attachment.contentType,
+      })),
     });
 
     return { success: true };

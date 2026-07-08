@@ -1,4 +1,5 @@
 import { requireAdmin, requireAuth } from '@/lib/auth';
+import { reloadIndustryDelivery, unscheduleIndustryDelivery } from '@/lib/enterprise/deliveryScheduler';
 import {
   deleteIndustryConfigForAdmin,
   getIndustryConfigForAdmin,
@@ -57,6 +58,7 @@ export async function PATCH(
 
     const updated = updateIndustryConfigForAdmin(id, body);
     if (!updated) return Response.json({ error: 'Not found' }, { status: 404 });
+    await reloadIndustryDelivery(id);
     return Response.json(updated);
   } catch (err) {
     const authError = handleAuthError(err);
@@ -75,6 +77,7 @@ export async function DELETE(
     const { id } = await params;
     const deleted = deleteIndustryConfigForAdmin(id);
     if (!deleted) return Response.json({ error: 'Not found' }, { status: 404 });
+    unscheduleIndustryDelivery(id);
     return new Response(null, { status: 204 });
   } catch (err) {
     const authError = handleAuthError(err);

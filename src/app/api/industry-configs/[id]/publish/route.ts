@@ -1,4 +1,5 @@
 import { requireAdmin } from '@/lib/auth';
+import { reloadIndustryDelivery } from '@/lib/enterprise/deliveryScheduler';
 import { publishIndustryConfig } from '@/lib/industry-configs/service';
 
 export async function POST(
@@ -11,6 +12,7 @@ export async function POST(
     const body = await req.json().catch(() => ({})) as { published?: boolean };
     const updated = publishIndustryConfig(id, body.published !== false);
     if (!updated) return Response.json({ error: 'Not found' }, { status: 404 });
+    await reloadIndustryDelivery(id);
     return Response.json(updated);
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {

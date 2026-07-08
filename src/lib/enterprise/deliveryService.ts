@@ -1,4 +1,4 @@
-import { and, desc, eq, gt } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/lib/db';
 import {
@@ -12,8 +12,14 @@ import {
 } from '@/lib/db/schema';
 import { sendEmail } from '@/lib/email/smtp';
 import { parseRecipientEmailsJson } from './recipientEmails';
-import { scoreToLabel, selectDeliveryCards } from './deliveryScoring';
-import { renderIndustryDeliveryEmail } from './emailTemplate';
+import { resolveDeliverySelection, scoreToLabel, type DeliverySelectionMode } from './deliveryScoring';
+import {
+  renderIndustryDeliveryEmail,
+  renderIndustryDigestExcelAttachment,
+  renderIndustryDigestEmail,
+  type DeliveryDigestSection,
+  type DeliveryEmailItem,
+} from './emailTemplate';
 
 function formatDateTime(value: Date | string | null | undefined) {
   if (!value) return '';
@@ -26,14 +32,182 @@ function formatDateTime(value: Date | string | null | undefined) {
   ).padStart(2, '0')}`;
 }
 
-export async function runIndustryDelivery(industryConfigId: string, scheduledFor = new Date()) {
-  const db = getDb();
+export function normalizeDeliveryScheduleSlot(value: Date) {
+  const slot = new Date(value);
+  slot.setSeconds(0, 0);
+  return slot;
+}
+
+type DeliverySubscriptionRow = {
+  userSub: typeof userIndustrySubscriptions.$inferSelect;
+  profile: typeof industryMonitoringProfiles.$inferSelect;
+  industry: typeof industryConfigs.$inferSelect;
+};
+
+type DeliveryRunEntry = {
+  run: typeof industryDeliveryRuns.$inferSelect;
+  created: boolean;
+};
+
+type PreparedDigestDelivery = {
+  row: DeliverySubscriptionRow;
+  runId: string;
+  mode: DeliverySelectionMode;
+  items: DeliveryEmailItem[];
+  selectedCardIds: string[];
+};
+
+const DIGEST_DETAIL_ITEM_LIMIT = 500;
+
+function createOrReuseIndustryRun(
+  db: ReturnType<typeof getDb>,
+  industryConfigId: string,
+  scheduledSlot: Date
+): DeliveryRunEntry {
+  const existingRun = db
+    .select()
+    .from(industryDeliveryRuns)
+    .where(
+      and(
+        eq(industryDeliveryRuns.industryConfigId, industryConfigId),
+        eq(industryDeliveryRuns.scheduledFor, scheduledSlot)
+      )
+    )
+    .get();
+  if (existingRun) return { run: existingRun, created: false };
+
   const run = db
     .insert(industryDeliveryRuns)
     .values({
       id: createId(),
       industryConfigId,
-      scheduledFor,
+      scheduledFor: scheduledSlot,
+      status: 'running',
+      startedAt: new Date(),
+      createdAt: new Date(),
+    })
+    .returning()
+    .get();
+
+  return { run, created: true };
+}
+
+function loadActiveDeliverySubscriptions(
+  db: ReturnType<typeof getDb>,
+  industryConfigIds: string[]
+): DeliverySubscriptionRow[] {
+  if (industryConfigIds.length === 0) return [];
+  return db
+    .select({
+      userSub: userIndustrySubscriptions,
+      profile: industryMonitoringProfiles,
+      industry: industryConfigs,
+    })
+    .from(userIndustrySubscriptions)
+    .innerJoin(
+      industryMonitoringProfiles,
+      eq(userIndustrySubscriptions.monitoringProfileId, industryMonitoringProfiles.id)
+    )
+    .innerJoin(industryConfigs, eq(userIndustrySubscriptions.industryConfigId, industryConfigs.id))
+    .where(
+      and(
+        inArray(userIndustrySubscriptions.industryConfigId, industryConfigIds),
+        eq(userIndustrySubscriptions.status, 'active'),
+        eq(industryMonitoringProfiles.status, 'active')
+      )
+    )
+    .all();
+}
+
+function loadNewCardsForSubscription(db: ReturnType<typeof getDb>, row: DeliverySubscriptionRow) {
+  if (!row.profile.sharedSubscriptionId) return [];
+  const since = row.userSub.lastDeliveredAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return db
+    .select({
+      id: messageCards.id,
+      title: messageCards.title,
+      summary: messageCards.summary,
+      sourceName: sources.title,
+      sourceUrl: messageCards.sourceUrl,
+      publishedAt: messageCards.publishedAt,
+      createdAt: messageCards.createdAt,
+    })
+    .from(messageCards)
+    .innerJoin(sources, eq(messageCards.sourceId, sources.id))
+    .where(
+      and(
+        eq(messageCards.subscriptionId, row.profile.sharedSubscriptionId),
+        gt(messageCards.createdAt, since)
+      )
+    )
+    .orderBy(desc(messageCards.createdAt))
+    .limit(DIGEST_DETAIL_ITEM_LIMIT)
+    .all();
+}
+
+function toDeliveryEmailItems(
+  selection: ReturnType<typeof resolveDeliverySelection>,
+  mode: DeliverySelectionMode
+): DeliveryEmailItem[] {
+  return selection.selected.map(({ card, score }) => ({
+    title: card.title,
+    sourceName: card.sourceName ?? '未知来源',
+    authorityLabel: scoreToLabel(score.authority),
+    relevanceLabel: scoreToLabel(score.relevance),
+    publishedAtLabel: formatDateTime(card.publishedAt ?? card.createdAt),
+    summary: card.summary ?? '',
+    url: (card as { sourceUrl?: string }).sourceUrl ?? '',
+    reason:
+      mode === 'previous'
+        ? `已在上一封邮件中报送，本次继续关注；${score.matchReason ?? `相关性 ${score.relevance}`}；综合评分 ${score.total}`
+        : `${score.matchReason ?? `相关性 ${score.relevance}`}；综合评分 ${score.total}`,
+  }));
+}
+
+function normalizedRecipients(row: DeliverySubscriptionRow) {
+  return Array.from(new Set(parseRecipientEmailsJson(row.userSub.recipientEmailsJson))).sort();
+}
+
+function recipientGroupKey(row: DeliverySubscriptionRow) {
+  return `${row.userSub.userId}::${normalizedRecipients(row).join('|')}`;
+}
+
+function markRuns(
+  db: ReturnType<typeof getDb>,
+  runs: DeliveryRunEntry[],
+  status: 'completed' | 'failed',
+  error?: string
+) {
+  for (const entry of runs) {
+    if (!entry.created) continue;
+    db.update(industryDeliveryRuns)
+      .set({ status, error: error ?? null, finishedAt: new Date() })
+      .where(eq(industryDeliveryRuns.id, entry.run.id))
+      .run();
+  }
+}
+
+export async function runIndustryDelivery(industryConfigId: string, scheduledFor = new Date()) {
+  const db = getDb();
+  const scheduledSlot = normalizeDeliveryScheduleSlot(scheduledFor);
+  const existingRun = db
+    .select()
+    .from(industryDeliveryRuns)
+    .where(
+      and(
+        eq(industryDeliveryRuns.industryConfigId, industryConfigId),
+        eq(industryDeliveryRuns.scheduledFor, scheduledSlot)
+      )
+    )
+    .get();
+  if (existingRun) return existingRun;
+
+  const run = db
+    .insert(industryDeliveryRuns)
+    .values({
+      id: createId(),
+      industryConfigId,
+      scheduledFor: scheduledSlot,
       status: 'running',
       startedAt: new Date(),
       createdAt: new Date(),
@@ -79,7 +253,209 @@ export async function runIndustryDelivery(industryConfigId: string, scheduledFor
       .run();
   }
 
-  return run;
+  // Re-read the run row so callers (admin run-now endpoint, scripts) get the final
+  // status/error/finishedAt instead of the pre-update snapshot we inserted above.
+  const finalRun =
+    db.select().from(industryDeliveryRuns).where(eq(industryDeliveryRuns.id, run.id)).get() ?? run;
+  return finalRun;
+}
+
+function parseSelectedCardIds(value: string | null | undefined) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadPreviouslyDeliveredCards(
+  db: ReturnType<typeof getDb>,
+  userIndustrySubscriptionId: string
+) {
+  const previousLog = db
+    .select({ selectedCardIdsJson: userDeliveryLogs.selectedCardIdsJson })
+    .from(userDeliveryLogs)
+    .where(
+      and(
+        eq(userDeliveryLogs.userIndustrySubscriptionId, userIndustrySubscriptionId),
+        eq(userDeliveryLogs.status, 'sent')
+      )
+    )
+    .orderBy(desc(userDeliveryLogs.createdAt))
+    .limit(1)
+    .get();
+
+  const previousIds = parseSelectedCardIds(previousLog?.selectedCardIdsJson);
+  if (previousIds.length === 0) return [];
+
+  const rows = db
+    .select({
+      id: messageCards.id,
+      title: messageCards.title,
+      summary: messageCards.summary,
+      sourceName: sources.title,
+      sourceUrl: messageCards.sourceUrl,
+      publishedAt: messageCards.publishedAt,
+      createdAt: messageCards.createdAt,
+    })
+    .from(messageCards)
+    .innerJoin(sources, eq(messageCards.sourceId, sources.id))
+    .where(inArray(messageCards.id, previousIds))
+    .all();
+
+  const byId = new Map(rows.map((card) => [card.id, card]));
+  return previousIds
+    .map((id) => byId.get(id))
+    .filter((card): card is NonNullable<typeof card> => !!card);
+}
+
+export async function runIndustryDeliveryGroup(
+  industryConfigIds: string[],
+  scheduledFor = new Date()
+) {
+  const db = getDb();
+  const scheduledSlot = normalizeDeliveryScheduleSlot(scheduledFor);
+  const uniqueIndustryIds = Array.from(new Set(industryConfigIds)).filter(Boolean);
+  const runEntries = uniqueIndustryIds.map((industryConfigId) =>
+    createOrReuseIndustryRun(db, industryConfigId, scheduledSlot)
+  );
+  const createdEntries = runEntries.filter((entry) => entry.created);
+  if (createdEntries.length === 0) return runEntries.map((entry) => entry.run);
+
+  const runIdByIndustry = new Map(
+    createdEntries.map((entry) => [entry.run.industryConfigId, entry.run.id])
+  );
+
+  try {
+    const rows = loadActiveDeliverySubscriptions(db, Array.from(runIdByIndustry.keys())).filter(
+      (row) => row.profile.sharedSubscriptionId
+    );
+    const rowsByUser = new Map<string, DeliverySubscriptionRow[]>();
+    for (const row of rows) {
+      const key = recipientGroupKey(row);
+      const existing = rowsByUser.get(key) ?? [];
+      existing.push(row);
+      rowsByUser.set(key, existing);
+    }
+
+    for (const userRows of rowsByUser.values()) {
+      const recipients = normalizedRecipients(userRows[0]);
+      const prepared: PreparedDigestDelivery[] = userRows.map((row) => {
+        const rawCards = loadNewCardsForSubscription(db, row);
+        let selection = resolveDeliverySelection({
+          newCards: rawCards,
+          previousCards: [],
+          customCriteria: row.userSub.customCriteria,
+          now: new Date(),
+          maxItems: DIGEST_DETAIL_ITEM_LIMIT,
+        });
+        if (selection.mode === 'empty') {
+          selection = resolveDeliverySelection({
+            newCards: rawCards,
+            previousCards: loadPreviouslyDeliveredCards(db, row.userSub.id),
+            customCriteria: row.userSub.customCriteria,
+            now: new Date(),
+            maxItems: DIGEST_DETAIL_ITEM_LIMIT,
+          });
+        }
+
+        return {
+          row,
+          runId: runIdByIndustry.get(row.industry.id)!,
+          mode: selection.mode,
+          items: toDeliveryEmailItems(selection, selection.mode),
+          selectedCardIds: selection.selected.map((item) => item.card.id),
+        };
+      });
+
+      if (recipients.length === 0) {
+        for (const item of prepared) {
+          db.insert(userDeliveryLogs)
+            .values({
+              id: createId(),
+              runId: item.runId,
+              userIndustrySubscriptionId: item.row.userSub.id,
+              userId: item.row.userSub.userId,
+              recipientEmailsJson: '[]',
+              selectedCardIdsJson: '[]',
+              subject: `${item.row.industry.name}产业信息报送`,
+              status: 'skipped',
+              error: '无有效收件邮箱',
+              createdAt: new Date(),
+            })
+            .run();
+        }
+        continue;
+      }
+
+      const sections: DeliveryDigestSection[] = prepared.map((item) => ({
+        industryName: item.row.industry.name,
+        customCriteria: item.row.userSub.customCriteria,
+        deliveryMode: item.mode,
+        totalItemCount: item.items.length,
+        items: item.items,
+      }));
+      const email = renderIndustryDigestEmail({
+        dateLabel: formatDateTime(new Date()).slice(0, 10),
+        summaryLimitPerIndustry: 3,
+        sections,
+      });
+      const attachment = renderIndustryDigestExcelAttachment({
+        dateLabel: formatDateTime(new Date()).slice(0, 10),
+        sections,
+      });
+
+      const sendResults = [];
+      for (const recipient of recipients) {
+        sendResults.push(
+          await sendEmail({
+            to: recipient,
+            subject: email.subject,
+            html: email.html,
+            text: email.text,
+            attachments: [attachment],
+          })
+        );
+      }
+      const failed = sendResults.find((result) => !result.success);
+
+      for (const item of prepared) {
+        db.insert(userDeliveryLogs)
+          .values({
+            id: createId(),
+            runId: item.runId,
+            userIndustrySubscriptionId: item.row.userSub.id,
+            userId: item.row.userSub.userId,
+            recipientEmailsJson: JSON.stringify(recipients),
+            selectedCardIdsJson: JSON.stringify(item.selectedCardIds),
+            subject: email.subject,
+            status: failed ? 'failed' : 'sent',
+            error: failed?.error ?? null,
+            sentAt: failed ? null : new Date(),
+            createdAt: new Date(),
+          })
+          .run();
+
+        if (!failed) {
+          db.update(userIndustrySubscriptions)
+            .set({ lastDeliveredAt: new Date(), updatedAt: new Date() })
+            .where(eq(userIndustrySubscriptions.id, item.row.userSub.id))
+            .run();
+        }
+      }
+    }
+
+    markRuns(db, createdEntries, 'completed');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    markRuns(db, createdEntries, 'failed', message);
+  }
+
+  return createdEntries
+    .map((entry) => db.select().from(industryDeliveryRuns).where(eq(industryDeliveryRuns.id, entry.run.id)).get())
+    .filter((run): run is NonNullable<typeof run> => !!run);
 }
 
 export async function runUserDelivery(runId: string, userIndustrySubscriptionId: string) {
@@ -124,15 +500,25 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
     .limit(100)
     .all();
 
-  const selected = selectDeliveryCards({
-    cards: rawCards,
+  let selection = resolveDeliverySelection({
+    newCards: rawCards,
+    previousCards: [],
     customCriteria: row.userSub.customCriteria,
     now: new Date(),
     maxItems: row.industry.maxItemsPerEmail,
   });
+  if (selection.mode === 'empty') {
+    selection = resolveDeliverySelection({
+      newCards: rawCards,
+      previousCards: loadPreviouslyDeliveredCards(db, row.userSub.id),
+      customCriteria: row.userSub.customCriteria,
+      now: new Date(),
+      maxItems: row.industry.maxItemsPerEmail,
+    });
+  }
 
   const recipients = parseRecipientEmailsJson(row.userSub.recipientEmailsJson);
-  if (selected.length === 0 || recipients.length === 0) {
+  if (recipients.length === 0) {
     db.insert(userDeliveryLogs)
       .values({
         id: createId(),
@@ -143,7 +529,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
         selectedCardIdsJson: '[]',
         subject: `${row.industry.name}产业信息报送`,
         status: 'skipped',
-        error: selected.length === 0 ? '无高相关新增信息' : '无有效收件邮箱',
+        error: '无有效收件邮箱',
         createdAt: new Date(),
       })
       .run();
@@ -155,7 +541,8 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
     profileTitle: row.profile.title,
     customCriteria: row.userSub.customCriteria,
     dateLabel: formatDateTime(new Date()).slice(0, 10),
-    items: selected.map(({ card, score }) => ({
+    deliveryMode: selection.mode,
+    items: selection.selected.map(({ card, score }) => ({
       title: card.title,
       sourceName: card.sourceName ?? '未知来源',
       authorityLabel: scoreToLabel(score.authority),
@@ -163,7 +550,10 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
       publishedAtLabel: formatDateTime(card.publishedAt ?? card.createdAt),
       summary: card.summary ?? '',
       url: (card as { sourceUrl?: string }).sourceUrl ?? '',
-      reason: `相关性 ${score.relevance}，综合评分 ${score.total}`,
+      reason:
+        selection.mode === 'previous'
+          ? `已在上一封邮件中报送，本次继续关注；${score.matchReason ?? `相关性 ${score.relevance}`}；综合评分 ${score.total}`
+          : `${score.matchReason ?? `相关性 ${score.relevance}`}；综合评分 ${score.total}`,
     })),
   });
 
@@ -187,7 +577,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
       userIndustrySubscriptionId: row.userSub.id,
       userId: row.userSub.userId,
       recipientEmailsJson: JSON.stringify(recipients),
-      selectedCardIdsJson: JSON.stringify(selected.map((item) => item.card.id)),
+      selectedCardIdsJson: JSON.stringify(selection.selected.map((item) => item.card.id)),
       subject: email.subject,
       status: failed ? 'failed' : 'sent',
       error: failed?.error ?? null,
@@ -203,5 +593,5 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
       .run();
   }
 
-  return { sent: !failed, selectedCount: selected.length };
+  return { sent: !failed, selectedCount: selection.selected.length };
 }

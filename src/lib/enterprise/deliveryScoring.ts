@@ -1,4 +1,8 @@
-import { summarizeCriteriaTokens } from './profileMatcher';
+import {
+  parseDeliveryCriteria,
+  scoreCardAgainstCriteria,
+  type ParsedDeliveryCriteria,
+} from './criteriaMatcher';
 
 export interface DeliveryCardLike {
   id: string;
@@ -16,29 +20,16 @@ export interface DeliveryScore {
   freshness: number;
   contentQuality: number;
   total: number;
+  matchReason?: string;
 }
+
+export type DeliverySelectionMode = 'new' | 'previous' | 'empty';
 
 const IMPORTANT_TERMS = ['事故', '处罚', '召回', '监管', '政策', '条例', '检查', '整改', '风险'];
 const AUTHORITY_TERMS = ['监管', '市场监管', '政府', '总局', '部', '厅', '局', '法院', '协会'];
 
-function tokenize(text: string): string[] {
-  const domainTokens = summarizeCriteriaTokens(text);
-  if (domainTokens.length > 0) return domainTokens;
-  return text
-    .split(/[\s,，、;；。！？!?.：:（）()《》"“”]+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 2);
-}
-
 function includesAny(text: string, terms: string[]) {
   return terms.some((term) => text.includes(term));
-}
-
-function scoreRelevance(text: string, criteria: string) {
-  const criteriaTokens = tokenize(criteria);
-  if (criteriaTokens.length === 0) return 0;
-  const matched = criteriaTokens.filter((token) => text.includes(token)).length;
-  return Math.min(100, Math.round((matched / criteriaTokens.length) * 100));
 }
 
 function scoreFreshness(value: Date | string | null, now: Date) {
@@ -53,10 +44,12 @@ function scoreFreshness(value: Date | string | null, now: Date) {
 export function scoreDeliveryCard(
   card: DeliveryCardLike,
   customCriteria: string,
-  now: Date
+  now: Date,
+  parsedCriteria = parseDeliveryCriteria(customCriteria)
 ): DeliveryScore {
   const text = `${card.title} ${card.summary ?? ''}`;
-  const relevance = scoreRelevance(text, customCriteria);
+  const criteriaMatch = scoreCardAgainstCriteria(card, parsedCriteria, now);
+  const relevance = criteriaMatch.score;
   const authority = includesAny(card.sourceName ?? '', AUTHORITY_TERMS) ? 90 : 55;
   const importance = includesAny(text, IMPORTANT_TERMS) ? 85 : 45;
   const freshness = scoreFreshness(card.publishedAt ?? card.createdAt, now);
@@ -69,7 +62,15 @@ export function scoreDeliveryCard(
       contentQuality * 0.10
   );
 
-  return { relevance, authority, importance, freshness, contentQuality, total };
+  return {
+    relevance,
+    authority,
+    importance,
+    freshness,
+    contentQuality,
+    total,
+    matchReason: criteriaMatch.reason,
+  };
 }
 
 export function selectDeliveryCards(input: {
@@ -78,15 +79,49 @@ export function selectDeliveryCards(input: {
   now: Date;
   maxItems: number;
 }) {
-  const limit = Math.min(10, Math.max(1, input.maxItems));
+  const limit = Math.min(500, Math.max(1, input.maxItems));
+  const parsedCriteria: ParsedDeliveryCriteria = parseDeliveryCriteria(input.customCriteria);
   return input.cards
     .map((card) => ({
       card,
-      score: scoreDeliveryCard(card, input.customCriteria, input.now),
+      score: scoreDeliveryCard(card, input.customCriteria, input.now, parsedCriteria),
     }))
-    .filter((item) => item.score.relevance >= 20 || item.score.total >= 55)
+    .filter((item) => item.score.relevance >= 35 || item.score.total >= 52)
     .sort((a, b) => b.score.total - a.score.total)
     .slice(0, limit);
+}
+
+export function resolveDeliverySelection(input: {
+  newCards: DeliveryCardLike[];
+  previousCards: DeliveryCardLike[];
+  customCriteria: string;
+  now: Date;
+  maxItems: number;
+}): {
+  mode: DeliverySelectionMode;
+  selected: ReturnType<typeof selectDeliveryCards>;
+} {
+  const selectedNew = selectDeliveryCards({
+    cards: input.newCards,
+    customCriteria: input.customCriteria,
+    now: input.now,
+    maxItems: input.maxItems,
+  });
+  if (selectedNew.length > 0) {
+    return { mode: 'new', selected: selectedNew };
+  }
+
+  const selectedPrevious = selectDeliveryCards({
+    cards: input.previousCards,
+    customCriteria: input.customCriteria,
+    now: input.now,
+    maxItems: input.maxItems,
+  });
+  if (selectedPrevious.length > 0) {
+    return { mode: 'previous', selected: selectedPrevious };
+  }
+
+  return { mode: 'empty', selected: [] };
 }
 
 export function scoreToLabel(score: number) {

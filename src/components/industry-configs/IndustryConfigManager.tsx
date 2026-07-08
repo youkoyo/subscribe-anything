@@ -40,6 +40,9 @@ import { useToast } from '@/components/ui/use-toast';
 import { parseRecipientEmailsJson } from '@/lib/enterprise/recipientEmails';
 import { getIndustrySubscriptionProgress } from '@/lib/enterprise/subscriptionProgress';
 import {
+  DEFAULT_EMAIL_DELIVERY_CRON,
+  EMAIL_DELIVERY_SLOTS,
+  findEmailDeliverySlot,
   SOURCE_TYPE_LABELS,
   SOURCE_TYPE_OPTIONS,
   type IndustryConfigInput,
@@ -140,7 +143,7 @@ const emptyForm: FormState = {
   visibility: 'draft',
   subscriptionMode: 'open',
   autoProfileExpansion: false,
-  deliveryCron: '0 9 * * *',
+  deliveryCron: DEFAULT_EMAIL_DELIVERY_CRON,
   deliveryTimezone: 'Asia/Shanghai',
   deliveryEnabled: false,
   maxItemsPerEmail: 10,
@@ -177,7 +180,9 @@ function toForm(config: IndustryConfigView): FormState {
     visibility: config.visibility ?? 'draft',
     subscriptionMode: config.subscriptionMode ?? 'open',
     autoProfileExpansion: config.autoProfileExpansion === true,
-    deliveryCron: config.deliveryCron ?? '0 9 * * *',
+    deliveryCron: findEmailDeliverySlot(config.deliveryCron)?.cron
+      ?? config.deliveryCron
+      ?? DEFAULT_EMAIL_DELIVERY_CRON,
     deliveryTimezone: config.deliveryTimezone ?? 'Asia/Shanghai',
     deliveryEnabled: config.deliveryEnabled === true,
     maxItemsPerEmail: config.maxItemsPerEmail ?? 10,
@@ -548,7 +553,10 @@ export default function IndustryConfigManager() {
                       <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
                         <div className="text-cyan-50/80">报送</div>
                         <div className="mt-1 text-cyan-50">
-                          {config.deliveryCron || '未配置'} · 最多 {config.maxItemsPerEmail ?? 10} 条
+                          {config.deliveryCron
+                            ? findEmailDeliverySlot(config.deliveryCron)?.label ?? config.deliveryCron
+                            : '未配置'}{' '}
+                          · 最多 {config.maxItemsPerEmail ?? 10} 条
                         </div>
                       </div>
                     </div>
@@ -752,11 +760,25 @@ export default function IndustryConfigManager() {
 
             <div className="grid gap-3 md:grid-cols-3">
               <label className="grid gap-2 text-sm font-medium">
-                报送 cron
-                <Input
+                邮件发送时间
+                <Select
                   value={form.deliveryCron}
-                  onChange={(event) => updateField('deliveryCron', event.target.value)}
-                />
+                  onValueChange={(value) => updateField('deliveryCron', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMAIL_DELIVERY_SLOTS.map((slot) => (
+                      <SelectItem key={slot.cron} value={slot.cron}>
+                        <span className="font-medium">{slot.label}</span>
+                        {slot.description ? (
+                          <span className="ml-2 text-xs text-muted-foreground">{slot.description}</span>
+                        ) : null}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
               <label className="grid gap-2 text-sm font-medium">
                 报送时区

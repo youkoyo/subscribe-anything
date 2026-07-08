@@ -1,4 +1,5 @@
 import { requireAdmin, requireAuth } from '@/lib/auth';
+import { reloadIndustryDelivery } from '@/lib/enterprise/deliveryScheduler';
 import { listIndustryPoolSummariesForAdmin } from '@/lib/enterprise/industryPoolService';
 import {
   createIndustryConfigForAdmin,
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
     if (error) return Response.json({ error }, { status: 400 });
 
     const created = createIndustryConfigForAdmin(session.userId, body);
+    await reloadIndustryDelivery(created.id);
     return Response.json(created, { status: 201 });
   } catch (err) {
     const authError = handleAuthError(err);
