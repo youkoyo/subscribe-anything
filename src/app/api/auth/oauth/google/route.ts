@@ -15,7 +15,7 @@ function getCallbackUrl(req: NextRequest): string {
 
 export async function GET(req: NextRequest) {
   const db = getDb();
-  const config = db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')).get();
+  const config = (await db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')))[0];
 
   if (!config?.enabled || !config.clientId || !config.clientSecret) {
     return NextResponse.json({ error: 'Google OAuth not configured' }, { status: 500 });

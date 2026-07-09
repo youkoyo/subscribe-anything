@@ -26,12 +26,12 @@ export async function POST(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db.select().from(rssInstances).where(eq(rssInstances.id, id)).get();
+    const existing = (await db.select().from(rssInstances).where(eq(rssInstances.id, id)))[0];
     if (!existing) return Response.json({ error: 'Not found' }, { status: 404 });
 
     const now = new Date();
-    db.update(rssInstances).set({ isActive: false, updatedAt: now }).where(ne(rssInstances.id, id)).run();
-    db.update(rssInstances).set({ isActive: true, updatedAt: now }).where(eq(rssInstances.id, id)).run();
+    await db.update(rssInstances).set({ isActive: false, updatedAt: now }).where(ne(rssInstances.id, id));
+    await db.update(rssInstances).set({ isActive: true, updatedAt: now }).where(eq(rssInstances.id, id));
 
     return Response.json({ success: true });
   } catch (err) {

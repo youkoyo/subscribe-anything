@@ -15,20 +15,18 @@ export async function GET(req: Request) {
     const db = getDb();
 
     // Only count favorites that are active (isFavorite = true) and belong to user
-    const total = db
+    const total = (await db
       .select()
       .from(favorites)
-      .where(and(eq(favorites.isFavorite, true), eq(favorites.userId, session.userId)))
-      .all().length;
+      .where(and(eq(favorites.isFavorite, true), eq(favorites.userId, session.userId)))).length;
 
-    const rows = db
+    const rows = (await db
       .select()
       .from(favorites)
       .where(and(eq(favorites.isFavorite, true), eq(favorites.userId, session.userId)))
       .orderBy(desc(favorites.favoriteAt))
       .limit(limit)
-      .offset(offset)
-      .all();
+      .offset(offset));
 
     return Response.json({
       data: rows,

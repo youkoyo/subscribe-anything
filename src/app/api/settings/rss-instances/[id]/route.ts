@@ -26,7 +26,7 @@ export async function PATCH(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db.select().from(rssInstances).where(eq(rssInstances.id, id)).get();
+    const existing = (await db.select().from(rssInstances).where(eq(rssInstances.id, id)))[0];
     if (!existing) return Response.json({ error: 'Not found' }, { status: 404 });
 
     const { name, baseUrl } = await req.json();
@@ -34,9 +34,9 @@ export async function PATCH(
     if (name !== undefined) updates.name = name;
     if (baseUrl !== undefined) updates.baseUrl = baseUrl;
 
-    db.update(rssInstances).set(updates).where(eq(rssInstances.id, id)).run();
+    await db.update(rssInstances).set(updates).where(eq(rssInstances.id, id));
 
-    const updated = db.select().from(rssInstances).where(eq(rssInstances.id, id)).get();
+    const updated = (await db.select().from(rssInstances).where(eq(rssInstances.id, id)))[0];
     return Response.json(updated);
   } catch (err) {
     const authError = handleAuthError(err);
@@ -56,10 +56,10 @@ export async function DELETE(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db.select().from(rssInstances).where(eq(rssInstances.id, id)).get();
+    const existing = (await db.select().from(rssInstances).where(eq(rssInstances.id, id)))[0];
     if (!existing) return Response.json({ error: 'Not found' }, { status: 404 });
 
-    db.delete(rssInstances).where(eq(rssInstances.id, id)).run();
+    await db.delete(rssInstances).where(eq(rssInstances.id, id));
     return new Response(null, { status: 204 });
   } catch (err) {
     const authError = handleAuthError(err);

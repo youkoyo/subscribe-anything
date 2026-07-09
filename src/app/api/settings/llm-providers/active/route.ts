@@ -10,11 +10,10 @@ export async function GET() {
   try {
     const session = await requireAuth();
     const db = getDb();
-    const active = db
+    const active = (await db
       .select({ id: llmProviders.id })
       .from(llmProviders)
-      .where(eq(llmProviders.isActive, true))
-      .get();
+      .where(eq(llmProviders.isActive, true)))[0];
     return Response.json({ hasActive: !!active, isAdmin: session.isAdmin });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {

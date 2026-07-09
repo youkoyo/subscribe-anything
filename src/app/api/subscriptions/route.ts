@@ -15,12 +15,11 @@ export async function GET() {
   try {
     const session = await requireAuth();
     const db = getDb();
-    const rows = db
+    const rows = (await db
       .select()
       .from(subscriptions)
       .where(eq(subscriptions.userId, session.userId))
-      .orderBy(desc(subscriptions.createdAt))
-      .all();
+      .orderBy(desc(subscriptions.createdAt)));
 
     // For creating subscriptions, attach the latest log message
     const creatingIds = rows
@@ -29,13 +28,12 @@ export async function GET() {
 
     const latestLogs: Record<string, { message: string; step: string }> = {};
     for (const subId of creatingIds) {
-      const latest = db
+      const latest = (await db
         .select({ message: managedBuildLogs.message, step: managedBuildLogs.step })
         .from(managedBuildLogs)
         .where(eq(managedBuildLogs.subscriptionId, subId))
         .orderBy(desc(managedBuildLogs.createdAt))
-        .limit(1)
-        .get();
+        .limit(1))[0];
       if (latest) latestLogs[subId] = latest;
     }
 
@@ -95,7 +93,7 @@ export async function POST(req: Request) {
 
     let industrySelection;
     try {
-      industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
+      industrySelection = await resolveSubscriptionIndustrySelection(session.userId, {
         industryConfigId,
         industryConfigSnapshot,
       }, { isAdmin: session.isAdmin });
@@ -110,7 +108,7 @@ export async function POST(req: Request) {
 
     // Bare mode: create placeholder subscription for wizard persistence
     if (bare === true) {
-      const subscription = db
+      const subscription = (await db
         .insert(subscriptions)
         .values({
           userId: session.userId,
@@ -125,14 +123,13 @@ export async function POST(req: Request) {
           createdAt: now,
           updatedAt: now,
         })
-        .returning()
-        .get();
+        .returning())[0];
 
       return Response.json({ id: subscription.id }, { status: 201 });
     }
 
     // 1. Create subscription
-    const subscription = db
+    const subscription = (await db
       .insert(subscriptions)
       .values({
         userId: session.userId,
@@ -146,8 +143,7 @@ export async function POST(req: Request) {
         createdAt: now,
         updatedAt: now,
       })
-      .returning()
-      .get();
+      .returning())[0];
 
     // 2. If wizard mode: create sources + initial message cards
     if (Array.isArray(sourcesInput) && sourcesInput.length > 0) {
@@ -155,7 +151,7 @@ export async function POST(req: Request) {
     }
 
     // Re-fetch to return final state
-    const final = db.select().from(subscriptions).where(eq(subscriptions.id, subscription.id)).get();
+    const final = (await db.select().from(subscriptions).where(eq(subscriptions.id, subscription.id)))[0];
 
     return Response.json(final, { status: 201 });
   } catch (err) {

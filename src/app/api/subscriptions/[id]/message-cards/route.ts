@@ -23,15 +23,14 @@ export async function GET(
     const db = getDb();
 
     // Verify subscription belongs to user
-    const sub = db.select()
+    const sub = (await db.select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
     if (!sub) {
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
-    const rows = db
+    const rows = (await db
       .select({
         id: messageCards.id,
         subscriptionId: messageCards.subscriptionId,
@@ -59,21 +58,19 @@ export async function GET(
       ))
       .orderBy(desc(messageCards.publishedAt))
       .limit(limit)
-      .offset(offset)
-      .all();
+      .offset(offset));
 
     // Check favorite status for each card (only active favorites)
     if (rows.length > 0) {
       const cardIds = rows.map((r) => r.id);
-      const favoritedIds = db
+      const favoritedIds = (await db
         .select({ originalCardId: favorites.originalCardId })
         .from(favorites)
         .where(and(
           inArray(favorites.originalCardId, cardIds),
           eq(favorites.userId, session.userId),
           eq(favorites.isFavorite, true)
-        ))
-        .all()
+        )))
         .map((f) => f.originalCardId);
 
       const favoritedSet = new Set(favoritedIds);

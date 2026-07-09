@@ -135,7 +135,7 @@ function parseAtom(xml: string): { feedTitle: string; items: FeedItem[] } {
  * rsshub.app is automatically replaced with freezrss.zeabur.app.
  */
 export async function rssFetch(url: string): Promise<FeedResult> {
-  const baseUrl = getActiveRssBaseUrl();
+  const baseUrl = await getActiveRssBaseUrl();
   const feedUrl = normalizeRssHubUrl(url, baseUrl);
 
   const controller = new AbortController();

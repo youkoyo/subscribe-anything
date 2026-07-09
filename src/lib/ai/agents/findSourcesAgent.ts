@@ -36,9 +36,10 @@ export async function findSourcesAgent(
   onLLMCall?: (info: LLMCallInfo) => void,
   userId?: string | null
 ): Promise<FoundSource[]> {
-  const provider = getProviderForTemplate('find-sources', userId);
-
-  const tpl = getTemplate('find-sources', userId);
+  const [provider, tpl] = await Promise.all([
+    getProviderForTemplate('find-sources', userId),
+    getTemplate('find-sources', userId),
+  ]);
   const systemContent = tpl.content
     .replace('{{topic}}', topic)
     .replace('{{criteria}}', criteria ?? '无');

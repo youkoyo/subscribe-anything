@@ -29,11 +29,10 @@ export async function POST(
     }
 
     const db = getDb();
-    const sub = db
+    const sub = (await db
       .select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
 
     if (!sub) {
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -47,14 +46,13 @@ export async function POST(
     if (step === 'find_sources') {
       // Clear old find_sources logs and LLM calls to start fresh
       clearLLMCalls(id);
-      db.delete(managedBuildLogs)
+      await db.delete(managedBuildLogs)
         .where(
           and(
             eq(managedBuildLogs.subscriptionId, id),
             eq(managedBuildLogs.step, 'find_sources')
           )
-        )
-        .run();
+        );
 
       runningSteps.add(key);
       runFindSourcesStep(id, sub.topic, sub.criteria ?? undefined, session.userId)

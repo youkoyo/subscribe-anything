@@ -16,36 +16,33 @@ export async function POST(
     const db = getDb();
 
     // Check if already favorited by this user (including soft-deleted ones)
-    const existingFavorite = db
+    const existingFavorite = (await db
       .select()
       .from(favorites)
       .where(and(
         eq(favorites.originalCardId, id),
         eq(favorites.userId, session.userId)
-      ))
-      .get();
+      )))[0];
 
     if (existingFavorite) {
       if (existingFavorite.isFavorite) {
         // Currently favorited: unfavorite by setting flag to false
-        db.update(favorites)
+        await db.update(favorites)
           .set({ isFavorite: false })
-          .where(eq(favorites.id, existingFavorite.id))
-          .run();
+          .where(eq(favorites.id, existingFavorite.id));
         return Response.json({ ok: true, isFavorite: false });
       } else {
         // Soft-deleted: restore by setting flag to true and updating timestamp
-        db.update(favorites)
+        await db.update(favorites)
           .set({ isFavorite: true, favoriteAt: new Date() })
-          .where(eq(favorites.id, existingFavorite.id))
-          .run();
+          .where(eq(favorites.id, existingFavorite.id));
         return Response.json({ ok: true, isFavorite: true });
       }
     }
 
     // Favorite: get card data and copy to favorites table
     // Verify card belongs to user via subscription
-    const card = db
+    const card = (await db
       .select({
         id: messageCards.id,
         title: messageCards.title,
@@ -63,8 +60,7 @@ export async function POST(
       })
       .from(messageCards)
       .innerJoin(subscriptions, eq(messageCards.subscriptionId, subscriptions.id))
-      .where(eq(messageCards.id, id))
-      .get();
+      .where(eq(messageCards.id, id)))[0];
 
     if (!card || card.userId !== session.userId) {
       return Response.json({ error: 'Card not found' }, { status: 404 });
@@ -73,16 +69,15 @@ export async function POST(
     // Get source title for snapshot
     let sourceTitle: string | null = null;
     if (card.sourceId) {
-      const src = db
+      const src = (await db
         .select({ title: sources.title })
         .from(sources)
-        .where(eq(sources.id, card.sourceId))
-        .get();
+        .where(eq(sources.id, card.sourceId)))[0];
       sourceTitle = src?.title ?? null;
     }
 
     // Insert into favorites
-    db.insert(favorites)
+    await db.insert(favorites)
       .values({
         userId: session.userId,
         originalCardId: card.id,
@@ -98,8 +93,7 @@ export async function POST(
         sourceTitle,
         favoriteAt: new Date(),
         isFavorite: true,
-      })
-      .run();
+      });
 
     return Response.json({ ok: true, isFavorite: true });
   } catch (err) {
@@ -121,15 +115,14 @@ export async function GET(
     const { id } = await params;
     const db = getDb();
 
-    const favorite = db
+    const favorite = (await db
       .select()
       .from(favorites)
       .where(and(
         eq(favorites.originalCardId, id),
         eq(favorites.userId, session.userId),
         eq(favorites.isFavorite, true)
-      ))
-      .get();
+      )))[0];
 
     return Response.json({ isFavorite: !!favorite });
   } catch (err) {

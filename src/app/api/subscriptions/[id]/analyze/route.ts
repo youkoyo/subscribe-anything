@@ -18,10 +18,9 @@ export async function POST(
     const { id } = await params;
     const db = getDb();
 
-    const sub = db.select()
+    const sub = (await db.select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
     if (!sub) return Response.json({ error: 'Subscription not found' }, { status: 404 });
 
     const body = await req.json().catch(() => ({})) as {
@@ -46,7 +45,7 @@ export async function POST(
     if (body.cardIds && Array.isArray(body.cardIds) && body.cardIds.length > 0) {
       // Mode 1: Analyze specific card IDs (max 100)
       const limitedCardIds = body.cardIds.slice(0, 100);
-      cards = db
+      cards = (await db
         .select({
           title: messageCards.title,
           summary: messageCards.summary,
@@ -61,12 +60,11 @@ export async function POST(
         .where(and(
           inArray(messageCards.id, limitedCardIds),
           eq(subscriptions.userId, session.userId)
-        ))
-        .all();
+        )));
     } else {
       // Mode 2: Analyze most recent N cards
       const cardLimit = Math.min(100, Math.max(1, body.limit ?? 50));
-      cards = db
+      cards = (await db
         .select({
           title: messageCards.title,
           summary: messageCards.summary,
@@ -79,8 +77,7 @@ export async function POST(
         .innerJoin(sources, eq(messageCards.sourceId, sources.id))
         .where(eq(messageCards.subscriptionId, id))
         .orderBy(desc(messageCards.createdAt))
-        .limit(cardLimit)
-        .all();
+        .limit(cardLimit));
     }
 
     if (cards.length === 0) {
@@ -88,7 +85,7 @@ export async function POST(
     }
 
     // Create a report with 'generating' status before streaming
-    const report = db.insert(analysisReports).values({
+    const report = (await db.insert(analysisReports).values({
       subscriptionId: id,
       userId: session.userId,
       title: '分析报告中...',
@@ -96,7 +93,7 @@ export async function POST(
       htmlContent: '',
       cardCount: cards.length,
       status: 'generating',
-    }).returning({ id: analysisReports.id }).get();
+    }).returning({ id: analysisReports.id }))[0];
 
     const reportId = report.id;
 
@@ -142,26 +139,24 @@ export async function POST(
         }
 
         // Update report with completed status
-        db.update(analysisReports)
+        await db.update(analysisReports)
           .set({
             title,
             htmlContent: accumulatedHtml,
             status: 'completed',
           })
-          .where(eq(analysisReports.id, reportId))
-          .run();
+          .where(eq(analysisReports.id, reportId));
 
         emit({ type: 'done', reportId });
       } catch (err) {
         console.error('[analyze background]', err);
         // Update report with failed status
-        db.update(analysisReports)
+        await db.update(analysisReports)
           .set({
             status: 'failed',
             error: err instanceof Error ? err.message : '生成失败',
           })
-          .where(eq(analysisReports.id, reportId))
-          .run();
+          .where(eq(analysisReports.id, reportId));
 
         emit({ type: 'error', message: err instanceof Error ? err.message : '生成失败' });
       }

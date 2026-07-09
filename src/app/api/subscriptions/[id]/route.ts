@@ -20,10 +20,9 @@ export async function GET(
     const session = await requireAuth();
     const { id } = await params;
     const db = getDb();
-    const row = db.select()
+    const row = (await db.select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
     if (!row) return Response.json({ error: 'Not found' }, { status: 404 });
     return Response.json(row);
   } catch (err) {
@@ -44,10 +43,9 @@ export async function PATCH(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db.select()
+    const existing = (await db.select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
     if (!existing) return Response.json({ error: 'Not found' }, { status: 404 });
 
     const body = await req.json();
@@ -70,15 +68,14 @@ export async function PATCH(
       patch.managedStatus = body.managedStatus;
     }
 
-    db.update(subscriptions).set(patch).where(eq(subscriptions.id, id)).run();
+    await db.update(subscriptions).set(patch).where(eq(subscriptions.id, id));
 
     // If disabling/enabling subscription, schedule/unschedule sources
     if (typeof body.isEnabled === 'boolean') {
-      const allSources = db
+      const allSources = (await db
         .select()
         .from(sources)
-        .where(eq(sources.subscriptionId, id))
-        .all();
+        .where(eq(sources.subscriptionId, id)));
 
       try {
         // Import dynamically to avoid circular dep issues in Next.js API routes
@@ -99,7 +96,7 @@ export async function PATCH(
       }
     }
 
-    const updated = db.select().from(subscriptions).where(eq(subscriptions.id, id)).get();
+    const updated = (await db.select().from(subscriptions).where(eq(subscriptions.id, id)))[0];
     return Response.json(updated);
   } catch (err) {
     const authError = handleAuthError(err);
@@ -119,18 +116,16 @@ export async function DELETE(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db.select()
+    const existing = (await db.select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
     if (!existing) return Response.json({ error: 'Not found' }, { status: 404 });
 
     // Unschedule all sources before deleting
-    const allSources = db
+    const allSources = (await db
       .select({ id: sources.id })
       .from(sources)
-      .where(eq(sources.subscriptionId, id))
-      .all();
+      .where(eq(sources.subscriptionId, id)));
 
     try {
       const { jobManager } = await import('@/lib/scheduler/jobManager');
@@ -141,7 +136,7 @@ export async function DELETE(
       // Scheduler may not be initialised in API-only context
     }
 
-    db.delete(subscriptions).where(eq(subscriptions.id, id)).run();
+    await db.delete(subscriptions).where(eq(subscriptions.id, id));
     return new Response(null, { status: 204 });
   } catch (err) {
     const authError = handleAuthError(err);

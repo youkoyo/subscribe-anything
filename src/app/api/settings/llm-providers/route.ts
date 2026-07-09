@@ -22,7 +22,7 @@ export async function GET() {
   try {
     await requireAdmin();
     const db = getDb();
-    const rows = db
+    const rows = (await db
       .select({
         id: llmProviders.id,
         name: llmProviders.name,
@@ -35,8 +35,7 @@ export async function GET() {
         // apiKey intentionally omitted from list endpoint
       })
       .from(llmProviders)
-      .orderBy(llmProviders.createdAt)
-      .all();
+      .orderBy(llmProviders.createdAt));
 
     return Response.json(rows);
   } catch (err) {
@@ -66,10 +65,10 @@ export async function POST(req: Request) {
     const id = createId();
 
     // Auto-activate if this is the first provider
-    const existingCount = db.select({ id: llmProviders.id }).from(llmProviders).all().length;
+    const existingCount = (await db.select({ id: llmProviders.id }).from(llmProviders)).length;
     const isFirst = existingCount === 0;
 
-    db.insert(llmProviders)
+    await db.insert(llmProviders)
       .values({
         id,
         name,
@@ -81,14 +80,12 @@ export async function POST(req: Request) {
         createdBy: session.userId,
         createdAt: now,
         updatedAt: now,
-      })
-      .run();
+      });
 
-    const created = db
+    const created = (await db
       .select()
       .from(llmProviders)
-      .where(eq(llmProviders.id, id))
-      .get();
+      .where(eq(llmProviders.id, id)))[0];
 
     return Response.json({ ...created, apiKey: '' }, { status: 201 });
   } catch (err) {

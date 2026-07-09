@@ -30,11 +30,10 @@ async function main() {
   const count = Math.max(1, Number(countArg ?? 1));
 
   const db = getDb();
-  const profile = db
+  const profile = (await db
     .select()
     .from(industryMonitoringProfiles)
-    .where(eq(industryMonitoringProfiles.industryConfigId, industryConfigId))
-    .get();
+    .where(eq(industryMonitoringProfiles.industryConfigId, industryConfigId)))[0];
 
   if (!profile) {
     console.error(`[inject-test-card] No monitoring profile for industry ${industryConfigId}`);
@@ -51,15 +50,14 @@ async function main() {
   // source attached to the shared subscription if one exists; otherwise create a
   // synthetic one that lives only for this debug insert.
   const subscriptionId = profile.sharedSubscriptionId;
-  let source = db
+  let source = (await db
     .select()
     .from(sources)
-    .where(eq(sources.subscriptionId, subscriptionId))
-    .get();
+    .where(eq(sources.subscriptionId, subscriptionId)))[0];
 
   if (!source) {
     const sourceId = createId();
-    db.insert(sources)
+    await db.insert(sources)
       .values({
         id: sourceId,
         subscriptionId,
@@ -71,9 +69,8 @@ async function main() {
         status: 'active',
         createdAt: new Date(),
         updatedAt: new Date(),
-      })
-      .run();
-    source = db.select().from(sources).where(eq(sources.id, sourceId)).get();
+      });
+    source = (await db.select().from(sources).where(eq(sources.id, sourceId)))[0];
     console.log(`[inject-test-card] Created synthetic source ${sourceId}`);
   }
   if (!source) {
@@ -85,7 +82,7 @@ async function main() {
   for (let i = 0; i < count; i++) {
     const title = `[调试注入 ${i + 1}/${count}] 化工园区停产事件监测`;
     const sourceUrl = `https://example.com/debug/${Date.now()}-${i}`;
-    db.insert(messageCards)
+    await db.insert(messageCards)
       .values({
         subscriptionId,
         sourceId: source.id,
@@ -95,8 +92,7 @@ async function main() {
         sourceUrl,
         publishedAt: now,
         createdAt: now,
-      })
-      .run();
+      });
     ids.push(sourceUrl);
   }
 

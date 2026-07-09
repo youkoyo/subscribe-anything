@@ -21,19 +21,17 @@ export async function GET() {
     const db = getDb();
 
     // Load base (system) templates
-    const baseRows = db
+    const baseRows = (await db
       .select()
       .from(promptTemplates)
-      .where(inArray(promptTemplates.id, [...BASE_TEMPLATE_IDS]))
-      .all();
+      .where(inArray(promptTemplates.id, [...BASE_TEMPLATE_IDS])));
     const baseMap = new Map(baseRows.map((t) => [t.id, t]));
 
     // Load user's custom overrides
-    const userRows = db
+    const userRows = (await db
       .select()
       .from(promptTemplates)
-      .where(eq(promptTemplates.userId, session.userId))
-      .all();
+      .where(eq(promptTemplates.userId, session.userId)));
     // User template IDs are `${userId}-${baseId}` — extract the baseId portion
     const userMap = new Map(
       userRows.map((t) => [t.id.slice(session.userId.length + 1), t])

@@ -10,26 +10,23 @@ export async function GET(req: Request) {
     const industryConfigId = url.searchParams.get('industryConfigId');
     const db = getDb();
     const runs = industryConfigId
-      ? db
+      ? (await db
           .select()
           .from(industryDeliveryRuns)
           .where(eq(industryDeliveryRuns.industryConfigId, industryConfigId))
           .orderBy(desc(industryDeliveryRuns.createdAt))
-          .limit(50)
-          .all()
-      : db
+          .limit(50))
+      : (await db
           .select()
           .from(industryDeliveryRuns)
           .orderBy(desc(industryDeliveryRuns.createdAt))
-          .limit(50)
-          .all();
+          .limit(50));
 
-    const logs = db
+    const logs = (await db
       .select()
       .from(userDeliveryLogs)
       .orderBy(desc(userDeliveryLogs.createdAt))
-      .limit(100)
-      .all();
+      .limit(100));
 
     return Response.json({ runs, logs });
   } catch (err) {

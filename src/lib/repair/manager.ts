@@ -104,15 +104,14 @@ async function runRepair(
 
     if (agentResult.success && agentResult.script) {
       // Auto-apply: update source script + status
-      db.update(sources)
+      await db.update(sources)
         .set({ script: agentResult.script, status: 'active', lastError: null })
-        .where(eq(sources.id, sourceId))
-        .run();
+        .where(eq(sources.id, sourceId));
 
       broadcast(task, { type: 'success', script: agentResult.script });
       task.status = 'success';
 
-      createNotification(db, {
+      await createNotification(db, {
         type: 'source_fixed',
         title: `订阅源修复成功：${source.title}`,
         subscriptionId: source.subscriptionId,
@@ -124,7 +123,7 @@ async function runRepair(
       broadcast(task, { type: 'failed', reason, script: agentResult.script });
       task.status = 'failed';
 
-      createNotification(db, {
+      await createNotification(db, {
         type: 'source_failed',
         title: `订阅源修复失败：${source.title}`,
         body: reason,
@@ -138,7 +137,7 @@ async function runRepair(
     broadcast(task, { type: 'failed', reason });
     task.status = 'failed';
 
-    createNotification(db, {
+    await createNotification(db, {
       type: 'source_failed',
       title: `订阅源修复失败：${source.title}`,
       body: reason,

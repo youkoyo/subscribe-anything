@@ -4,7 +4,7 @@ import { listPublishedIndustryConfigsForUser } from '@/lib/industry-configs/serv
 export async function GET() {
   try {
     await requireAuth();
-    return Response.json(listPublishedIndustryConfigsForUser(true));
+    return Response.json(await listPublishedIndustryConfigsForUser(true));
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

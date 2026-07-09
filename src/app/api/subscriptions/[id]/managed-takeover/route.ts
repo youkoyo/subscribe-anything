@@ -18,11 +18,10 @@ export async function POST(
     const { id } = await params;
     const db = getDb();
 
-    const sub = db
+    const sub = (await db
       .select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
 
     if (!sub) {
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -67,14 +66,13 @@ export async function POST(
     };
 
     // Switch status to manual_creating
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({
         managedStatus: 'manual_creating',
         wizardStateJson: JSON.stringify(newWizardState),
         updatedAt: new Date(),
       })
-      .where(eq(subscriptions.id, id))
-      .run();
+      .where(eq(subscriptions.id, id));
 
     return Response.json({
       id,

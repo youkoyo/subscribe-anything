@@ -10,7 +10,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://typescriptlang.org)
-[![SQLite](https://img.shields.io/badge/SQLite-WAL-green?logo=sqlite)](https://sqlite.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -31,7 +31,7 @@
 
 > **💡 一键托管：** 在向导的任意步骤点击「帮我完成」，AI 将在后台自动完成所有剩余步骤。你可以随时查看实时进度，也可以中途接管切回手动模式。
 
-所有 API Key 和 AI 供应商配置存储在 SQLite 数据库中，无需维护 `.env` 文件。整个系统运行在单一 Node.js 进程中。
+所有 API Key 和 AI 供应商配置存储在 PostgreSQL 数据库中，无需维护 `.env` 文件。整个系统运行在单一 Node.js 进程中。
 
 ---
 
@@ -51,7 +51,7 @@
 | 📡 RssHub 集成 | 内置 RssHub 路由雷达，自动检测数千个网站的 RSS 接口 |
 | 📱 移动端优先设计 | 响应式布局，底部标签栏，支持 iOS 安全区和触控手势 |
 | 🔒 安全沙箱执行 | `isolated-vm`（V8 原生 Isolate）：64MB 内存上限，30 秒超时，最多 5 次 HTTP 请求 |
-| 💾 SQLite + WAL | 单文件数据库，WAL 模式支持并发读写，无需外部数据库 |
+| 💾 PostgreSQL | 单文件数据库，WAL 模式支持并发读写，无需外部数据库 |
 
 ---
 
@@ -61,7 +61,7 @@
 |---|---|
 | 前端 | Next.js 15 App Router · React 19 · TypeScript · Tailwind CSS · shadcn/ui |
 | 后端 | Next.js API Routes · 自定义 Node.js HTTP 服务器（`server.ts`） |
-| 数据库 | SQLite · Drizzle ORM · `better-sqlite3` · WAL 模式 |
+| 数据库 | PostgreSQL · Drizzle ORM · `pg` · WAL 模式 |
 | 调度 | `node-cron` · `p-limit`（最多 5 个沙箱并发） |
 | AI | OpenAI SDK（兼容任意 OpenAI 兼容接口） |
 | 脚本沙箱 | `isolated-vm`（V8 原生 Isolate API） |
@@ -117,7 +117,7 @@ http://localhost:3000
 
 ### 数据持久化
 
-所有数据存储在 `./data/subscribe-anything.db`。`docker-compose.yml` 已将此目录挂载为卷：
+所有数据存储在 `postgresql://subscribe:subscribe@localhost:5432/subscribe_anything`。`docker-compose.yml` 已将此目录挂载为卷：
 
 ```yaml
 volumes:
@@ -146,7 +146,7 @@ docker compose down
 |---|---|---|
 | Node.js | **22 LTS** | Windows 上编译 `isolated-vm` 原生模块需要 Node 22 |
 | npm | ≥ 10 | 随 Node 22 自带 |
-| Python 3 | 任意版本 | 编译 `isolated-vm` 和 `better-sqlite3` 原生模块所需 |
+| Python 3 | 任意版本 | 编译 `isolated-vm` 和 `pg` 原生模块所需 |
 | 构建工具 | gcc / MSVC | 详见各平台说明 |
 
 ### 各平台配置
@@ -170,7 +170,6 @@ xcode-select --install
 
 ```bash
 npm rebuild isolated-vm
-npm rebuild better-sqlite3
 ```
 
 > **Windows 替代方案：** 也可以直接使用 [Docker Desktop](https://www.docker.com/products/docker-desktop/) 进行开发，避免本地编译原生模块的复杂性。
@@ -203,7 +202,7 @@ npm run dev
 
 打开 `http://localhost:3000`。
 
-> 首次启动时，数据库文件会自动创建在 `./data/subscribe-anything.db`。
+> 首次启动时，数据库文件会自动创建在 `postgresql://subscribe:subscribe@localhost:5432/subscribe_anything`。
 
 ### 可用命令
 
@@ -227,9 +226,8 @@ docker build -t subscribe-anything .
 # 运行容器
 docker run -d \
   -p 3000:3000 \
-  -v $(pwd)/data:/app/data \
   -e NODE_ENV=production \
-  -e DB_URL=/app/data/subscribe-anything.db \
+  -e DATABASE_URL=postgresql://subscribe:subscribe@postgres:5432/subscribe_anything \
   --name subscribe-anything \
   subscribe-anything
 ```
@@ -300,7 +298,7 @@ docker run -d \
 ┌─────────────────────────────────────────────────────────┐
 │  server.ts  （单一 Node.js 进程）                         │
 │                                                         │
-│  1. runMigrations()  ← SQLite WAL 模式 + 初始化提示词     │
+│  1. runMigrations()  ← PostgreSQL WAL 模式 + 初始化提示词     │
 │  2. initScheduler()  ← node-cron + p-limit(5) 并发限制   │
 │  3. Next.js HTTP 处理器                                  │
 └─────────────────────────────────────────────────────────┘
@@ -352,7 +350,7 @@ docker run -d \
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DB_URL` | `./data/subscribe-anything.db` | SQLite 数据库文件路径 |
+| `DATABASE_URL` | `postgresql://subscribe:subscribe@localhost:5432/subscribe_anything` | PostgreSQL 数据库文件路径 |
 | `PORT` | `3000` | HTTP 服务监听端口 |
 | `NODE_ENV` | `development` | Docker 中设为 `production` |
 
@@ -379,7 +377,7 @@ docker run -d \
 
 **Q: 如何备份数据？**
 
-直接复制 `./data/subscribe-anything.db` 文件即可。建议在服务停止时备份以确保一致性。
+直接复制 `postgresql://subscribe:subscribe@localhost:5432/subscribe_anything` 文件即可。建议在服务停止时备份以确保一致性。
 
 **Q: 调度器任务是否会因服务重启而丢失？**
 

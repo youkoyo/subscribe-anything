@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
     // Check that email provider is configured
     const db = getDb();
-    const config = db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')).get();
+    const config = (await db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')))[0];
 
     const isZeabur = config?.provider === 'zeabur';
     const isResend = config?.provider === 'resend';

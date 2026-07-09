@@ -14,10 +14,9 @@ export async function GET(req: Request) {
     const db = getDb();
 
     // Get user's subscription IDs
-    const userSubs = db.select({ id: subscriptions.id })
+    const userSubs = (await db.select({ id: subscriptions.id })
       .from(subscriptions)
-      .where(eq(subscriptions.userId, session.userId))
-      .all();
+      .where(eq(subscriptions.userId, session.userId)));
 
     if (userSubs.length === 0) {
       return Response.json([]);
@@ -35,13 +34,12 @@ export async function GET(req: Request) {
     }
     if (isReadParam === 'false') conditions.push(eq(notifications.isRead, false));
 
-    const rows = db
+    const rows = (await db
       .select()
       .from(notifications)
       .where(and(...conditions))
       .orderBy(desc(notifications.createdAt))
-      .limit(50)
-      .all();
+      .limit(50));
 
     return Response.json(rows);
   } catch (err) {

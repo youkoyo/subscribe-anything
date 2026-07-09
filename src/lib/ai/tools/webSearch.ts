@@ -72,11 +72,10 @@ async function searchSerper(query: string, apiKey: string): Promise<SearchResult
 /** Runs a web search using the configured provider. Throws if not configured. */
 export async function webSearch(query: string): Promise<SearchResult[]> {
   const db = getDb();
-  const config = db
+  const config = (await db
     .select()
     .from(searchProviderConfig)
-    .where(eq(searchProviderConfig.id, 'default'))
-    .get();
+    .where(eq(searchProviderConfig.id, 'default')))[0];
 
   const provider = config?.provider ?? 'none';
   const apiKey = config?.apiKey ?? '';

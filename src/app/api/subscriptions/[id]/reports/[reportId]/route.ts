@@ -13,14 +13,13 @@ export async function GET(
     const { id, reportId } = await params;
     const db = getDb();
 
-    const report = db.select()
+    const report = (await db.select()
       .from(analysisReports)
       .where(and(
         eq(analysisReports.id, reportId),
         eq(analysisReports.subscriptionId, id),
         eq(analysisReports.userId, session.userId)
-      ))
-      .get();
+      )))[0];
 
     if (!report) return Response.json({ error: 'Report not found' }, { status: 404 });
 
@@ -46,21 +45,19 @@ export async function PATCH(
 
     const body = await req.json() as { isStarred?: boolean };
 
-    const report = db.select({ id: analysisReports.id })
+    const report = (await db.select({ id: analysisReports.id })
       .from(analysisReports)
       .where(and(
         eq(analysisReports.id, reportId),
         eq(analysisReports.subscriptionId, id),
         eq(analysisReports.userId, session.userId)
-      ))
-      .get();
+      )))[0];
     if (!report) return Response.json({ error: 'Report not found' }, { status: 404 });
 
     if (typeof body.isStarred === 'boolean') {
-      db.update(analysisReports)
+      await db.update(analysisReports)
         .set({ isStarred: body.isStarred })
-        .where(eq(analysisReports.id, reportId))
-        .run();
+        .where(eq(analysisReports.id, reportId));
     }
 
     return Response.json({ ok: true });
@@ -83,19 +80,17 @@ export async function DELETE(
     const { id, reportId } = await params;
     const db = getDb();
 
-    const report = db.select({ id: analysisReports.id })
+    const report = (await db.select({ id: analysisReports.id })
       .from(analysisReports)
       .where(and(
         eq(analysisReports.id, reportId),
         eq(analysisReports.subscriptionId, id),
         eq(analysisReports.userId, session.userId)
-      ))
-      .get();
+      )))[0];
     if (!report) return Response.json({ error: 'Report not found' }, { status: 404 });
 
-    db.delete(analysisReports)
-      .where(eq(analysisReports.id, reportId))
-      .run();
+    await db.delete(analysisReports)
+      .where(eq(analysisReports.id, reportId));
 
     return Response.json({ ok: true });
   } catch (err) {

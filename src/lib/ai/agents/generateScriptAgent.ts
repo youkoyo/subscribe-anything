@@ -52,8 +52,10 @@ export async function generateScriptAgent(
   userId?: string | null,
   signal?: AbortSignal
 ): Promise<GenerateResult> {
-  const provider = getProviderForTemplate('generate-script', userId);
-  const tpl = getTemplate('generate-script', userId);
+  const [provider, tpl] = await Promise.all([
+    getProviderForTemplate('generate-script', userId),
+    getTemplate('generate-script', userId),
+  ]);
 
   let sourceDomain = '';
   try { sourceDomain = new URL(source.url).hostname; } catch { /* ignore */ }

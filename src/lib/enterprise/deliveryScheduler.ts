@@ -71,7 +71,7 @@ export function unscheduleIndustryDelivery(industryId: string) {
 
 export async function reloadIndustryDelivery(industryId: string) {
   const db = getDb();
-  const industry = db.select().from(industryConfigs).where(eq(industryConfigs.id, industryId)).get();
+  const industry = (await db.select().from(industryConfigs).where(eq(industryConfigs.id, industryId)))[0];
   if (!industry) {
     unscheduleIndustryDelivery(industryId);
     return;
@@ -83,11 +83,10 @@ export async function initDeliveryScheduler() {
   const db = getDb();
   stopDeliveryJobs();
   scheduledIndustries.clear();
-  const rows = db
+  const rows = (await db
     .select()
     .from(industryConfigs)
-    .where(eq(industryConfigs.deliveryEnabled, true))
-    .all();
+    .where(eq(industryConfigs.deliveryEnabled, true)));
   for (const row of rows) {
     if (isSchedulableIndustry(row)) scheduledIndustries.set(row.id, row);
   }

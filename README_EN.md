@@ -10,7 +10,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://typescriptlang.org)
-[![SQLite](https://img.shields.io/badge/SQLite-WAL-green?logo=sqlite)](https://sqlite.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -31,7 +31,7 @@ Subscribe Anything is a self-hosted platform that lets you subscribe to *any* to
 
 > **💡 One-Click Managed Mode:** At any wizard step, click "Do it for me" and the AI will automatically complete all remaining steps in the background. You can monitor real-time progress or take over and switch back to manual mode at any time.
 
-All API keys and AI provider configuration are stored inside the SQLite database (no environment variables needed beyond `DB_URL`). Everything runs in a single Node.js process.
+All API keys and AI provider configuration are stored inside the PostgreSQL database (no environment variables needed beyond `DATABASE_URL`). Everything runs in a single Node.js process.
 
 ---
 
@@ -51,7 +51,7 @@ All API keys and AI provider configuration are stored inside the SQLite database
 | 📡 RssHub Integration | Built-in RssHub route radar — automatically detects RSS feeds for thousands of websites |
 | 📱 Mobile-First Design | Responsive layout: bottom tab bar, swipe-friendly cards, iOS safe-area support |
 | 🔒 Secure Sandbox | Scripts run inside `isolated-vm` (same V8 isolation as Cloudflare Workers): 64 MB memory cap, 30 s timeout, 5 HTTP requests max |
-| 💾 SQLite + WAL | Single-file database with WAL mode for concurrent reads; no external database required |
+| 💾 PostgreSQL | Single-file database with WAL mode for concurrent reads; no external database required |
 
 ---
 
@@ -61,7 +61,7 @@ All API keys and AI provider configuration are stored inside the SQLite database
 |---|---|
 | Frontend | Next.js 15 App Router · React 19 · TypeScript · Tailwind CSS · shadcn/ui |
 | Backend | Next.js API Routes · Custom Node.js HTTP server (`server.ts`) |
-| Database | SQLite · Drizzle ORM · `better-sqlite3` · WAL mode |
+| Database | PostgreSQL · Drizzle ORM · `pg` · WAL mode |
 | Scheduler | `node-cron` · `p-limit` (max 5 concurrent sandbox executions) |
 | AI | OpenAI SDK (any OpenAI-compatible endpoint) |
 | Script Sandbox | `isolated-vm` (V8 native Isolate API) |
@@ -117,7 +117,7 @@ Go to **Settings → Search Provider** and enter a [Tavily](https://tavily.com) 
 
 ### Persistent data
 
-All data is stored in `./data/subscribe-anything.db`. The `docker-compose.yml` mounts this directory as a volume:
+All data is stored in `postgresql://subscribe:subscribe@localhost:5432/subscribe_anything`. The `docker-compose.yml` mounts this directory as a volume:
 
 ```yaml
 volumes:
@@ -146,7 +146,7 @@ docker compose down
 |---|---|---|
 | Node.js | **22 LTS** | `isolated-vm` native module requires Node 22 on Windows |
 | npm | ≥ 10 | Bundled with Node 22 |
-| Python 3 | any | Required to compile `isolated-vm` and `better-sqlite3` native modules |
+| Python 3 | any | Required to compile `isolated-vm` and `pg` native modules |
 | Build tools | gcc / MSVC | See OS-specific notes below |
 
 ### OS-specific setup
@@ -170,7 +170,6 @@ After installing, rebuild native modules:
 
 ```bash
 npm rebuild isolated-vm
-npm rebuild better-sqlite3
 ```
 
 **Linux (Debian/Ubuntu)**
@@ -201,7 +200,7 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-> The database file is created automatically at `./data/subscribe-anything.db` on first startup.
+> The database file is created automatically at `postgresql://subscribe:subscribe@localhost:5432/subscribe_anything` on first startup.
 
 ### Available scripts
 
@@ -225,9 +224,8 @@ docker build -t subscribe-anything .
 # Run container
 docker run -d \
   -p 3000:3000 \
-  -v $(pwd)/data:/app/data \
   -e NODE_ENV=production \
-  -e DB_URL=/app/data/subscribe-anything.db \
+  -e DATABASE_URL=postgresql://subscribe:subscribe@postgres:5432/subscribe_anything \
   --name subscribe-anything \
   subscribe-anything
 ```
@@ -285,7 +283,7 @@ All AI agent prompts are editable and can be reset to defaults at any time:
 ┌─────────────────────────────────────────────────────────┐
 │  server.ts  (single Node.js process)                    │
 │                                                         │
-│  1. runMigrations()  ← SQLite WAL, seed templates       │
+│  1. runMigrations()  ← PostgreSQL WAL, seed templates       │
 │  2. initScheduler()  ← node-cron + p-limit(5)           │
 │  3. Next.js HTTP handler                                │
 └─────────────────────────────────────────────────────────┘
@@ -324,7 +322,7 @@ Only one environment variable is used at runtime. Everything else is stored in t
 
 | Variable | Default | Description |
 |---|---|---|
-| `DB_URL` | `./data/subscribe-anything.db` | Path to the SQLite database file |
+| `DATABASE_URL` | `postgresql://subscribe:subscribe@localhost:5432/subscribe_anything` | Path to the PostgreSQL database file |
 | `PORT` | `3000` | HTTP server port |
 | `NODE_ENV` | `development` | Set to `production` in Docker |
 

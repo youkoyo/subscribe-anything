@@ -39,8 +39,10 @@ export async function repairScriptAgent(
   onLLMCall?: (info: LLMCallInfo) => void,
   userId?: string | null
 ): Promise<RepairResult> {
-  const provider = getProviderForTemplate('repair-script', userId);
-  const tpl = getTemplate('repair-script', userId);
+  const [provider, tpl] = await Promise.all([
+    getProviderForTemplate('repair-script', userId),
+    getTemplate('repair-script', userId),
+  ]);
 
   if (!tpl) return { success: false, reason: '未找到修复脚本提示模板' };
 

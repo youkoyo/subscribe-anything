@@ -8,11 +8,11 @@ import { isSmtpConfigured, isVerificationRequired } from '@/lib/email/smtp';
 export async function GET() {
   try {
     const db = getDb();
-    const userCount = db.select({ count: count() }).from(users).where(eq(users.isGuest, false)).get();
+    const userCount = (await db.select({ count: count() }).from(users).where(eq(users.isGuest, false)))[0];
     const isFirstUser = (userCount?.count ?? 0) === 0;
 
     // Check Google OAuth availability
-    const googleConfig = db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')).get();
+    const googleConfig = (await db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')))[0];
     const googleOAuthEnabled = !!(googleConfig?.enabled && googleConfig.clientId && googleConfig.clientSecret);
 
     // First user becomes admin and always skips verification
@@ -25,7 +25,7 @@ export async function GET() {
       });
     }
 
-    const needsVerification = isSmtpConfigured() && isVerificationRequired();
+    const needsVerification = (await isSmtpConfigured()) && (await isVerificationRequired());
     const canResetPassword = needsVerification;
     return Response.json({
       needsVerification,

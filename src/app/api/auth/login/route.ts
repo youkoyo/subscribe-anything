@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const db = getDb();
 
     // Find user by email
-    const user = db.select().from(users).where(eq(users.email, email)).get();
+    const user = (await db.select().from(users).where(eq(users.email, email)))[0];
     if (!user || !user.passwordHash) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }

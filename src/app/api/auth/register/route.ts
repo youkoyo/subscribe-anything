@@ -23,17 +23,17 @@ export async function POST(req: NextRequest) {
     const db = getDb();
 
     // Check if email already exists
-    const existingUser = db.select().from(users).where(eq(users.email, email)).get();
+    const existingUser = (await db.select().from(users).where(eq(users.email, email)))[0];
     if (existingUser) {
       return NextResponse.json({ error: 'Email already registered' }, { status: 400 });
     }
 
     // Check if this is the first user (will be admin)
-    const userCount = db.select({ count: count() }).from(users).where(eq(users.isGuest, false)).get();
+    const userCount = (await db.select({ count: count() }).from(users).where(eq(users.isGuest, false)))[0];
     const isFirstUser = (userCount?.count ?? 0) === 0;
 
     // First user (admin) skips verification; others require it when SMTP is configured and setting is on
-    if (!isFirstUser && isSmtpConfigured() && isVerificationRequired()) {
+    if (!isFirstUser && (await isSmtpConfigured()) && (await isVerificationRequired())) {
       if (!verificationCode) {
         return NextResponse.json({ error: '请输入验证码' }, { status: 400 });
       }

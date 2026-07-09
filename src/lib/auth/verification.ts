@@ -27,7 +27,7 @@ export async function createVerificationCode(
   const now = new Date();
 
   // Check if there's a recent code (within cooldown)
-  const recentCode = db
+  const recentCode = (await db
     .select()
     .from(emailVerificationCodes)
     .where(
@@ -36,8 +36,7 @@ export async function createVerificationCode(
         eq(emailVerificationCodes.type, type),
         gt(emailVerificationCodes.createdAt, new Date(now.getTime() - CODE_COOLDOWN_MS))
       )
-    )
-    .get();
+    ))[0];
 
   if (recentCode) {
     const remainingSeconds = Math.ceil(
@@ -47,22 +46,21 @@ export async function createVerificationCode(
   }
 
   // Invalidate any existing unused codes for this email
-  db.delete(emailVerificationCodes)
+  await db.delete(emailVerificationCodes)
     .where(
       and(
         eq(emailVerificationCodes.email, email),
         eq(emailVerificationCodes.type, type),
         isNull(emailVerificationCodes.usedAt)
       )
-    )
-    .run();
+    );
 
   // Create new code
   const code = generateVerificationCode();
   const id = createId();
   const expiresAt = new Date(now.getTime() + CODE_EXPIRY_MS);
 
-  db.insert(emailVerificationCodes)
+  await db.insert(emailVerificationCodes)
     .values({
       id,
       email,
@@ -70,8 +68,7 @@ export async function createVerificationCode(
       type,
       expiresAt,
       createdAt: now,
-    })
-    .run();
+    });
 
   return { code, id };
 }
@@ -89,7 +86,7 @@ export async function verifyCode(
   const now = new Date();
 
   // Find the code
-  const record = db
+  const record = (await db
     .select()
     .from(emailVerificationCodes)
     .where(
@@ -99,8 +96,7 @@ export async function verifyCode(
         eq(emailVerificationCodes.type, type),
         isNull(emailVerificationCodes.usedAt)
       )
-    )
-    .get();
+    ))[0];
 
   if (!record) {
     return { valid: false, error: '验证码错误或已使用' };
@@ -121,10 +117,9 @@ export async function invalidateCode(codeId: string): Promise<void> {
   const db = getDb();
   const now = new Date();
 
-  db.update(emailVerificationCodes)
+  await db.update(emailVerificationCodes)
     .set({ usedAt: now })
-    .where(eq(emailVerificationCodes.id, codeId))
-    .run();
+    .where(eq(emailVerificationCodes.id, codeId));
 }
 
 /**
@@ -134,7 +129,6 @@ export async function cleanupExpiredCodes(): Promise<void> {
   const db = getDb();
   const now = new Date();
 
-  db.delete(emailVerificationCodes)
-    .where(lt(emailVerificationCodes.expiresAt, now))
-    .run();
+  await db.delete(emailVerificationCodes)
+    .where(lt(emailVerificationCodes.expiresAt, now));
 }

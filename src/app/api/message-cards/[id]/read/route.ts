@@ -14,7 +14,7 @@ export async function POST(
     const db = getDb();
 
     // Verify card belongs to user via subscription
-    const card = db
+    const card = (await db
       .select({
         id: messageCards.id,
         subscriptionId: messageCards.subscriptionId,
@@ -23,8 +23,7 @@ export async function POST(
       })
       .from(messageCards)
       .innerJoin(subscriptions, eq(messageCards.subscriptionId, subscriptions.id))
-      .where(eq(messageCards.id, id))
-      .get();
+      .where(eq(messageCards.id, id)))[0];
 
     if (!card || card.userId !== session.userId) {
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -33,16 +32,15 @@ export async function POST(
     // Only update if not already read
     if (!card.readAt) {
       const now = new Date();
-      db.update(messageCards).set({ readAt: now }).where(eq(messageCards.id, id)).run();
+      await db.update(messageCards).set({ readAt: now }).where(eq(messageCards.id, id));
 
       // Decrement subscription.unreadCount (floor at 0)
-      db.update(subscriptions)
+      await db.update(subscriptions)
         .set({
           unreadCount: sql`MAX(0, ${subscriptions.unreadCount} - 1)`,
           updatedAt: now,
         })
-        .where(eq(subscriptions.id, card.subscriptionId))
-        .run();
+        .where(eq(subscriptions.id, card.subscriptionId));
     }
 
     return Response.json({ ok: true });

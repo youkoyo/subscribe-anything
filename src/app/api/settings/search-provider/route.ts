@@ -21,11 +21,10 @@ export async function GET() {
   try {
     await requireAdmin();
     const db = getDb();
-    const row = db
+    const row = (await db
       .select()
       .from(searchProviderConfig)
-      .where(eq(searchProviderConfig.id, 'default'))
-      .get();
+      .where(eq(searchProviderConfig.id, 'default')))[0];
 
     if (!row) {
       return Response.json({ id: 'default', provider: 'none', apiKey: '' });
@@ -56,16 +55,15 @@ export async function PUT(req: Request) {
     const db = getDb();
     const now = new Date();
 
-    const existing = db
+    const existing = (await db
       .select()
       .from(searchProviderConfig)
-      .where(eq(searchProviderConfig.id, 'default'))
-      .get();
+      .where(eq(searchProviderConfig.id, 'default')))[0];
 
     // Only overwrite apiKey when the caller provides a non-empty value
     const resolvedApiKey = apiKey ? apiKey : (existing?.apiKey ?? '');
 
-    db.insert(searchProviderConfig)
+    await db.insert(searchProviderConfig)
       .values({
         id: 'default',
         provider,
@@ -76,8 +74,7 @@ export async function PUT(req: Request) {
       .onConflictDoUpdate({
         target: searchProviderConfig.id,
         set: { provider, apiKey: resolvedApiKey, updatedAt: now },
-      })
-      .run();
+      });
 
     return Response.json({ id: 'default', provider, apiKey: '' });
   } catch (err) {

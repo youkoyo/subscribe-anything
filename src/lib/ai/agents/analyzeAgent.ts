@@ -42,8 +42,10 @@ export async function analyzeAgent(
   userId?: string | null
 ): Promise<void> {
   const { onChunk, onCall, onToolCall } = callbacks;
-  const provider = getProviderForTemplate('analyze-subscription', userId);
-  const tpl = getTemplate('analyze-subscription', userId);
+  const [provider, tpl] = await Promise.all([
+    getProviderForTemplate('analyze-subscription', userId),
+    getTemplate('analyze-subscription', userId),
+  ]);
 
   if (!tpl) {
     onChunk('<p style="color:red">analyze-subscription 提示词模板未找到</p>');

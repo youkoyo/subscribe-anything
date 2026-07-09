@@ -25,38 +25,35 @@ function firstActivePool(profiles: Array<typeof industryMonitoringProfiles.$infe
   return profiles.find((profile) => profile.status === 'active' && !!profile.sharedSubscriptionId) ?? null;
 }
 
-export function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
+export async function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
   const db = getDb();
-  const industry = db
+  const industry = (await db
     .select()
     .from(industryConfigs)
-    .where(eq(industryConfigs.id, input.industryConfigId))
-    .get();
+    .where(eq(industryConfigs.id, input.industryConfigId)))[0];
 
   if (!industry) throw new Error('INDUSTRY_NOT_FOUND');
 
-  const subscription = db
+  const subscription = (await db
     .select()
     .from(subscriptions)
-    .where(eq(subscriptions.id, input.subscriptionId))
-    .get();
+    .where(eq(subscriptions.id, input.subscriptionId)))[0];
 
   if (!subscription) throw new Error('SUBSCRIPTION_NOT_FOUND');
 
   const now = new Date();
   const snapshot = buildIndustryConfigSnapshot(industry);
 
-  db.update(subscriptions)
+  await db.update(subscriptions)
     .set({
       industryConfigId: industry.id,
       industryConfigSnapshot: JSON.stringify(snapshot),
       isEnabled: true,
       updatedAt: now,
     })
-    .where(eq(subscriptions.id, subscription.id))
-    .run();
+    .where(eq(subscriptions.id, subscription.id));
 
-  const existing = db
+  const existing = (await db
     .select()
     .from(industryMonitoringProfiles)
     .where(
@@ -64,10 +61,9 @@ export function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
         eq(industryMonitoringProfiles.industryConfigId, industry.id),
         eq(industryMonitoringProfiles.sharedSubscriptionId, subscription.id)
       )
-    )
-    .get();
+    ))[0];
 
-  const existingDefault = db
+  const existingDefault = (await db
     .select()
     .from(industryMonitoringProfiles)
     .where(
@@ -75,13 +71,12 @@ export function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
         eq(industryMonitoringProfiles.industryConfigId, industry.id),
         eq(industryMonitoringProfiles.title, '默认信息池')
       )
-    )
-    .get();
+    ))[0];
 
   const profile = existing ?? existingDefault;
 
   if (profile) {
-    db.update(industryMonitoringProfiles)
+    await db.update(industryMonitoringProfiles)
       .set({
         title: '默认信息池',
         seedCriteria: subscription.criteria ?? industry.description ?? industry.name,
@@ -95,10 +90,9 @@ export function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
         provisioningError: null,
         updatedAt: now,
       })
-      .where(eq(industryMonitoringProfiles.id, profile.id))
-      .run();
+      .where(eq(industryMonitoringProfiles.id, profile.id));
   } else {
-    db.insert(industryMonitoringProfiles)
+    await db.insert(industryMonitoringProfiles)
       .values({
         id: createId(),
         industryConfigId: industry.id,
@@ -117,11 +111,10 @@ export function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
         provisioningError: null,
         createdAt: now,
         updatedAt: now,
-      })
-      .run();
+      });
   }
 
-  const activeProfile = db
+  const activeProfile = (await db
     .select()
     .from(industryMonitoringProfiles)
     .where(
@@ -129,11 +122,10 @@ export function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
         eq(industryMonitoringProfiles.industryConfigId, industry.id),
         eq(industryMonitoringProfiles.sharedSubscriptionId, subscription.id)
       )
-    )
-    .get();
+    ))[0];
 
   if (activeProfile) {
-    const pendingSubscribers = db
+    const pendingSubscribers = (await db
       .select()
       .from(userIndustrySubscriptions)
       .where(
@@ -142,73 +134,65 @@ export function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInput) {
           ne(userIndustrySubscriptions.status, 'paused'),
           ne(userIndustrySubscriptions.status, 'rejected')
         )
-      )
-      .all();
+      ));
 
     for (const row of pendingSubscribers) {
       if (row.status === 'pending_approval') continue;
-      db.update(userIndustrySubscriptions)
+      await db.update(userIndustrySubscriptions)
         .set({
           monitoringProfileId: activeProfile.id,
           status: 'active',
           updatedAt: now,
         })
-        .where(eq(userIndustrySubscriptions.id, row.id))
-        .run();
+        .where(eq(userIndustrySubscriptions.id, row.id));
     }
   }
 
-  db.update(industryConfigs)
+  await db.update(industryConfigs)
     .set({
       visibility: 'published',
       isEnabled: true,
       deliveryEnabled: true,
       updatedAt: now,
     })
-    .where(eq(industryConfigs.id, industry.id))
-    .run();
+    .where(eq(industryConfigs.id, industry.id));
 
   return activeProfile;
 }
 
-export function listIndustryPoolSummariesForAdmin() {
+export async function listIndustryPoolSummariesForAdmin() {
   const db = getDb();
-  const configs = db.select().from(industryConfigs).orderBy(desc(industryConfigs.updatedAt)).all();
+  const configs = (await db.select().from(industryConfigs).orderBy(desc(industryConfigs.updatedAt)));
 
-  return configs.map((config) => {
-    const profiles = db
+  return Promise.all(configs.map(async (config) => {
+    const profiles = (await db
       .select()
       .from(industryMonitoringProfiles)
       .where(eq(industryMonitoringProfiles.industryConfigId, config.id))
-      .orderBy(desc(industryMonitoringProfiles.updatedAt))
-      .all();
+      .orderBy(desc(industryMonitoringProfiles.updatedAt)));
     const activeProfile = firstActivePool(profiles);
     const poolSources = activeProfile?.sharedSubscriptionId
-      ? db
+      ? (await db
           .select()
           .from(sources)
-          .where(eq(sources.subscriptionId, activeProfile.sharedSubscriptionId))
-          .all()
+          .where(eq(sources.subscriptionId, activeProfile.sharedSubscriptionId)))
       : [];
     const cards = activeProfile?.sharedSubscriptionId
-      ? db
+      ? (await db
           .select({ id: messageCards.id, createdAt: messageCards.createdAt })
           .from(messageCards)
-          .where(eq(messageCards.subscriptionId, activeProfile.sharedSubscriptionId))
-          .all()
+          .where(eq(messageCards.subscriptionId, activeProfile.sharedSubscriptionId)))
       : [];
-    const subscribers = db
+    const subscribers = (await db
       .select()
       .from(userIndustrySubscriptions)
-      .where(eq(userIndustrySubscriptions.industryConfigId, config.id))
-      .all();
-    const lastRun = db
+      .where(eq(userIndustrySubscriptions.industryConfigId, config.id)));
+    const lastRun = (await db
       .select()
       .from(industryDeliveryRuns)
       .where(eq(industryDeliveryRuns.industryConfigId, config.id))
       .orderBy(desc(industryDeliveryRuns.createdAt))
-      .limit(1)
-      .get();
+      .limit(1))[0];
 
     return {
       ...config,
@@ -234,5 +218,5 @@ export function listIndustryPoolSummariesForAdmin() {
         lastDeliveryAt: lastRun?.createdAt ?? null,
       },
     };
-  });
+  }));
 }

@@ -26,11 +26,10 @@ export async function POST(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db
+    const existing = (await db
       .select()
       .from(llmProviders)
-      .where(eq(llmProviders.id, id))
-      .get();
+      .where(eq(llmProviders.id, id)))[0];
     if (!existing) {
       return Response.json({ error: 'Provider not found' }, { status: 404 });
     }
@@ -38,16 +37,14 @@ export async function POST(
     const now = new Date();
 
     // Deactivate all others first
-    db.update(llmProviders)
+    await db.update(llmProviders)
       .set({ isActive: false, updatedAt: now })
-      .where(ne(llmProviders.id, id))
-      .run();
+      .where(ne(llmProviders.id, id));
 
     // Activate this one
-    db.update(llmProviders)
+    await db.update(llmProviders)
       .set({ isActive: true, updatedAt: now })
-      .where(eq(llmProviders.id, id))
-      .run();
+      .where(eq(llmProviders.id, id));
 
     return Response.json({ success: true });
   } catch (err) {

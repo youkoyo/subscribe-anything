@@ -7,13 +7,12 @@ import { rssInstances } from '@/lib/db/schema';
  * Trailing slash is stripped.
  * Throws a clear error if no active instance is configured.
  */
-export function getActiveRssBaseUrl(): string {
+export async function getActiveRssBaseUrl(): Promise<string> {
   const db = getDb();
-  const instance = db
+  const instance = (await db
     .select({ baseUrl: rssInstances.baseUrl })
     .from(rssInstances)
-    .where(eq(rssInstances.isActive, true))
-    .get();
+    .where(eq(rssInstances.isActive, true)))[0];
 
   if (!instance) {
     throw new Error('No active RSS instance configured. Please add one in Settings → RSS 实例.');

@@ -22,7 +22,7 @@ export async function GET() {
   try {
     await requireAdmin();
     const db = getDb();
-    const rows = db.select().from(rssInstances).orderBy(rssInstances.createdAt).all();
+    const rows = (await db.select().from(rssInstances).orderBy(rssInstances.createdAt));
     return Response.json(rows);
   } catch (err) {
     const authError = handleAuthError(err);
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     const now = new Date();
     const id = createId();
 
-    db.insert(rssInstances)
+    await db.insert(rssInstances)
       .values({
         id,
         name,
@@ -54,10 +54,9 @@ export async function POST(req: Request) {
         createdBy: session.userId,
         createdAt: now,
         updatedAt: now
-      })
-      .run();
+      });
 
-    const created = db.select().from(rssInstances).where(eq(rssInstances.id, id)).get();
+    const created = (await db.select().from(rssInstances).where(eq(rssInstances.id, id)))[0];
     return Response.json(created, { status: 201 });
   } catch (err) {
     const authError = handleAuthError(err);

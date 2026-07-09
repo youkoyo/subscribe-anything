@@ -44,29 +44,29 @@ function toDbValues(input: IndustryConfigInput) {
   };
 }
 
-export function listIndustryConfigsForAdmin() {
+export async function listIndustryConfigsForAdmin() {
   const db = getDb();
-  return db
+  return (await db
     .select()
     .from(industryConfigs)
-    .orderBy(desc(industryConfigs.updatedAt))
-    .all()
+    .orderBy(desc(industryConfigs.updatedAt)))
     .map(toApi);
 }
 
-export function listPublishedIndustryConfigsForUser(enabledOnly = true) {
+export async function listPublishedIndustryConfigsForUser(enabledOnly = true) {
   const db = getDb();
   const conditions = [eq(industryConfigs.visibility, 'published')];
   if (enabledOnly) conditions.push(eq(industryConfigs.isEnabled, true));
 
-  return db
+  const rows = await db
     .select()
     .from(industryConfigs)
     .where(and(...conditions))
-    .orderBy(desc(industryConfigs.updatedAt))
-    .all()
-    .filter((row) =>
-      !!db
+    .orderBy(desc(industryConfigs.updatedAt));
+
+  const visibleRows = [];
+  for (const row of rows) {
+    const activePool = (await db
         .select({ id: industryMonitoringProfiles.id })
         .from(industryMonitoringProfiles)
         .where(
@@ -75,24 +75,24 @@ export function listPublishedIndustryConfigsForUser(enabledOnly = true) {
             eq(industryMonitoringProfiles.status, 'active'),
             isNotNull(industryMonitoringProfiles.sharedSubscriptionId)
           )
-        )
-        .get()
-    )
-    .map(toApi);
+        ))[0];
+    if (activePool) visibleRows.push(row);
+  }
+
+  return visibleRows.map(toApi);
 }
 
-export function seedDefaultIndustryConfigsForAdmin(adminUserId: string) {
+export async function seedDefaultIndustryConfigsForAdmin(adminUserId: string) {
   const db = getDb();
-  const existing = db
+  const existing = (await db
     .select({ id: industryConfigs.id })
     .from(industryConfigs)
-    .limit(1)
-    .get();
+    .limit(1))[0];
 
   if (existing) return 0;
 
   const now = new Date();
-  db.insert(industryConfigs)
+  await db.insert(industryConfigs)
     .values(
       DEFAULT_INDUSTRY_CONFIGS.map((input) => ({
         userId: adminUserId,
@@ -101,21 +101,20 @@ export function seedDefaultIndustryConfigsForAdmin(adminUserId: string) {
         createdAt: now,
         updatedAt: now,
       }))
-    )
-    .run();
+    );
 
   return DEFAULT_INDUSTRY_CONFIGS.length;
 }
 
-export function getIndustryConfigForAdmin(id: string) {
+export async function getIndustryConfigForAdmin(id: string) {
   const db = getDb();
-  const row = db.select().from(industryConfigs).where(eq(industryConfigs.id, id)).get();
+  const row = (await db.select().from(industryConfigs).where(eq(industryConfigs.id, id)))[0];
   return row ? toApi(row) : null;
 }
 
-export function getPublishedIndustryConfig(id: string) {
+export async function getPublishedIndustryConfig(id: string) {
   const db = getDb();
-  const row = db
+  const row = (await db
     .select()
     .from(industryConfigs)
     .where(
@@ -124,10 +123,9 @@ export function getPublishedIndustryConfig(id: string) {
         eq(industryConfigs.visibility, 'published'),
         eq(industryConfigs.isEnabled, true)
       )
-    )
-    .get();
+    ))[0];
   if (!row) return null;
-  const activePool = db
+  const activePool = (await db
     .select({ id: industryMonitoringProfiles.id })
     .from(industryMonitoringProfiles)
     .where(
@@ -136,16 +134,15 @@ export function getPublishedIndustryConfig(id: string) {
         eq(industryMonitoringProfiles.status, 'active'),
         isNotNull(industryMonitoringProfiles.sharedSubscriptionId)
       )
-    )
-    .get();
+    ))[0];
   if (!activePool) return null;
   return toApi(row);
 }
 
-export function createIndustryConfigForAdmin(adminUserId: string, input: IndustryConfigInput) {
+export async function createIndustryConfigForAdmin(adminUserId: string, input: IndustryConfigInput) {
   const db = getDb();
   const now = new Date();
-  const row = db
+  const row = (await db
     .insert(industryConfigs)
     .values({
       userId: adminUserId,
@@ -154,46 +151,43 @@ export function createIndustryConfigForAdmin(adminUserId: string, input: Industr
       createdAt: now,
       updatedAt: now,
     })
-    .returning()
-    .get();
+    .returning())[0];
 
   return toApi(row);
 }
 
-export function updateIndustryConfigForAdmin(id: string, input: IndustryConfigInput) {
-  const existing = getIndustryConfigForAdmin(id);
+export async function updateIndustryConfigForAdmin(id: string, input: IndustryConfigInput) {
+  const existing = await getIndustryConfigForAdmin(id);
   if (!existing) return null;
 
   const db = getDb();
-  db.update(industryConfigs)
+  await db.update(industryConfigs)
     .set({
       ...toDbValues(input),
       updatedAt: new Date(),
     })
-    .where(eq(industryConfigs.id, id))
-    .run();
+    .where(eq(industryConfigs.id, id));
 
   return getIndustryConfigForAdmin(id);
 }
 
-export function deleteIndustryConfigForAdmin(id: string): boolean {
-  const existing = getIndustryConfigForAdmin(id);
+export async function deleteIndustryConfigForAdmin(id: string): Promise<boolean> {
+  const existing = await getIndustryConfigForAdmin(id);
   if (!existing) return false;
 
   const db = getDb();
-  db.delete(industryConfigs).where(eq(industryConfigs.id, id)).run();
+  await db.delete(industryConfigs).where(eq(industryConfigs.id, id));
   return true;
 }
 
-export function publishIndustryConfig(id: string, published: boolean) {
+export async function publishIndustryConfig(id: string, published: boolean) {
   const db = getDb();
-  db.update(industryConfigs)
+  await db.update(industryConfigs)
     .set({
       visibility: published ? 'published' : 'draft',
       updatedAt: new Date(),
     })
-    .where(eq(industryConfigs.id, id))
-    .run();
+    .where(eq(industryConfigs.id, id));
 
   return getIndustryConfigForAdmin(id);
 }

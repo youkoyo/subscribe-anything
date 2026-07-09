@@ -1,71 +1,71 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { pgTable, text, integer, real, boolean, timestamp } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { APP_NAME } from '@/lib/branding';
 
 // ─── users ───────────────────────────────────────────────────────────────────
-export const users = sqliteTable('users', {
+export const users = pgTable('users', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   email: text('email').unique(),
   passwordHash: text('password_hash'),
   name: text('name'),
   avatarUrl: text('avatar_url'),
   googleId: text('google_id').unique(),
-  isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
-  isGuest: integer('is_guest', { mode: 'boolean' }).notNull().default(false),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  isAdmin: boolean('is_admin').notNull().default(false),
+  isGuest: boolean('is_guest').notNull().default(false),
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── sessions ────────────────────────────────────────────────────────────────
-export const sessions = sqliteTable('sessions', {
+export const sessions = pgTable('sessions', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── oauth_states ────────────────────────────────────────────────────────────
-export const oauthStates = sqliteTable('oauth_states', {
+export const oauthStates = pgTable('oauth_states', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   provider: text('provider', { enum: ['google'] }).notNull(),
   state: text('state').notNull(),
   redirectUrl: text('redirect_url'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
 });
 
 // ─── llm_providers ───────────────────────────────────────────────────────────
-export const llmProviders = sqliteTable('llm_providers', {
+export const llmProviders = pgTable('llm_providers', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   name: text('name').notNull(),
   baseUrl: text('base_url').notNull(),
   apiKey: text('api_key').notNull(),
   modelId: text('model_id').notNull(),
   headers: text('headers'), // JSON string, optional extra headers
-  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
+  isActive: boolean('is_active').notNull().default(false),
   totalTokensUsed: integer('total_tokens_used').notNull().default(0),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── prompt_templates ────────────────────────────────────────────────────────
-export const promptTemplates = sqliteTable('prompt_templates', {
+export const promptTemplates = pgTable('prompt_templates', {
   id: text('id').primaryKey(), // e.g. 'userId-find-sources'
   name: text('name').notNull(),
   description: text('description').notNull(),
@@ -75,26 +75,26 @@ export const promptTemplates = sqliteTable('prompt_templates', {
   providerId: text('provider_id').references(() => llmProviders.id, { onDelete: 'set null' }),
   // User-specific templates; null for system defaults (migration only)
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── search_provider_config ──────────────────────────────────────────────────
-export const searchProviderConfig = sqliteTable('search_provider_config', {
+export const searchProviderConfig = pgTable('search_provider_config', {
   id: text('id').primaryKey().default('default'),
   provider: text('provider', { enum: ['tavily', 'serper', 'none'] })
     .notNull()
     .default('none'),
   apiKey: text('api_key').notNull().default(''),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── industry_configs ────────────────────────────────────────────────────────
-export const industryConfigs = sqliteTable('industry_configs', {
+export const industryConfigs = pgTable('industry_configs', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id')
     .notNull()
@@ -109,7 +109,7 @@ export const industryConfigs = sqliteTable('industry_configs', {
   entitiesJson: text('entities_json').notNull().default('[]'),
   sourceTypesJson: text('source_types_json').notNull().default('[]'),
   alertLevel: text('alert_level').notNull().default('一般关注'),
-  isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull().default(true),
+  isEnabled: boolean('is_enabled').notNull().default(true),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
   visibility: text('visibility', { enum: ['draft', 'published'] })
     .notNull()
@@ -117,23 +117,23 @@ export const industryConfigs = sqliteTable('industry_configs', {
   subscriptionMode: text('subscription_mode', { enum: ['open', 'approval_required'] })
     .notNull()
     .default('open'),
-  autoProfileExpansion: integer('auto_profile_expansion', { mode: 'boolean' })
+  autoProfileExpansion: boolean('auto_profile_expansion')
     .notNull()
     .default(false),
   deliveryCron: text('delivery_cron'),
   deliveryTimezone: text('delivery_timezone').notNull().default('Asia/Shanghai'),
-  deliveryEnabled: integer('delivery_enabled', { mode: 'boolean' }).notNull().default(false),
+  deliveryEnabled: boolean('delivery_enabled').notNull().default(false),
   maxItemsPerEmail: integer('max_items_per_email').notNull().default(10),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── subscriptions ───────────────────────────────────────────────────────────
-export const subscriptions = sqliteTable('subscriptions', {
+export const subscriptions = pgTable('subscriptions', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id')
     .notNull()
@@ -144,10 +144,10 @@ export const subscriptions = sqliteTable('subscriptions', {
     onDelete: 'set null',
   }),
   industryConfigSnapshot: text('industry_config_snapshot'),
-  isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull().default(true),
+  isEnabled: boolean('is_enabled').notNull().default(true),
   unreadCount: integer('unread_count').notNull().default(0),
   totalCount: integer('total_count').notNull().default(0),
-  lastUpdatedAt: integer('last_updated_at', { mode: 'timestamp_ms' }),
+  lastUpdatedAt: timestamp('last_updated_at', { mode: 'date' }),
   // 创建状态：null = 正常订阅，'manual_creating' = 手动创建中，'managed_creating' = 托管创建中，'failed' = 创建失败
   managedStatus: text('managed_status', {
     enum: ['manual_creating', 'managed_creating', 'failed'],
@@ -155,16 +155,16 @@ export const subscriptions = sqliteTable('subscriptions', {
   managedError: text('managed_error'),
   // 存储向导中间状态，用于恢复；手动和托管均使用
   wizardStateJson: text('wizard_state_json'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── managed_build_logs ──────────────────────────────────────────────────────
-export const managedBuildLogs = sqliteTable('managed_build_logs', {
+export const managedBuildLogs = pgTable('managed_build_logs', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   subscriptionId: text('subscription_id')
     .notNull()
@@ -173,13 +173,13 @@ export const managedBuildLogs = sqliteTable('managed_build_logs', {
   level: text('level', { enum: ['info', 'progress', 'success', 'error'] }).notNull(),
   message: text('message').notNull(),
   payload: text('payload'), // JSON：关键步骤结果（foundSources 列表、脚本等）
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── industry_monitoring_profiles ───────────────────────────────────────────
-export const industryMonitoringProfiles = sqliteTable('industry_monitoring_profiles', {
+export const industryMonitoringProfiles = pgTable('industry_monitoring_profiles', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   industryConfigId: text('industry_config_id')
     .notNull()
@@ -198,23 +198,23 @@ export const industryMonitoringProfiles = sqliteTable('industry_monitoring_profi
   triggeredByUserId: text('triggered_by_user_id').references(() => users.id, {
     onDelete: 'set null',
   }),
-  requiresAdminApproval: integer('requires_admin_approval', { mode: 'boolean' })
+  requiresAdminApproval: boolean('requires_admin_approval')
     .notNull()
     .default(false),
   approvedBy: text('approved_by').references(() => users.id, { onDelete: 'set null' }),
-  approvedAt: integer('approved_at', { mode: 'timestamp_ms' }),
-  lastProvisionedAt: integer('last_provisioned_at', { mode: 'timestamp_ms' }),
+  approvedAt: timestamp('approved_at', { mode: 'date' }),
+  lastProvisionedAt: timestamp('last_provisioned_at', { mode: 'date' }),
   provisioningError: text('provisioning_error'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── user_industry_subscriptions ────────────────────────────────────────────
-export const userIndustrySubscriptions = sqliteTable('user_industry_subscriptions', {
+export const userIndustrySubscriptions = pgTable('user_industry_subscriptions', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id')
     .notNull()
@@ -232,37 +232,37 @@ export const userIndustrySubscriptions = sqliteTable('user_industry_subscription
   customCriteria: text('custom_criteria').notNull(),
   recipientEmailsJson: text('recipient_emails_json').notNull().default('[]'),
   approvalReason: text('approval_reason'),
-  lastDeliveredAt: integer('last_delivered_at', { mode: 'timestamp_ms' }),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  lastDeliveredAt: timestamp('last_delivered_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── industry_delivery_runs ─────────────────────────────────────────────────
-export const industryDeliveryRuns = sqliteTable('industry_delivery_runs', {
+export const industryDeliveryRuns = pgTable('industry_delivery_runs', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   industryConfigId: text('industry_config_id')
     .notNull()
     .references(() => industryConfigs.id, { onDelete: 'cascade' }),
-  scheduledFor: integer('scheduled_for', { mode: 'timestamp_ms' }).notNull(),
+  scheduledFor: timestamp('scheduled_for', { mode: 'date' }).notNull(),
   status: text('status', { enum: ['running', 'completed', 'failed'] })
     .notNull()
     .default('running'),
-  startedAt: integer('started_at', { mode: 'timestamp_ms' })
+  startedAt: timestamp('started_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  finishedAt: timestamp('finished_at', { mode: 'date' }),
   error: text('error'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── user_delivery_logs ─────────────────────────────────────────────────────
-export const userDeliveryLogs = sqliteTable('user_delivery_logs', {
+export const userDeliveryLogs = pgTable('user_delivery_logs', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   runId: text('run_id')
     .notNull()
@@ -278,14 +278,14 @@ export const userDeliveryLogs = sqliteTable('user_delivery_logs', {
   subject: text('subject').notNull(),
   status: text('status', { enum: ['sent', 'skipped', 'failed'] }).notNull(),
   error: text('error'),
-  sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  sentAt: timestamp('sent_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── sources ─────────────────────────────────────────────────────────────────
-export const sources = sqliteTable('sources', {
+export const sources = pgTable('sources', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   subscriptionId: text('subscription_id')
     .notNull()
@@ -295,28 +295,28 @@ export const sources = sqliteTable('sources', {
   url: text('url').notNull(),
   script: text('script').notNull().default(''),
   cronExpression: text('cron_expression').notNull().default('0 * * * *'),
-  isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull().default(true),
+  isEnabled: boolean('is_enabled').notNull().default(true),
   status: text('status', { enum: ['active', 'failed', 'disabled', 'pending'] })
     .notNull()
     .default('pending'),
-  lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
-  lastRunSuccess: integer('last_run_success', { mode: 'boolean' }),
+  lastRunAt: timestamp('last_run_at', { mode: 'date' }),
+  lastRunSuccess: boolean('last_run_success'),
   lastError: text('last_error'),
-  nextRunAt: integer('next_run_at', { mode: 'timestamp_ms' }),
+  nextRunAt: timestamp('next_run_at', { mode: 'date' }),
   totalRuns: integer('total_runs').notNull().default(0),
   successRuns: integer('success_runs').notNull().default(0),
   itemsCollected: integer('items_collected').notNull().default(0),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── favorites ───────────────────────────────────────────────────────────────
 // Independent table storing copies of favorited cards
-export const favorites = sqliteTable('favorites', {
+export const favorites = pgTable('favorites', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id')
     .notNull()
@@ -328,8 +328,8 @@ export const favorites = sqliteTable('favorites', {
   summary: text('summary'),
   thumbnailUrl: text('thumbnail_url'),
   sourceUrl: text('source_url').notNull(),
-  publishedAt: integer('published_at', { mode: 'timestamp_ms' }),
-  meetsCriteriaFlag: integer('meets_criteria_flag', { mode: 'boolean' })
+  publishedAt: timestamp('published_at', { mode: 'date' }),
+  meetsCriteriaFlag: boolean('meets_criteria_flag')
     .notNull()
     .default(false),
   criteriaResult: text('criteria_result').$type<'matched' | 'not_matched' | 'invalid'>(),
@@ -338,15 +338,15 @@ export const favorites = sqliteTable('favorites', {
   subscriptionTopic: text('subscription_topic'),
   sourceTitle: text('source_title'),
   // Favorite metadata
-  favoriteAt: integer('favorite_at', { mode: 'timestamp_ms' })
+  favoriteAt: timestamp('favorite_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
   // Soft-delete flag: false means unfavorited (hidden but kept for undo)
-  isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(true),
+  isFavorite: boolean('is_favorite').notNull().default(true),
 });
 
 // ─── message_cards ───────────────────────────────────────────────────────────
-export const messageCards = sqliteTable('message_cards', {
+export const messageCards = pgTable('message_cards', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   subscriptionId: text('subscription_id')
     .notNull()
@@ -359,66 +359,66 @@ export const messageCards = sqliteTable('message_cards', {
   summary: text('summary'),
   thumbnailUrl: text('thumbnail_url'),
   sourceUrl: text('source_url').notNull(),
-  publishedAt: integer('published_at', { mode: 'timestamp_ms' }),
-  meetsCriteriaFlag: integer('meets_criteria_flag', { mode: 'boolean' })
+  publishedAt: timestamp('published_at', { mode: 'date' }),
+  meetsCriteriaFlag: boolean('meets_criteria_flag')
     .notNull()
     .default(false),
   criteriaResult: text('criteria_result').$type<'matched' | 'not_matched' | 'invalid'>(),
   metricValue: text('metric_value'), // raw extracted value, e.g. "¥299"
-  readAt: integer('read_at', { mode: 'timestamp_ms' }), // null = unread
+  readAt: timestamp('read_at', { mode: 'date' }), // null = unread
   rawData: text('raw_data'), // JSON string
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── notifications ───────────────────────────────────────────────────────────
-export const notifications = sqliteTable('notifications', {
+export const notifications = pgTable('notifications', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   type: text('type', {
     enum: ['source_created', 'source_fixed', 'source_failed', 'cards_collected'],
   }).notNull(),
   title: text('title').notNull(),
   body: text('body'),
-  isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
+  isRead: boolean('is_read').notNull().default(false),
   subscriptionId: text('subscription_id').references(() => subscriptions.id, {
     onDelete: 'cascade',
   }),
   relatedEntityType: text('related_entity_type'), // 'source'
   relatedEntityId: text('related_entity_id'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── rss_instances ───────────────────────────────────────────────────────────
-export const rssInstances = sqliteTable('rss_instances', {
+export const rssInstances = pgTable('rss_instances', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   name: text('name').notNull(),
   baseUrl: text('base_url').notNull(),
-  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
+  isActive: boolean('is_active').notNull().default(false),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── oauth_config ─────────────────────────────────────────────────────────────
-export const oauthConfig = sqliteTable('oauth_config', {
+export const oauthConfig = pgTable('oauth_config', {
   id: text('id').primaryKey().default('google'), // one row per provider
   clientId: text('client_id').notNull().default(''),
   clientSecret: text('client_secret').notNull().default(''),
-  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  enabled: boolean('enabled').notNull().default(false),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── analysis_reports ────────────────────────────────────────────────────────
-export const analysisReports = sqliteTable('analysis_reports', {
+export const analysisReports = pgTable('analysis_reports', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   subscriptionId: text('subscription_id').notNull()
     .references(() => subscriptions.id, { onDelete: 'cascade' }),
@@ -428,12 +428,12 @@ export const analysisReports = sqliteTable('analysis_reports', {
   description: text('description'),
   htmlContent: text('html_content').notNull().default(''),
   cardCount: integer('card_count').notNull().default(0),
-  isStarred: integer('is_starred', { mode: 'boolean' }).notNull().default(false),
+  isStarred: boolean('is_starred').notNull().default(false),
   status: text('status', { enum: ['generating', 'completed', 'failed'] })
     .notNull()
     .default('completed'),
   error: text('error'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date()).notNull(),
 });
 
@@ -606,43 +606,43 @@ export const rssInstancesRelations = relations(rssInstances, ({ one }) => ({
 }));
 
 // ─── email_verification_codes ────────────────────────────────────────────────
-export const emailVerificationCodes = sqliteTable('email_verification_codes', {
+export const emailVerificationCodes = pgTable('email_verification_codes', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   email: text('email').notNull(),
   code: text('code').notNull(), // 6位数字验证码
   type: text('type', { enum: ['register'] }).notNull().default('register'),
-  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-  usedAt: integer('used_at', { mode: 'timestamp_ms' }), // null = 未使用
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  usedAt: timestamp('used_at', { mode: 'date' }), // null = 未使用
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── password_reset_tokens ───────────────────────────────────────────────────
-export const passwordResetTokens = sqliteTable('password_reset_tokens', {
+export const passwordResetTokens = pgTable('password_reset_tokens', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   token: text('token').notNull().unique(), // 重置令牌
-  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-  usedAt: integer('used_at', { mode: 'timestamp_ms' }), // null = 未使用
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  usedAt: timestamp('used_at', { mode: 'date' }), // null = 未使用
+  createdAt: timestamp('created_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
 
 // ─── smtp_config ─────────────────────────────────────────────────────────────
-export const smtpConfig = sqliteTable('smtp_config', {
+export const smtpConfig = pgTable('smtp_config', {
   id: text('id').primaryKey().default('default'),
   host: text('host').notNull(), // SMTP 服务器地址
   port: integer('port').notNull().default(465),
-  secure: integer('secure', { mode: 'boolean' }).notNull().default(true), // SSL/TLS
+  secure: boolean('secure').notNull().default(true), // SSL/TLS
   user: text('user').notNull(), // SMTP 用户名
   password: text('password').notNull(), // SMTP 密码/授权码
   fromEmail: text('from_email'), // 发件人地址
   fromName: text('from_name').default(APP_NAME),
-  requireVerification: integer('require_verification', { mode: 'boolean' }).notNull().default(true), // 注册是否需要邮箱验证码
+  requireVerification: boolean('require_verification').notNull().default(true), // 注册是否需要邮箱验证码
   provider: text('provider').notNull().default('smtp'), // 'smtp' | 'zeabur' | 'resend' | 'aliyun'
   zeaburApiKey: text('zeabur_api_key'), // Zeabur Email API Key
   resendApiKey: text('resend_api_key'), // Resend API Key
@@ -651,7 +651,7 @@ export const smtpConfig = sqliteTable('smtp_config', {
   aliyunDirectMailRegion: text('aliyun_directmail_region').default('cn-hangzhou'), // 阿里云 DirectMail 区域
   // 可选：用 IP/CNAME 连中继但证书主机名不一致时，设置此字段让 SNI 和 TLS 主机名校验通过
   tlsServername: text('tls_servername'),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });

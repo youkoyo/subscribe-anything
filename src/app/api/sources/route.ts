@@ -17,10 +17,9 @@ export async function GET(req: Request) {
 
     if (subscriptionId) {
       // Verify the subscription belongs to the user first
-      const sub = db.select()
+      const sub = (await db.select()
         .from(subscriptions)
-        .where(and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, session.userId)))
-        .get();
+        .where(and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, session.userId))))[0];
       if (!sub) {
         return Response.json({ error: 'Not found' }, { status: 404 });
       }
@@ -30,7 +29,7 @@ export async function GET(req: Request) {
       ? and(eq(subscriptions.userId, session.userId), eq(sources.subscriptionId, subscriptionId))
       : eq(subscriptions.userId, session.userId);
 
-    const rows = db
+    const rows = (await db
       .select({
         id: sources.id,
         subscriptionId: sources.subscriptionId,
@@ -56,8 +55,7 @@ export async function GET(req: Request) {
       .where(whereCondition)
       .orderBy(desc(sources.createdAt))
       .limit(limit)
-      .offset(offset)
-      .all();
+      .offset(offset));
     return Response.json({ data: rows, page, limit });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {

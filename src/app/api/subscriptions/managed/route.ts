@@ -54,7 +54,7 @@ export async function POST(req: Request) {
 
     let industrySelection;
     try {
-      industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
+      industrySelection = await resolveSubscriptionIndustrySelection(session.userId, {
         industryConfigId,
         industryConfigSnapshot,
       }, { isAdmin: session.isAdmin });
@@ -88,14 +88,13 @@ export async function POST(req: Request) {
 
     if (existingSubscriptionId) {
       // Reuse an existing manual_creating subscription — upgrade it to managed_creating
-      const existing = db
+      const existing = (await db
         .select()
         .from(subscriptions)
         .where(and(
           eq(subscriptions.id, existingSubscriptionId),
           eq(subscriptions.userId, session.userId),
-        ))
-        .get();
+        )))[0];
 
       if (!existing || existing.managedStatus !== 'manual_creating') {
         return Response.json({ error: 'Subscription not found or not in manual_creating state' }, { status: 400 });
@@ -103,7 +102,7 @@ export async function POST(req: Request) {
 
       // Only update status — don't abort running tasks or clear logs.
       // The pipeline will wait for already-running tasks and skip completed ones.
-      db.update(subscriptions)
+      await db.update(subscriptions)
         .set({
           managedStatus: 'managed_creating',
           managedError: null,
@@ -112,13 +111,12 @@ export async function POST(req: Request) {
           industryConfigSnapshot: industrySelection.industryConfigSnapshot,
           updatedAt: now,
         })
-        .where(eq(subscriptions.id, existingSubscriptionId))
-        .run();
+        .where(eq(subscriptions.id, existingSubscriptionId));
 
       subscriptionId = existingSubscriptionId;
     } else {
       // Create a new placeholder subscription
-      const subscription = db
+      const subscription = (await db
         .insert(subscriptions)
         .values({
           userId: session.userId,
@@ -134,8 +132,7 @@ export async function POST(req: Request) {
           createdAt: now,
           updatedAt: now,
         })
-        .returning()
-        .get();
+        .returning())[0];
 
       subscriptionId = subscription.id;
     }

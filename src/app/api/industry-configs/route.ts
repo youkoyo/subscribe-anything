@@ -34,11 +34,11 @@ export async function GET(req: Request) {
     const enabledOnly = searchParams.get('enabledOnly') === 'true';
 
     if (session.isAdmin) {
-      seedDefaultIndustryConfigsForAdmin(session.userId);
-      return Response.json(listIndustryPoolSummariesForAdmin());
+      await seedDefaultIndustryConfigsForAdmin(session.userId);
+      return Response.json(await listIndustryPoolSummariesForAdmin());
     }
 
-    return Response.json(listPublishedIndustryConfigsForUser(enabledOnly));
+    return Response.json(await listPublishedIndustryConfigsForUser(enabledOnly));
   } catch (err) {
     const authError = handleAuthError(err);
     if (authError) return authError;
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const error = validateInput(body);
     if (error) return Response.json({ error }, { status: 400 });
 
-    const created = createIndustryConfigForAdmin(session.userId, body);
+    const created = await createIndustryConfigForAdmin(session.userId, body);
     await reloadIndustryDelivery(created.id);
     return Response.json(created, { status: 201 });
   } catch (err) {

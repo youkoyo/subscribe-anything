@@ -7,6 +7,7 @@ test('enterprise catalog route exposes published industry configs', async () => 
 
   assert.match(source, /requireAuth/);
   assert.match(source, /listPublishedIndustryConfigsForUser/);
+  assert.match(source, /Response\.json\(await listPublishedIndustryConfigsForUser/);
 });
 
 test('enterprise subscription route creates user industry subscriptions', async () => {
@@ -41,6 +42,7 @@ test('my subscription routes are scoped to the current user', async () => {
   );
 
   assert.match(listRoute, /session\.userId/);
+  assert.match(listRoute, /Response\.json\(await listMyIndustrySubscriptions\(session\.userId\)/);
   assert.match(itemRoute, /session\.userId/);
   assert.match(pauseRoute, /session\.userId/);
 });
@@ -54,7 +56,8 @@ test('admin industry subscriber route lists users and monitoring progress', asyn
 
   assert.match(route, /requireAdmin/);
   assert.match(route, /listIndustrySubscribersForAdmin/);
-  assert.match(service, /export function listIndustrySubscribersForAdmin/);
+  assert.match(route, /Response\.json\(await listIndustrySubscribersForAdmin\(id\)/);
+  assert.match(service, /export async function listIndustrySubscribersForAdmin/);
   assert.match(service, /users/);
   assert.match(service, /userIndustrySubscriptions\.industryConfigId/);
   assert.match(service, /industryMonitoringProfiles/);

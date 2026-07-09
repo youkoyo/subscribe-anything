@@ -5,7 +5,7 @@ FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Build tools needed for native modules (isolated-vm, better-sqlite3)
+# Build tools needed for native modules (isolated-vm)
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -13,7 +13,7 @@ RUN npm ci --loglevel=error
 
 COPY . .
 # Ensure these directories exist (may be absent before first build/migration)
-RUN mkdir -p public drizzle
+RUN mkdir -p public drizzle-pg
 RUN npm run build
 
 # Remove devDependencies so the runner stage gets a lean node_modules
@@ -47,14 +47,12 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next        ./.next
 COPY --from=builder /app/dist         ./dist
-COPY --from=builder /app/drizzle      ./drizzle
+COPY --from=builder /app/drizzle-pg   ./drizzle-pg
 COPY --from=builder /app/public       ./public
 
 # Download Playwright Chromium binary
 RUN node_modules/.bin/playwright install chromium
 
-VOLUME ["/app/data"]
-
-EXPOSE 8080
+EXPOSE 3000
 
 CMD ["node", "dist/server.js"]

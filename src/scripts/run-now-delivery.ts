@@ -23,15 +23,15 @@ async function resolveTarget(): Promise<{ userId: string; industryConfigId: stri
   const [, , emailArg, configArg] = process.argv;
 
   if (emailArg && configArg) {
-    const user = db.select().from(users).where(eq(users.email, emailArg)).get();
+    const user = (await db.select().from(users).where(eq(users.email, emailArg)))[0];
     if (!user) throw new Error(`No user with email ${emailArg}`);
     return { userId: user.id, industryConfigId: configArg };
   }
 
   if (emailArg) {
-    const user = db.select().from(users).where(eq(users.email, emailArg)).get();
+    const user = (await db.select().from(users).where(eq(users.email, emailArg)))[0];
     if (!user) throw new Error(`No user with email ${emailArg}`);
-    const sub = db
+    const sub = (await db
       .select()
       .from(userIndustrySubscriptions)
       .where(
@@ -39,18 +39,16 @@ async function resolveTarget(): Promise<{ userId: string; industryConfigId: stri
           eq(userIndustrySubscriptions.userId, user.id),
           eq(userIndustrySubscriptions.status, 'active')
         )
-      )
-      .get();
+      ))[0];
     if (!sub) throw new Error(`No active subscription for ${emailArg}`);
     return { userId: user.id, industryConfigId: sub.industryConfigId };
   }
 
   // Default: first active user sub
-  const sub = db
+  const sub = (await db
     .select()
     .from(userIndustrySubscriptions)
-    .where(eq(userIndustrySubscriptions.status, 'active'))
-    .get();
+    .where(eq(userIndustrySubscriptions.status, 'active')))[0];
   if (!sub) throw new Error('No active user_industry_subscriptions in DB');
   return { userId: sub.userId, industryConfigId: sub.industryConfigId };
 }
@@ -59,12 +57,11 @@ async function main() {
   const { userId, industryConfigId } = await resolveTarget();
   const db = getDb();
 
-  const user = db.select().from(users).where(eq(users.id, userId)).get();
-  const industry = db
+  const user = (await db.select().from(users).where(eq(users.id, userId)))[0];
+  const industry = (await db
     .select()
     .from(industryConfigs)
-    .where(eq(industryConfigs.id, industryConfigId))
-    .get();
+    .where(eq(industryConfigs.id, industryConfigId)))[0];
 
   console.log('[target] user:', user?.email, '(', userId, ')');
   console.log('[target] industry:', industry?.name, '(', industryConfigId, ')');
@@ -75,11 +72,10 @@ async function main() {
   console.log(`[run] run_id=${run.id} status=${run.status} took=${Date.now() - startedAt}ms`);
 
   // Inspect resulting logs for this run + user
-  const logs = db
+  const logs = (await db
     .select()
     .from(userDeliveryLogs)
-    .where(eq(userDeliveryLogs.runId, run.id))
-    .all();
+    .where(eq(userDeliveryLogs.runId, run.id)));
   console.log(`[logs] ${logs.length} log row(s):`);
   for (const log of logs) {
     console.log('  -', {
@@ -93,11 +89,10 @@ async function main() {
   }
 
   // Final run state
-  const finalRun = db
+  const finalRun = (await db
     .select()
     .from(industryDeliveryRuns)
-    .where(eq(industryDeliveryRuns.id, run.id))
-    .get();
+    .where(eq(industryDeliveryRuns.id, run.id)))[0];
   console.log('[final] run:', {
     status: finalRun?.status,
     startedAt: finalRun?.startedAt,

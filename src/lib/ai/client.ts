@@ -33,10 +33,10 @@ export interface LLMCallInfo {
 }
 
 /** Returns the active LLM provider record, or null if none is set. */
-export function getActiveProvider(): LLMProvider | null {
+export async function getActiveProvider(): Promise<LLMProvider | null> {
   const db = getDb();
   return (
-    db.select().from(llmProviders).where(eq(llmProviders.isActive, true)).get() ??
+    (await db.select().from(llmProviders).where(eq(llmProviders.isActive, true)))[0] ??
     null
   );
 }
@@ -48,37 +48,37 @@ export function getActiveProvider(): LLMProvider | null {
  * When userId is provided, checks the user-specific template (`{userId}-{templateId}`)
  * first, then falls back to the base template.
  */
-export function getProviderForTemplate(templateId: string, userId?: string | null): LLMProvider {
+export async function getProviderForTemplate(
+  templateId: string,
+  userId?: string | null
+): Promise<LLMProvider> {
   const db = getDb();
 
   // Try user-specific template first
   let tpl: { providerId: string | null } | undefined;
   if (userId) {
-    tpl = db
+    tpl = (await db
       .select({ providerId: promptTemplates.providerId })
       .from(promptTemplates)
-      .where(eq(promptTemplates.id, `${userId}-${templateId}`))
-      .get() ?? undefined;
+      .where(eq(promptTemplates.id, `${userId}-${templateId}`)))[0] ?? undefined;
   }
   // Fall back to base template
   if (!tpl) {
-    tpl = db
+    tpl = (await db
       .select({ providerId: promptTemplates.providerId })
       .from(promptTemplates)
-      .where(eq(promptTemplates.id, templateId))
-      .get() ?? undefined;
+      .where(eq(promptTemplates.id, templateId)))[0] ?? undefined;
   }
 
   if (tpl?.providerId) {
-    const pinned = db
+    const pinned = (await db
       .select()
       .from(llmProviders)
-      .where(eq(llmProviders.id, tpl.providerId))
-      .get();
+      .where(eq(llmProviders.id, tpl.providerId)))[0];
     if (pinned) return pinned;
   }
 
-  const active = getActiveProvider();
+  const active = await getActiveProvider();
   if (!active) {
     throw new Error(
       'No active LLM provider configured. ' +
@@ -95,25 +95,26 @@ export function getProviderForTemplate(templateId: string, userId?: string | nul
  * When userId is provided, checks the user-specific template (`{userId}-{templateId}`)
  * first, then falls back to the base template.
  */
-export function getTemplate(templateId: string, userId?: string | null): { content: string; providerId: string | null } {
+export async function getTemplate(
+  templateId: string,
+  userId?: string | null
+): Promise<{ content: string; providerId: string | null }> {
   const db = getDb();
 
   // Try user-specific template first
   if (userId) {
-    const userTpl = db
+    const userTpl = (await db
       .select({ content: promptTemplates.content, providerId: promptTemplates.providerId })
       .from(promptTemplates)
-      .where(eq(promptTemplates.id, `${userId}-${templateId}`))
-      .get();
+      .where(eq(promptTemplates.id, `${userId}-${templateId}`)))[0];
     if (userTpl) return { content: userTpl.content, providerId: userTpl.providerId };
   }
 
   // Fall back to base template
-  const tpl = db
+  const tpl = (await db
     .select({ content: promptTemplates.content, providerId: promptTemplates.providerId })
     .from(promptTemplates)
-    .where(eq(promptTemplates.id, templateId))
-    .get();
+    .where(eq(promptTemplates.id, templateId)))[0];
   if (!tpl) {
     throw new Error(`Prompt template '${templateId}' not found`);
   }
@@ -141,8 +142,8 @@ export function buildOpenAIClient(provider: LLMProvider): OpenAI {
  * Returns an OpenAI client configured for the active provider.
  * Throws a user-friendly error if no provider is active.
  */
-export function getOpenAIClient(): OpenAI {
-  const provider = getActiveProvider();
+export async function getOpenAIClient(): Promise<OpenAI> {
+  const provider = await getActiveProvider();
   if (!provider) {
     throw new Error(
       'No active LLM provider configured. ' +

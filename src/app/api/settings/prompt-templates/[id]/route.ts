@@ -29,11 +29,10 @@ export async function PATCH(
     const db = getDb();
 
     // We need the base template for defaults (name, description, defaultContent)
-    const base = db
+    const base = (await db
       .select()
       .from(promptTemplates)
-      .where(eq(promptTemplates.id, baseId))
-      .get();
+      .where(eq(promptTemplates.id, baseId)))[0];
     if (!base) {
       return Response.json({ error: 'Template not found' }, { status: 404 });
     }
@@ -50,20 +49,18 @@ export async function PATCH(
     }
 
     const userTemplateId = `${session.userId}-${baseId}`;
-    const existing = db
+    const existing = (await db
       .select()
       .from(promptTemplates)
-      .where(eq(promptTemplates.id, userTemplateId))
-      .get();
+      .where(eq(promptTemplates.id, userTemplateId)))[0];
 
     if (existing) {
-      db.update(promptTemplates)
+      await db.update(promptTemplates)
         .set(updates)
-        .where(eq(promptTemplates.id, userTemplateId))
-        .run();
+        .where(eq(promptTemplates.id, userTemplateId));
     } else {
       // First edit — create user's custom copy seeded from the base template
-      db.insert(promptTemplates)
+      await db.insert(promptTemplates)
         .values({
           id: userTemplateId,
           name: base.name,
@@ -73,15 +70,13 @@ export async function PATCH(
           providerId: 'providerId' in updates ? (updates.providerId ?? null) : base.providerId,
           userId: session.userId,
           updatedAt: new Date(),
-        })
-        .run();
+        });
     }
 
-    const updated = db
+    const updated = (await db
       .select()
       .from(promptTemplates)
-      .where(eq(promptTemplates.id, userTemplateId))
-      .get();
+      .where(eq(promptTemplates.id, userTemplateId)))[0];
 
     return Response.json({ ...updated, id: baseId });
   } catch (err) {

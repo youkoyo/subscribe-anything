@@ -29,16 +29,14 @@ export async function POST(
     const db = getDb();
 
     // Delete user's custom copy — no-op if it doesn't exist
-    db.delete(promptTemplates)
-      .where(eq(promptTemplates.id, `${session.userId}-${baseId}`))
-      .run();
+    await db.delete(promptTemplates)
+      .where(eq(promptTemplates.id, `${session.userId}-${baseId}`));
 
     // Return the base template so the frontend can refresh its state
-    const base = db
+    const base = (await db
       .select()
       .from(promptTemplates)
-      .where(eq(promptTemplates.id, baseId))
-      .get();
+      .where(eq(promptTemplates.id, baseId)))[0];
     if (!base) {
       return Response.json({ error: 'Template not found' }, { status: 404 });
     }

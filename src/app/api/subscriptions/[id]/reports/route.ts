@@ -14,10 +14,9 @@ export async function GET(
     const db = getDb();
 
     // Verify subscription belongs to user
-    const sub = db.select({ id: subscriptions.id })
+    const sub = (await db.select({ id: subscriptions.id })
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
     if (!sub) return Response.json({ error: 'Subscription not found' }, { status: 404 });
 
     const url = new URL(req.url);
@@ -28,7 +27,7 @@ export async function GET(
       conditions.push(eq(analysisReports.isStarred, true));
     }
 
-    const reports = db.select({
+    const reports = (await db.select({
       id: analysisReports.id,
       title: analysisReports.title,
       description: analysisReports.description,
@@ -40,8 +39,7 @@ export async function GET(
     })
       .from(analysisReports)
       .where(and(...conditions))
-      .orderBy(desc(analysisReports.createdAt))
-      .all();
+      .orderBy(desc(analysisReports.createdAt)));
 
     return Response.json(reports);
   } catch (err) {

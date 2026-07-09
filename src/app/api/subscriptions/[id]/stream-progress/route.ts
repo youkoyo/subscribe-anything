@@ -17,11 +17,10 @@ export async function GET(
     const { id } = await params;
     const db = getDb();
 
-    const sub = db
+    const sub = (await db
       .select({ managedStatus: subscriptions.managedStatus })
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
 
     if (!sub) {
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -52,14 +51,13 @@ export async function GET(
           }
         };
 
-        const sendNewLogs = () => {
+        const sendNewLogs = async () => {
           if (closed) return null;
-          const logs = db
+          const logs = (await db
             .select()
             .from(managedBuildLogs)
             .where(eq(managedBuildLogs.subscriptionId, id))
-            .orderBy(asc(managedBuildLogs.createdAt))
-            .all();
+            .orderBy(asc(managedBuildLogs.createdAt)));
 
           for (const log of logs) {
             if (!seenIds.has(log.id)) {
@@ -77,17 +75,16 @@ export async function GET(
           }
 
           // Check subscription status
-          const current = db
+          const current = (await db
             .select({ managedStatus: subscriptions.managedStatus })
             .from(subscriptions)
-            .where(eq(subscriptions.id, id))
-            .get();
+            .where(eq(subscriptions.id, id)))[0];
 
           return current;
         };
 
         // Send all existing logs immediately
-        const initial = sendNewLogs();
+        const initial = await sendNewLogs();
         if (!initial) {
           send({ type: 'done', reason: 'deleted' });
           close();
@@ -100,12 +97,12 @@ export async function GET(
         }
 
         // Poll for new logs every 800ms
-        const interval = setInterval(() => {
+        const interval = setInterval(async () => {
           if (closed) {
             clearInterval(interval);
             return;
           }
-          const current = sendNewLogs();
+          const current = await sendNewLogs();
           if (!current) {
             send({ type: 'done', reason: 'deleted' });
             clearInterval(interval);

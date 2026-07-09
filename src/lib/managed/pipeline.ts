@@ -108,16 +108,16 @@ export interface ManagedPayload {
 type LogLevel = 'info' | 'progress' | 'success' | 'error';
 type LogStep = 'find_sources' | 'generate_script' | 'complete';
 
-export function writeLog(
+export async function writeLog(
   subscriptionId: string,
   step: LogStep,
   level: LogLevel,
   message: string,
   payload?: unknown
-) {
+): Promise<void> {
   try {
     const db = getDb();
-    db.insert(managedBuildLogs)
+    await db.insert(managedBuildLogs)
       .values({
         id: createId(),
         subscriptionId,
@@ -126,8 +126,7 @@ export function writeLog(
         message,
         payload: payload !== undefined ? JSON.stringify(payload) : null,
         createdAt: new Date(),
-      })
-      .run();
+      });
   } catch (err) {
     // Silently ignore foreign key constraint errors — subscription was deleted
     if (err && typeof err === 'object' && 'code' in err && err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
@@ -137,14 +136,13 @@ export function writeLog(
   }
 }
 
-function isCancelled(subscriptionId: string): boolean {
+async function isCancelled(subscriptionId: string): Promise<boolean> {
   try {
     const db = getDb();
-    const row = db
+    const row = (await db
       .select({ managedStatus: subscriptions.managedStatus })
       .from(subscriptions)
-      .where(eq(subscriptions.id, subscriptionId))
-      .get();
+      .where(eq(subscriptions.id, subscriptionId)))[0];
     // Allow both 'managed_creating' and 'manual_creating' to continue.
     // Only cancel when: null (complete), 'failed', or subscription deleted.
     return !row || row.managedStatus === null || row.managedStatus === 'failed';
@@ -158,14 +156,13 @@ function isCancelled(subscriptionId: string): boolean {
  * Only auto-advance in managed mode ('managed_creating').
  * In manual mode ('manual_creating'), tasks run to completion but pipeline stops between phases.
  */
-function shouldAutoAdvance(subscriptionId: string): boolean {
+async function shouldAutoAdvance(subscriptionId: string): Promise<boolean> {
   try {
     const db = getDb();
-    const row = db
+    const row = (await db
       .select({ managedStatus: subscriptions.managedStatus })
       .from(subscriptions)
-      .where(eq(subscriptions.id, subscriptionId))
-      .get();
+      .where(eq(subscriptions.id, subscriptionId)))[0];
     return row?.managedStatus === 'managed_creating';
   } catch {
     return false;
@@ -232,7 +229,7 @@ export async function runGenerateScriptsStep(
   writeLog(subscriptionId, 'generate_script', 'info', `开始为 ${sources.length} 个数据源生成脚本...`);
 
   // Check which sources already have success logs (for resume scenarios)
-  const completedUrls = getCompletedSourceUrls(subscriptionId);
+  const completedUrls = await getCompletedSourceUrls(subscriptionId);
 
   const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
   const limit = pLimit(5);
@@ -391,10 +388,10 @@ export async function retryGenerateSourceStep(
 }
 
 /** Delete all generate_script logs for a specific sourceUrl */
-export function deleteSourceLogs(subscriptionId: string, sourceUrl: string): void {
+export async function deleteSourceLogs(subscriptionId: string, sourceUrl: string): Promise<void> {
   try {
     const db = getDb();
-    const allLogs = db
+    const allLogs = (await db
       .select({ id: managedBuildLogs.id, payload: managedBuildLogs.payload })
       .from(managedBuildLogs)
       .where(
@@ -402,8 +399,7 @@ export function deleteSourceLogs(subscriptionId: string, sourceUrl: string): voi
           eq(managedBuildLogs.subscriptionId, subscriptionId),
           eq(managedBuildLogs.step, 'generate_script')
         )
-      )
-      .all();
+      ));
 
     const idsToDelete = allLogs
       .filter((l) => {
@@ -418,19 +414,18 @@ export function deleteSourceLogs(subscriptionId: string, sourceUrl: string): voi
       .map((l) => l.id);
 
     if (idsToDelete.length > 0) {
-      db.delete(managedBuildLogs)
-        .where(inArray(managedBuildLogs.id, idsToDelete))
-        .run();
+      await db.delete(managedBuildLogs)
+        .where(inArray(managedBuildLogs.id, idsToDelete));
     }
   } catch (err) {
     console.error('[managed pipeline] Failed to delete source logs:', err);
   }
 }
 
-function getCompletedSourceUrls(subscriptionId: string): Set<string> {
+async function getCompletedSourceUrls(subscriptionId: string): Promise<Set<string>> {
   try {
     const db = getDb();
-    const logs = db
+    const logs = (await db
       .select({ payload: managedBuildLogs.payload })
       .from(managedBuildLogs)
       .where(
@@ -439,8 +434,7 @@ function getCompletedSourceUrls(subscriptionId: string): Set<string> {
           eq(managedBuildLogs.step, 'generate_script'),
           eq(managedBuildLogs.level, 'success')
         )
-      )
-      .all();
+      ));
 
     return new Set(
       logs
@@ -466,23 +460,21 @@ function getCompletedSourceUrls(subscriptionId: string): Set<string> {
  * Update the wizardStateJson column for a subscription so that managed-takeover
  * can read the latest pipeline progress directly without parsing logs.
  */
-function updateWizardState(
+async function updateWizardState(
   subscriptionId: string,
   patch: Record<string, unknown>
 ) {
   try {
     const db = getDb();
-    const row = db
+    const row = (await db
       .select({ wizardStateJson: subscriptions.wizardStateJson })
       .from(subscriptions)
-      .where(eq(subscriptions.id, subscriptionId))
-      .get();
+      .where(eq(subscriptions.id, subscriptionId)))[0];
     const current = row?.wizardStateJson ? JSON.parse(row.wizardStateJson) : {};
     const merged = { ...current, ...patch };
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({ wizardStateJson: JSON.stringify(merged), updatedAt: new Date() })
-      .where(eq(subscriptions.id, subscriptionId))
-      .run();
+      .where(eq(subscriptions.id, subscriptionId));
   } catch (err) {
     console.error('[managed pipeline] Failed to update wizardState:', err);
   }
@@ -496,14 +488,14 @@ function updateWizardState(
  */
 async function waitForFindSourcesResult(
   subscriptionId: string,
-  isCancelledFn: () => boolean,
+  isCancelledFn: () => boolean | Promise<boolean>,
   maxWaitMs = 5 * 60 * 1000
 ): Promise<FoundSource[] | null> {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
-    if (isCancelledFn()) return null;
+    if (await isCancelledFn()) return null;
     const db = getDb();
-    const successLog = db
+    const successLog = (await db
       .select({ payload: managedBuildLogs.payload })
       .from(managedBuildLogs)
       .where(
@@ -512,15 +504,14 @@ async function waitForFindSourcesResult(
           eq(managedBuildLogs.step, 'find_sources'),
           eq(managedBuildLogs.level, 'success')
         )
-      )
-      .get();
+      ))[0];
     if (successLog?.payload) {
       try {
         const s = JSON.parse(successLog.payload);
         if (Array.isArray(s)) return s as FoundSource[];
       } catch { /* ignore */ }
     }
-    const errorLog = db
+    const errorLog = (await db
       .select({ id: managedBuildLogs.id })
       .from(managedBuildLogs)
       .where(
@@ -529,8 +520,7 @@ async function waitForFindSourcesResult(
           eq(managedBuildLogs.step, 'find_sources'),
           eq(managedBuildLogs.level, 'error')
         )
-      )
-      .get();
+      ))[0];
     if (errorLog) return null;
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
@@ -549,10 +539,13 @@ function autoSelectSources(discovered: FoundSource[]): FoundSource[] {
  * Read the latest generate_script result for a specific source from build logs.
  * Returns the GeneratedSource if found, null otherwise.
  */
-function getSourceResultFromLogs(subscriptionId: string, source: FoundSource): GeneratedSource | null {
+async function getSourceResultFromLogs(
+  subscriptionId: string,
+  source: FoundSource
+): Promise<GeneratedSource | null> {
   try {
     const db = getDb();
-    const logs = db
+    const logs = (await db
       .select({ level: managedBuildLogs.level, payload: managedBuildLogs.payload })
       .from(managedBuildLogs)
       .where(
@@ -560,8 +553,7 @@ function getSourceResultFromLogs(subscriptionId: string, source: FoundSource): G
           eq(managedBuildLogs.subscriptionId, subscriptionId),
           eq(managedBuildLogs.step, 'generate_script'),
         )
-      )
-      .all();
+      ));
 
     // Find the latest success or error log for this source
     for (let i = logs.length - 1; i >= 0; i--) {
@@ -612,7 +604,7 @@ async function waitForSourceResult(
 ): Promise<GeneratedSource | null> {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
-    const result = getSourceResultFromLogs(subscriptionId, source);
+    const result = await getSourceResultFromLogs(subscriptionId, source);
     if (result) return result;
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
@@ -633,11 +625,11 @@ export async function runManagedPipeline(
 
     // ── Phase 1: find_sources ─────────────────────────────────────────────────
     if (startStep === 'find_sources') {
-      if (isCancelled(subscriptionId)) return;
+      if (await isCancelled(subscriptionId)) return;
 
       // Check if find_sources already has results in DB (another task may be running or done)
       const db = getDb();
-      const existingSuccess = db
+      const existingSuccess = (await db
         .select({ payload: managedBuildLogs.payload })
         .from(managedBuildLogs)
         .where(
@@ -646,8 +638,7 @@ export async function runManagedPipeline(
             eq(managedBuildLogs.step, 'find_sources'),
             eq(managedBuildLogs.level, 'success')
           )
-        )
-        .get();
+        ))[0];
 
       if (existingSuccess?.payload) {
         // Already completed — reuse results
@@ -678,7 +669,7 @@ export async function runManagedPipeline(
         });
       } else {
         // Check if a find_sources task is already in progress
-        const existingInfo = db
+        const existingInfo = (await db
           .select({ id: managedBuildLogs.id })
           .from(managedBuildLogs)
           .where(
@@ -687,14 +678,13 @@ export async function runManagedPipeline(
               eq(managedBuildLogs.step, 'find_sources'),
               eq(managedBuildLogs.level, 'info')
             )
-          )
-          .get();
+          ))[0];
 
         if (existingInfo) {
           // Task is in progress — wait for it to finish
           writeLog(subscriptionId, 'find_sources', 'info', '等待数据源发现任务完成...');
           const discovered = await waitForFindSourcesResult(subscriptionId, () => isCancelled(subscriptionId));
-          if (isCancelled(subscriptionId)) return;
+          if (await isCancelled(subscriptionId)) return;
           if (discovered) {
             allFoundSources = discovered;
             // If frontend passed specific sources, use them; otherwise auto-select (max 5)
@@ -719,7 +709,7 @@ export async function runManagedPipeline(
           // If wait failed/timed out, fall through to run from scratch below
         }
 
-        if (foundSources.length === 0 && !isCancelled(subscriptionId)) {
+        if (foundSources.length === 0 && !(await isCancelled(subscriptionId))) {
           // No existing results or previous attempt failed — run from scratch
           writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
 
@@ -729,7 +719,6 @@ export async function runManagedPipeline(
             const discovered = await findSourcesAgent(
               { topic, criteria },
               (event: unknown) => {
-                if (isCancelled(subscriptionId)) return;
                 const e = event as Record<string, unknown>;
                 if (e.type === 'tool_call' && e.name === 'webSearch') {
                   const args = e.args as { query: string };
@@ -769,8 +758,8 @@ export async function runManagedPipeline(
     // ── Phase 2: generate_scripts ─────────────────────────────────────────────
     if (startStep !== 'complete') {
       // Between phases: check if we should auto-advance (only in managed mode)
-      if (startStep === 'find_sources' && !shouldAutoAdvance(subscriptionId)) return;
-      if (isCancelled(subscriptionId)) return;
+      if (startStep === 'find_sources' && !(await shouldAutoAdvance(subscriptionId))) return;
+      if (await isCancelled(subscriptionId)) return;
 
       // Clear old LLM calls from Phase 1 (find_sources has no sourceUrl, would clutter the store)
       clearLLMCalls(subscriptionId);
@@ -805,7 +794,7 @@ export async function runManagedPipeline(
           .filter((source) => !alreadyDoneUrls.has(source.url))
           .map((source) =>
             limit(async () => {
-              if (isCancelled(subscriptionId)) return;
+              if (await isCancelled(subscriptionId)) return;
 
               const key = `${subscriptionId}:${source.url}`;
 
@@ -821,7 +810,7 @@ export async function runManagedPipeline(
               }
 
               // Check if already completed in DB logs (from a previous run)
-              const existingResult = getSourceResultFromLogs(subscriptionId, source);
+              const existingResult = await getSourceResultFromLogs(subscriptionId, source);
               if (existingResult) {
                 generatedSources.push(existingResult);
                 updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
@@ -841,7 +830,7 @@ export async function runManagedPipeline(
                     criteria,
                   },
                   (msg: string) => {
-                    if (isCancelled(subscriptionId)) return;
+                    if (abortedSourceKeys.has(`${subscriptionId}:${source.url}`)) return;
                     writeLog(subscriptionId, 'generate_script', 'progress', `[${source.title}] ${msg}`, { sourceUrl: source.url });
                   },
                   (info) => upsertLLMCall(subscriptionId, { ...info, sourceUrl: source.url }),
@@ -851,7 +840,7 @@ export async function runManagedPipeline(
 
                 unregisterSourceAbort(subscriptionId, source.url);
 
-                if (isCancelled(subscriptionId)) return;
+                if (await isCancelled(subscriptionId)) return;
 
                 if (result.success && result.script) {
                   const genSource: GeneratedSource = {
@@ -910,7 +899,7 @@ export async function runManagedPipeline(
                 }
               } catch (err) {
                 unregisterSourceAbort(subscriptionId, source.url);
-                if (isCancelled(subscriptionId)) return;
+                if (await isCancelled(subscriptionId)) return;
                 if (isAbortError(err)) return;
                 const msg = err instanceof Error ? err.message : String(err);
                 const failedSource: GeneratedSource = {
@@ -953,8 +942,8 @@ export async function runManagedPipeline(
 
     // ── Phase 3: complete ─────────────────────────────────────────────────────
     // Between phases: check if we should auto-advance (only in managed mode)
-    if (startStep !== 'complete' && !shouldAutoAdvance(subscriptionId)) return;
-    if (isCancelled(subscriptionId)) return;
+    if (startStep !== 'complete' && !(await shouldAutoAdvance(subscriptionId))) return;
+    if (await isCancelled(subscriptionId)) return;
 
     const sourcesToCreate = generatedSources.length > 0 ? generatedSources : (initialGeneratedSources ?? []);
 
@@ -976,7 +965,7 @@ export async function runManagedPipeline(
 
     // Mark subscription as active
     const db = getDb();
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({
         managedStatus: null,
         managedError: null,
@@ -984,8 +973,7 @@ export async function runManagedPipeline(
         isEnabled: true,
         updatedAt: new Date(),
       })
-      .where(eq(subscriptions.id, subscriptionId))
-      .run();
+      .where(eq(subscriptions.id, subscriptionId));
 
     const successCount = sourcesToCreate.filter((s) => !s.failedReason).length;
     const failedCount = sourcesToCreate.length - successCount;
@@ -1000,17 +988,16 @@ export async function runManagedPipeline(
   }
 }
 
-function markFailed(subscriptionId: string, error: string) {
+async function markFailed(subscriptionId: string, error: string) {
   try {
     const db = getDb();
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({
         managedStatus: 'failed',
         managedError: error,
         updatedAt: new Date(),
       })
-      .where(eq(subscriptions.id, subscriptionId))
-      .run();
+      .where(eq(subscriptions.id, subscriptionId));
   } catch (err) {
     console.error('[managed pipeline] Failed to mark as failed:', err);
   }

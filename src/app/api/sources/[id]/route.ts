@@ -6,11 +6,10 @@ import { requireAuth } from '@/lib/auth';
 
 // Helper to verify source belongs to user
 async function verifySourceOwnership(db: ReturnType<typeof getDb>, sourceId: string, userId: string) {
-  const source = db.select()
+  const source = (await db.select()
     .from(sources)
     .innerJoin(subscriptions, eq(sources.subscriptionId, subscriptions.id))
-    .where(and(eq(sources.id, sourceId), eq(subscriptions.userId, userId)))
-    .get();
+    .where(and(eq(sources.id, sourceId), eq(subscriptions.userId, userId))))[0];
   return source;
 }
 
@@ -64,13 +63,13 @@ export async function PATCH(
       patch.cronExpression = body.cronExpression;
     }
 
-    db.update(sources).set(patch).where(eq(sources.id, id)).run();
+    await db.update(sources).set(patch).where(eq(sources.id, id));
 
     // Trigger scheduler reload when isEnabled or cronExpression changes
     if (typeof body.isEnabled === 'boolean' || typeof body.cronExpression === 'string') {
       try {
         const { jobManager } = await import('@/lib/scheduler/jobManager');
-        const updated = db.select().from(sources).where(eq(sources.id, id)).get()!;
+        const updated = (await db.select().from(sources).where(eq(sources.id, id)))[0]!;
         if (!updated.isEnabled) {
           jobManager.unscheduleSource(id);
         } else if (updated.status === 'active') {
@@ -81,7 +80,7 @@ export async function PATCH(
       }
     }
 
-    const updated = db.select().from(sources).where(eq(sources.id, id)).get();
+    const updated = (await db.select().from(sources).where(eq(sources.id, id)))[0];
     return Response.json(updated);
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
@@ -114,22 +113,21 @@ export async function DELETE(
       // Scheduler may not be initialised
     }
 
-    db.delete(sources).where(eq(sources.id, id)).run();
+    await db.delete(sources).where(eq(sources.id, id));
 
     // Recalculate subscription unreadCount and totalCount after cascade delete
-    const counts = db.select({
+    const counts = (await db.select({
       total: sql<number>`count(*)`,
       unread: sql<number>`count(*) filter (where ${messageCards.readAt} is null)`,
-    }).from(messageCards).where(eq(messageCards.subscriptionId, subscriptionId)).get();
+    }).from(messageCards).where(eq(messageCards.subscriptionId, subscriptionId)))[0];
 
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({
         totalCount: counts?.total ?? 0,
         unreadCount: counts?.unread ?? 0,
         updatedAt: new Date(),
       })
-      .where(eq(subscriptions.id, subscriptionId))
-      .run();
+      .where(eq(subscriptions.id, subscriptionId));
 
     return new Response(null, { status: 204 });
   } catch (err) {

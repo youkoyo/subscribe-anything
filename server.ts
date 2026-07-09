@@ -6,18 +6,23 @@
 
 import { createServer } from 'http';
 import { parse } from 'url';
+import { loadEnvConfig } from '@next/env';
 import next from 'next';
-import path from 'path';
+import { describeDatabaseUrl, resolveDatabaseUrl } from './src/lib/db/config';
 
 const dev = process.env.NODE_ENV !== 'production';
+loadEnvConfig(process.cwd(), dev);
+
 const port = parseInt(process.env.PORT ?? '3000', 10);
 
-// DB_URL must be set before any DB imports so the path is correct in all contexts
-if (!process.env.DB_URL) {
-  process.env.DB_URL = path.join(process.cwd(), 'data', 'subscribe-anything.db');
+function requireDatabaseUrl() {
+  const databaseUrl = resolveDatabaseUrl();
+  console.log(`[DB] Using ${describeDatabaseUrl(databaseUrl)}`);
 }
 
 async function main() {
+  requireDatabaseUrl();
+
   // 1. Run DB migrations + seed prompt templates + enable WAL
   const { runMigrations } = await import('./src/lib/db/migrate');
   await runMigrations();

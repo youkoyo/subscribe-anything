@@ -59,12 +59,12 @@ type PreparedDigestDelivery = {
 
 const DIGEST_DETAIL_ITEM_LIMIT = 500;
 
-function createOrReuseIndustryRun(
+async function createOrReuseIndustryRun(
   db: ReturnType<typeof getDb>,
   industryConfigId: string,
   scheduledSlot: Date
-): DeliveryRunEntry {
-  const existingRun = db
+): Promise<DeliveryRunEntry> {
+  const existingRun = (await db
     .select()
     .from(industryDeliveryRuns)
     .where(
@@ -72,11 +72,10 @@ function createOrReuseIndustryRun(
         eq(industryDeliveryRuns.industryConfigId, industryConfigId),
         eq(industryDeliveryRuns.scheduledFor, scheduledSlot)
       )
-    )
-    .get();
+    ))[0];
   if (existingRun) return { run: existingRun, created: false };
 
-  const run = db
+  const run = (await db
     .insert(industryDeliveryRuns)
     .values({
       id: createId(),
@@ -86,18 +85,17 @@ function createOrReuseIndustryRun(
       startedAt: new Date(),
       createdAt: new Date(),
     })
-    .returning()
-    .get();
+    .returning())[0];
 
   return { run, created: true };
 }
 
-function loadActiveDeliverySubscriptions(
+async function loadActiveDeliverySubscriptions(
   db: ReturnType<typeof getDb>,
   industryConfigIds: string[]
-): DeliverySubscriptionRow[] {
+): Promise<DeliverySubscriptionRow[]> {
   if (industryConfigIds.length === 0) return [];
-  return db
+  return (await db
     .select({
       userSub: userIndustrySubscriptions,
       profile: industryMonitoringProfiles,
@@ -115,14 +113,13 @@ function loadActiveDeliverySubscriptions(
         eq(userIndustrySubscriptions.status, 'active'),
         eq(industryMonitoringProfiles.status, 'active')
       )
-    )
-    .all();
+    ));
 }
 
-function loadNewCardsForSubscription(db: ReturnType<typeof getDb>, row: DeliverySubscriptionRow) {
+async function loadNewCardsForSubscription(db: ReturnType<typeof getDb>, row: DeliverySubscriptionRow) {
   if (!row.profile.sharedSubscriptionId) return [];
   const since = row.userSub.lastDeliveredAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000);
-  return db
+  return (await db
     .select({
       id: messageCards.id,
       title: messageCards.title,
@@ -141,8 +138,7 @@ function loadNewCardsForSubscription(db: ReturnType<typeof getDb>, row: Delivery
       )
     )
     .orderBy(desc(messageCards.createdAt))
-    .limit(DIGEST_DETAIL_ITEM_LIMIT)
-    .all();
+    .limit(DIGEST_DETAIL_ITEM_LIMIT));
 }
 
 function toDeliveryEmailItems(
@@ -172,7 +168,7 @@ function recipientGroupKey(row: DeliverySubscriptionRow) {
   return `${row.userSub.userId}::${normalizedRecipients(row).join('|')}`;
 }
 
-function markRuns(
+async function markRuns(
   db: ReturnType<typeof getDb>,
   runs: DeliveryRunEntry[],
   status: 'completed' | 'failed',
@@ -180,17 +176,16 @@ function markRuns(
 ) {
   for (const entry of runs) {
     if (!entry.created) continue;
-    db.update(industryDeliveryRuns)
+    await db.update(industryDeliveryRuns)
       .set({ status, error: error ?? null, finishedAt: new Date() })
-      .where(eq(industryDeliveryRuns.id, entry.run.id))
-      .run();
+      .where(eq(industryDeliveryRuns.id, entry.run.id));
   }
 }
 
 export async function runIndustryDelivery(industryConfigId: string, scheduledFor = new Date()) {
   const db = getDb();
   const scheduledSlot = normalizeDeliveryScheduleSlot(scheduledFor);
-  const existingRun = db
+  const existingRun = (await db
     .select()
     .from(industryDeliveryRuns)
     .where(
@@ -198,11 +193,10 @@ export async function runIndustryDelivery(industryConfigId: string, scheduledFor
         eq(industryDeliveryRuns.industryConfigId, industryConfigId),
         eq(industryDeliveryRuns.scheduledFor, scheduledSlot)
       )
-    )
-    .get();
+    ))[0];
   if (existingRun) return existingRun;
 
-  const run = db
+  const run = (await db
     .insert(industryDeliveryRuns)
     .values({
       id: createId(),
@@ -212,11 +206,10 @@ export async function runIndustryDelivery(industryConfigId: string, scheduledFor
       startedAt: new Date(),
       createdAt: new Date(),
     })
-    .returning()
-    .get();
+    .returning())[0];
 
   try {
-    const userSubs = db
+    const userSubs = (await db
       .select({
         userSub: userIndustrySubscriptions,
         profile: industryMonitoringProfiles,
@@ -234,29 +227,26 @@ export async function runIndustryDelivery(industryConfigId: string, scheduledFor
           eq(userIndustrySubscriptions.status, 'active'),
           eq(industryMonitoringProfiles.status, 'active')
         )
-      )
-      .all();
+      ));
 
     for (const row of userSubs) {
       await runUserDelivery(run.id, row.userSub.id);
     }
 
-    db.update(industryDeliveryRuns)
+    await db.update(industryDeliveryRuns)
       .set({ status: 'completed', finishedAt: new Date() })
-      .where(eq(industryDeliveryRuns.id, run.id))
-      .run();
+      .where(eq(industryDeliveryRuns.id, run.id));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    db.update(industryDeliveryRuns)
+    await db.update(industryDeliveryRuns)
       .set({ status: 'failed', error: message, finishedAt: new Date() })
-      .where(eq(industryDeliveryRuns.id, run.id))
-      .run();
+      .where(eq(industryDeliveryRuns.id, run.id));
   }
 
   // Re-read the run row so callers (admin run-now endpoint, scripts) get the final
   // status/error/finishedAt instead of the pre-update snapshot we inserted above.
   const finalRun =
-    db.select().from(industryDeliveryRuns).where(eq(industryDeliveryRuns.id, run.id)).get() ?? run;
+    (await db.select().from(industryDeliveryRuns).where(eq(industryDeliveryRuns.id, run.id)))[0] ?? run;
   return finalRun;
 }
 
@@ -270,11 +260,11 @@ function parseSelectedCardIds(value: string | null | undefined) {
   }
 }
 
-function loadPreviouslyDeliveredCards(
+async function loadPreviouslyDeliveredCards(
   db: ReturnType<typeof getDb>,
   userIndustrySubscriptionId: string
 ) {
-  const previousLog = db
+  const previousLog = (await db
     .select({ selectedCardIdsJson: userDeliveryLogs.selectedCardIdsJson })
     .from(userDeliveryLogs)
     .where(
@@ -284,13 +274,12 @@ function loadPreviouslyDeliveredCards(
       )
     )
     .orderBy(desc(userDeliveryLogs.createdAt))
-    .limit(1)
-    .get();
+    .limit(1))[0];
 
   const previousIds = parseSelectedCardIds(previousLog?.selectedCardIdsJson);
   if (previousIds.length === 0) return [];
 
-  const rows = db
+  const rows = (await db
     .select({
       id: messageCards.id,
       title: messageCards.title,
@@ -302,8 +291,7 @@ function loadPreviouslyDeliveredCards(
     })
     .from(messageCards)
     .innerJoin(sources, eq(messageCards.sourceId, sources.id))
-    .where(inArray(messageCards.id, previousIds))
-    .all();
+    .where(inArray(messageCards.id, previousIds)));
 
   const byId = new Map(rows.map((card) => [card.id, card]));
   return previousIds
@@ -318,8 +306,10 @@ export async function runIndustryDeliveryGroup(
   const db = getDb();
   const scheduledSlot = normalizeDeliveryScheduleSlot(scheduledFor);
   const uniqueIndustryIds = Array.from(new Set(industryConfigIds)).filter(Boolean);
-  const runEntries = uniqueIndustryIds.map((industryConfigId) =>
-    createOrReuseIndustryRun(db, industryConfigId, scheduledSlot)
+  const runEntries = await Promise.all(
+    uniqueIndustryIds.map((industryConfigId) =>
+      createOrReuseIndustryRun(db, industryConfigId, scheduledSlot)
+    )
   );
   const createdEntries = runEntries.filter((entry) => entry.created);
   if (createdEntries.length === 0) return runEntries.map((entry) => entry.run);
@@ -329,9 +319,10 @@ export async function runIndustryDeliveryGroup(
   );
 
   try {
-    const rows = loadActiveDeliverySubscriptions(db, Array.from(runIdByIndustry.keys())).filter(
-      (row) => row.profile.sharedSubscriptionId
-    );
+    const rows = (await loadActiveDeliverySubscriptions(
+      db,
+      Array.from(runIdByIndustry.keys())
+    )).filter((row) => row.profile.sharedSubscriptionId);
     const rowsByUser = new Map<string, DeliverySubscriptionRow[]>();
     for (const row of rows) {
       const key = recipientGroupKey(row);
@@ -342,8 +333,9 @@ export async function runIndustryDeliveryGroup(
 
     for (const userRows of rowsByUser.values()) {
       const recipients = normalizedRecipients(userRows[0]);
-      const prepared: PreparedDigestDelivery[] = userRows.map((row) => {
-        const rawCards = loadNewCardsForSubscription(db, row);
+      const prepared: PreparedDigestDelivery[] = [];
+      for (const row of userRows) {
+        const rawCards = await loadNewCardsForSubscription(db, row);
         let selection = resolveDeliverySelection({
           newCards: rawCards,
           previousCards: [],
@@ -352,27 +344,28 @@ export async function runIndustryDeliveryGroup(
           maxItems: DIGEST_DETAIL_ITEM_LIMIT,
         });
         if (selection.mode === 'empty') {
+          const previousCards = await loadPreviouslyDeliveredCards(db, row.userSub.id);
           selection = resolveDeliverySelection({
             newCards: rawCards,
-            previousCards: loadPreviouslyDeliveredCards(db, row.userSub.id),
+            previousCards,
             customCriteria: row.userSub.customCriteria,
             now: new Date(),
             maxItems: DIGEST_DETAIL_ITEM_LIMIT,
           });
         }
 
-        return {
+        prepared.push({
           row,
           runId: runIdByIndustry.get(row.industry.id)!,
           mode: selection.mode,
           items: toDeliveryEmailItems(selection, selection.mode),
           selectedCardIds: selection.selected.map((item) => item.card.id),
-        };
-      });
+        });
+      }
 
       if (recipients.length === 0) {
         for (const item of prepared) {
-          db.insert(userDeliveryLogs)
+          await db.insert(userDeliveryLogs)
             .values({
               id: createId(),
               runId: item.runId,
@@ -384,8 +377,7 @@ export async function runIndustryDeliveryGroup(
               status: 'skipped',
               error: '无有效收件邮箱',
               createdAt: new Date(),
-            })
-            .run();
+            });
         }
         continue;
       }
@@ -422,7 +414,7 @@ export async function runIndustryDeliveryGroup(
       const failed = sendResults.find((result) => !result.success);
 
       for (const item of prepared) {
-        db.insert(userDeliveryLogs)
+        await db.insert(userDeliveryLogs)
           .values({
             id: createId(),
             runId: item.runId,
@@ -435,32 +427,32 @@ export async function runIndustryDeliveryGroup(
             error: failed?.error ?? null,
             sentAt: failed ? null : new Date(),
             createdAt: new Date(),
-          })
-          .run();
+          });
 
         if (!failed) {
-          db.update(userIndustrySubscriptions)
+          await db.update(userIndustrySubscriptions)
             .set({ lastDeliveredAt: new Date(), updatedAt: new Date() })
-            .where(eq(userIndustrySubscriptions.id, item.row.userSub.id))
-            .run();
+            .where(eq(userIndustrySubscriptions.id, item.row.userSub.id));
         }
       }
     }
 
-    markRuns(db, createdEntries, 'completed');
+    await markRuns(db, createdEntries, 'completed');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    markRuns(db, createdEntries, 'failed', message);
+    await markRuns(db, createdEntries, 'failed', message);
   }
 
-  return createdEntries
-    .map((entry) => db.select().from(industryDeliveryRuns).where(eq(industryDeliveryRuns.id, entry.run.id)).get())
-    .filter((run): run is NonNullable<typeof run> => !!run);
+  const refreshedRuns = await Promise.all(
+    createdEntries
+    .map(async (entry) => (await db.select().from(industryDeliveryRuns).where(eq(industryDeliveryRuns.id, entry.run.id)))[0])
+  );
+  return refreshedRuns.filter((run): run is NonNullable<typeof run> => !!run);
 }
 
 export async function runUserDelivery(runId: string, userIndustrySubscriptionId: string) {
   const db = getDb();
-  const row = db
+  const row = (await db
     .select({
       userSub: userIndustrySubscriptions,
       profile: industryMonitoringProfiles,
@@ -472,13 +464,12 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
       eq(userIndustrySubscriptions.monitoringProfileId, industryMonitoringProfiles.id)
     )
     .innerJoin(industryConfigs, eq(userIndustrySubscriptions.industryConfigId, industryConfigs.id))
-    .where(eq(userIndustrySubscriptions.id, userIndustrySubscriptionId))
-    .get();
+    .where(eq(userIndustrySubscriptions.id, userIndustrySubscriptionId)))[0];
 
   if (!row || !row.profile.sharedSubscriptionId) return null;
 
   const since = row.userSub.lastDeliveredAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const rawCards = db
+  const rawCards = (await db
     .select({
       id: messageCards.id,
       title: messageCards.title,
@@ -497,8 +488,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
       )
     )
     .orderBy(desc(messageCards.createdAt))
-    .limit(100)
-    .all();
+    .limit(100));
 
   let selection = resolveDeliverySelection({
     newCards: rawCards,
@@ -508,9 +498,10 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
     maxItems: row.industry.maxItemsPerEmail,
   });
   if (selection.mode === 'empty') {
+    const previousCards = await loadPreviouslyDeliveredCards(db, row.userSub.id);
     selection = resolveDeliverySelection({
       newCards: rawCards,
-      previousCards: loadPreviouslyDeliveredCards(db, row.userSub.id),
+      previousCards,
       customCriteria: row.userSub.customCriteria,
       now: new Date(),
       maxItems: row.industry.maxItemsPerEmail,
@@ -519,7 +510,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
 
   const recipients = parseRecipientEmailsJson(row.userSub.recipientEmailsJson);
   if (recipients.length === 0) {
-    db.insert(userDeliveryLogs)
+    await db.insert(userDeliveryLogs)
       .values({
         id: createId(),
         runId,
@@ -531,8 +522,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
         status: 'skipped',
         error: '无有效收件邮箱',
         createdAt: new Date(),
-      })
-      .run();
+      });
     return null;
   }
 
@@ -570,7 +560,7 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
   }
   const failed = sendResults.find((result) => !result.success);
 
-  db.insert(userDeliveryLogs)
+  await db.insert(userDeliveryLogs)
     .values({
       id: createId(),
       runId,
@@ -583,14 +573,12 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
       error: failed?.error ?? null,
       sentAt: failed ? null : new Date(),
       createdAt: new Date(),
-    })
-    .run();
+    });
 
   if (!failed) {
-    db.update(userIndustrySubscriptions)
+    await db.update(userIndustrySubscriptions)
       .set({ lastDeliveredAt: new Date(), updatedAt: new Date() })
-      .where(eq(userIndustrySubscriptions.id, row.userSub.id))
-      .run();
+      .where(eq(userIndustrySubscriptions.id, row.userSub.id));
   }
 
   return { sent: !failed, selectedCount: selection.selected.length };

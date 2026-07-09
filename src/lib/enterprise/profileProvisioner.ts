@@ -10,19 +10,18 @@ import {
 import { buildIndustryConfigSnapshot } from '@/lib/industry-configs/utils';
 import { runManagedPipeline } from '@/lib/managed/pipeline';
 
-export function listMonitoringProfilesForIndustry(industryConfigId: string) {
+export async function listMonitoringProfilesForIndustry(industryConfigId: string) {
   const db = getDb();
-  return db
+  return (await db
     .select()
     .from(industryMonitoringProfiles)
     .where(eq(industryMonitoringProfiles.industryConfigId, industryConfigId))
-    .orderBy(desc(industryMonitoringProfiles.updatedAt))
-    .all();
+    .orderBy(desc(industryMonitoringProfiles.updatedAt)));
 }
 
-export function approveMonitoringProfile(profileId: string, adminUserId: string) {
+export async function approveMonitoringProfile(profileId: string, adminUserId: string) {
   const db = getDb();
-  db.update(industryMonitoringProfiles)
+  await db.update(industryMonitoringProfiles)
     .set({
       status: 'creating',
       requiresAdminApproval: false,
@@ -31,14 +30,12 @@ export function approveMonitoringProfile(profileId: string, adminUserId: string)
       provisioningError: null,
       updatedAt: new Date(),
     })
-    .where(eq(industryMonitoringProfiles.id, profileId))
-    .run();
+    .where(eq(industryMonitoringProfiles.id, profileId));
 
-  return db
+  return (await db
     .select()
     .from(industryMonitoringProfiles)
-    .where(eq(industryMonitoringProfiles.id, profileId))
-    .get();
+    .where(eq(industryMonitoringProfiles.id, profileId)))[0];
 }
 
 function buildProfileTopic(industryName: string, profileTitle: string) {
@@ -72,15 +69,14 @@ function buildProfileCriteria(
 
 export async function startProfileProvisioning(profileId: string) {
   const db = getDb();
-  const row = db
+  const row = (await db
     .select({
       profile: industryMonitoringProfiles,
       industry: industryConfigs,
     })
     .from(industryMonitoringProfiles)
     .innerJoin(industryConfigs, eq(industryMonitoringProfiles.industryConfigId, industryConfigs.id))
-    .where(eq(industryMonitoringProfiles.id, profileId))
-    .get();
+    .where(eq(industryMonitoringProfiles.id, profileId)))[0];
 
   if (!row) throw new Error('PROFILE_NOT_FOUND');
   const { profile, industry } = row;
@@ -92,7 +88,7 @@ export async function startProfileProvisioning(profileId: string) {
   const criteria = buildProfileCriteria(industry, profile);
   const snapshot = buildIndustryConfigSnapshot(industry);
 
-  const subscription = db
+  const subscription = (await db
     .insert(subscriptions)
     .values({
       id: createId(),
@@ -108,18 +104,16 @@ export async function startProfileProvisioning(profileId: string) {
       createdAt: now,
       updatedAt: now,
     })
-    .returning()
-    .get();
+    .returning())[0];
 
-  db.update(industryMonitoringProfiles)
+  await db.update(industryMonitoringProfiles)
     .set({
       status: 'creating',
       sharedSubscriptionId: subscription.id,
       provisioningError: null,
       updatedAt: now,
     })
-    .where(eq(industryMonitoringProfiles.id, profile.id))
-    .run();
+    .where(eq(industryMonitoringProfiles.id, profile.id));
 
   runManagedPipeline(subscription.id, {
     topic,
@@ -129,49 +123,44 @@ export async function startProfileProvisioning(profileId: string) {
     industryConfigId: industry.id,
     industryConfigSnapshot: snapshot,
   })
-    .then(() => {
-      const latest = db
+    .then(async () => {
+      const latest = (await db
         .select({
           managedStatus: subscriptions.managedStatus,
           managedError: subscriptions.managedError,
         })
         .from(subscriptions)
-        .where(eq(subscriptions.id, subscription.id))
-        .get();
+        .where(eq(subscriptions.id, subscription.id)))[0];
 
       if (latest?.managedStatus === null) {
-        db.update(industryMonitoringProfiles)
+        await db.update(industryMonitoringProfiles)
           .set({
             status: 'active',
             lastProvisionedAt: new Date(),
             provisioningError: null,
             updatedAt: new Date(),
           })
-          .where(eq(industryMonitoringProfiles.id, profile.id))
-          .run();
-        db.update(userIndustrySubscriptions)
+          .where(eq(industryMonitoringProfiles.id, profile.id));
+        await db.update(userIndustrySubscriptions)
           .set({ status: 'active', updatedAt: new Date() })
           .where(
             and(
               eq(userIndustrySubscriptions.monitoringProfileId, profile.id),
               eq(userIndustrySubscriptions.status, 'pending_profile')
             )
-          )
-          .run();
+          );
       } else {
         const error = latest?.managedError ?? '共享信息池创建失败';
-        db.update(industryMonitoringProfiles)
+        await db.update(industryMonitoringProfiles)
           .set({ status: 'failed', provisioningError: error, updatedAt: new Date() })
-          .where(eq(industryMonitoringProfiles.id, profile.id))
-          .run();
+          .where(eq(industryMonitoringProfiles.id, profile.id));
       }
     })
-    .catch((err) => {
+    .catch(async (err) => {
       const message = err instanceof Error ? err.message : String(err);
-      db.update(industryMonitoringProfiles)
+      await db.update(industryMonitoringProfiles)
         .set({ status: 'failed', provisioningError: message, updatedAt: new Date() })
-        .where(eq(industryMonitoringProfiles.id, profile.id))
-        .run();
+        .where(eq(industryMonitoringProfiles.id, profile.id));
     });
 
   return subscription;

@@ -26,7 +26,7 @@ export async function collect(sourceId: string): Promise<CollectResult> {
   const db = getDb();
 
   // Load source + subscription
-  const source = db.select().from(sources).where(eq(sources.id, sourceId)).get();
+  const source = (await db.select().from(sources).where(eq(sources.id, sourceId)))[0];
   if (!source) {
     return { newItems: 0, skipped: 0, error: `Source ${sourceId} not found` };
   }
@@ -58,11 +58,10 @@ async function _doCollect(
   source: any,
   sourceId: string,
 ): Promise<CollectResult> {
-  const subscription = db
+  const subscription = (await db
     .select()
     .from(subscriptions)
-    .where(eq(subscriptions.id, source.subscriptionId))
-    .get();
+    .where(eq(subscriptions.id, source.subscriptionId)))[0];
 
   const now = new Date();
 
@@ -72,13 +71,13 @@ async function _doCollect(
     runResult = await runScript(source.script);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    _handleFailure(db, source, subscription, errorMsg, now);
+    await _handleFailure(db, source, subscription, errorMsg, now);
     return { newItems: 0, skipped: 0, error: errorMsg };
   }
 
   if (!runResult.success) {
     const errorMsg = runResult.error ?? 'Script error';
-    _handleFailure(db, source, subscription, errorMsg, now);
+    await _handleFailure(db, source, subscription, errorMsg, now);
     return { newItems: 0, skipped: 0, error: runResult.error };
   }
 
@@ -87,7 +86,7 @@ async function _doCollect(
   // ── Zero items = script broken (returns nothing useful) ─────────────────────
   if (items.length === 0) {
     const errorMsg = '脚本执行成功但未返回任何数据，请检查脚本逻辑或目标页面是否变更';
-    _handleFailure(db, source, subscription, errorMsg, now);
+    await _handleFailure(db, source, subscription, errorMsg, now);
     return { newItems: 0, skipped: 0, error: errorMsg };
   }
 
@@ -102,7 +101,7 @@ async function _doCollect(
     const contentHash = hash(item.title + item.url);
 
     // Check existence (UNIQUE index will also protect, but pre-check avoids noise)
-    const existing = db
+    const existing = (await db
       .select({ id: messageCards.id })
       .from(messageCards)
       .where(
@@ -110,8 +109,7 @@ async function _doCollect(
           eq(messageCards.contentHash, contentHash),
           eq(messageCards.sourceId, sourceId)
         )
-      )
-      .get();
+      ))[0];
 
     if (existing) {
       skipped++;
@@ -130,7 +128,7 @@ async function _doCollect(
     }
 
     try {
-      db.insert(messageCards)
+      await db.insert(messageCards)
         .values({
           subscriptionId: source.subscriptionId,
           sourceId,
@@ -147,8 +145,7 @@ async function _doCollect(
           rawData: JSON.stringify(item),
           createdAt: now,
         })
-        .onConflictDoNothing()
-        .run();
+        .onConflictDoNothing();
 
       newItems++;
     } catch {
@@ -159,7 +156,7 @@ async function _doCollect(
   // ── Update source stats ───────────────────────────────────────────────────────
   clearRetry(sourceId);
   const nextRun = nextCronDate(source.cronExpression);
-  db.update(sources)
+  await db.update(sources)
     .set({
       lastRunAt: now,
       lastRunSuccess: true,
@@ -171,22 +168,20 @@ async function _doCollect(
       status: 'active', // reset from 'failed' if it was previously broken
       updatedAt: now,
     })
-    .where(eq(sources.id, sourceId))
-    .run();
+    .where(eq(sources.id, sourceId));
 
   // ── Update subscription counts ────────────────────────────────────────────────
   if (newItems > 0 && subscription) {
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({
         unreadCount: sql`${subscriptions.unreadCount} + ${newItems}`,
         totalCount: sql`${subscriptions.totalCount} + ${newItems}`,
         lastUpdatedAt: now,
         updatedAt: now,
       })
-      .where(eq(subscriptions.id, source.subscriptionId))
-      .run();
+      .where(eq(subscriptions.id, source.subscriptionId));
 
-    createNotification(db, {
+    await createNotification(db, {
       type: 'cards_collected',
       title: `新增 ${newItems} 条消息卡片`,
       body: source.title,
@@ -202,7 +197,7 @@ async function _doCollect(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function _handleFailure(
+async function _handleFailure(
   db: ReturnType<typeof getDb>,
   source: { id: string; subscriptionId: string; title: string; cronExpression: string },
   subscription: { id: string } | undefined,
@@ -211,32 +206,31 @@ function _handleFailure(
 ) {
   const retried = scheduleRetry(source.id, errorMsg);
   if (retried) {
-    _markRetrying(db, source, errorMsg, now);
+    await _markRetrying(db, source, errorMsg, now);
   } else {
-    _markFailed(db, source, subscription, errorMsg, now);
+    await _markFailed(db, source, subscription, errorMsg, now);
   }
 }
 
-function _markRetrying(
+async function _markRetrying(
   db: ReturnType<typeof getDb>,
   source: { id: string; cronExpression: string },
   errorMsg: string,
   now: Date
 ) {
-  db.update(sources)
+  await db.update(sources)
     .set({
       lastRunAt: now,
       lastRunSuccess: false,
       lastError: errorMsg,
       updatedAt: now,
     })
-    .where(eq(sources.id, source.id))
-    .run();
+    .where(eq(sources.id, source.id));
 
   console.log(`[Collector] source=${source.id} FAILED (retrying): ${errorMsg}`);
 }
 
-function _markFailed(
+async function _markFailed(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: ReturnType<typeof getDb>,
   source: { id: string; subscriptionId: string; title: string; cronExpression: string },
@@ -246,7 +240,7 @@ function _markFailed(
 ) {
   const nextRun = nextCronDate(source.cronExpression);
 
-  db.update(sources)
+  await db.update(sources)
     .set({
       lastRunAt: now,
       lastRunSuccess: false,
@@ -256,11 +250,10 @@ function _markFailed(
       status: 'failed',
       updatedAt: now,
     })
-    .where(eq(sources.id, source.id))
-    .run();
+    .where(eq(sources.id, source.id));
 
   if (subscription) {
-    createNotification(db, {
+    await createNotification(db, {
       type: 'source_failed',
       title: `订阅源采集失败：${source.title}`,
       body: errorMsg.slice(0, 500),

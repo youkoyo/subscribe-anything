@@ -18,9 +18,9 @@ export interface CreateUserIndustrySubscriptionInput {
   extraRecipientEmails?: string[];
 }
 
-export function listMyIndustrySubscriptions(userId: string) {
+export async function listMyIndustrySubscriptions(userId: string) {
   const db = getDb();
-  return db
+  return (await db
     .select({
       subscription: userIndustrySubscriptions,
       industry: industryConfigs,
@@ -33,13 +33,12 @@ export function listMyIndustrySubscriptions(userId: string) {
       eq(userIndustrySubscriptions.monitoringProfileId, industryMonitoringProfiles.id)
     )
     .where(eq(userIndustrySubscriptions.userId, userId))
-    .orderBy(desc(userIndustrySubscriptions.updatedAt))
-    .all();
+    .orderBy(desc(userIndustrySubscriptions.updatedAt)));
 }
 
-export function listIndustrySubscribersForAdmin(industryConfigId: string) {
+export async function listIndustrySubscribersForAdmin(industryConfigId: string) {
   const db = getDb();
-  return db
+  return (await db
     .select({
       subscription: userIndustrySubscriptions,
       user: {
@@ -56,16 +55,15 @@ export function listIndustrySubscribersForAdmin(industryConfigId: string) {
       eq(userIndustrySubscriptions.monitoringProfileId, industryMonitoringProfiles.id)
     )
     .where(eq(userIndustrySubscriptions.industryConfigId, industryConfigId))
-    .orderBy(desc(userIndustrySubscriptions.updatedAt))
-    .all();
+    .orderBy(desc(userIndustrySubscriptions.updatedAt)));
 }
 
-export function createUserIndustrySubscription(input: CreateUserIndustrySubscriptionInput) {
+export async function createUserIndustrySubscription(input: CreateUserIndustrySubscriptionInput) {
   const db = getDb();
-  const industry = getPublishedIndustryConfig(input.industryConfigId);
+  const industry = await getPublishedIndustryConfig(input.industryConfigId);
   if (!industry) throw new Error('INDUSTRY_NOT_FOUND');
 
-  const user = db.select().from(users).where(eq(users.id, input.userId)).get();
+  const user = (await db.select().from(users).where(eq(users.id, input.userId)))[0];
   const recipients = normalizeRecipientEmails(user?.email, input.extraRecipientEmails ?? []);
   const recipientValidation = validateRecipientEmails(recipients);
   if (!recipientValidation.valid) throw new Error(recipientValidation.error);
@@ -77,7 +75,7 @@ export function createUserIndustrySubscription(input: CreateUserIndustrySubscrip
     industry.subscriptionMode === 'approval_required' ? 'pending_approval' : 'pending_profile';
   const now = new Date();
 
-  const row = db
+  const row = (await db
     .insert(userIndustrySubscriptions)
     .values({
       id: createId(),
@@ -90,8 +88,7 @@ export function createUserIndustrySubscription(input: CreateUserIndustrySubscrip
       createdAt: now,
       updatedAt: now,
     })
-    .returning()
-    .get();
+    .returning())[0];
 
   if (initialStatus === 'pending_profile') {
     return bindSubscriptionToProfile(row.id);
@@ -100,44 +97,40 @@ export function createUserIndustrySubscription(input: CreateUserIndustrySubscrip
   return row;
 }
 
-export function bindSubscriptionToProfile(userSubscriptionId: string) {
+export async function bindSubscriptionToProfile(userSubscriptionId: string) {
   const db = getDb();
-  const row = db
+  const row = (await db
     .select({
       subscription: userIndustrySubscriptions,
       industry: industryConfigs,
     })
     .from(userIndustrySubscriptions)
     .innerJoin(industryConfigs, eq(userIndustrySubscriptions.industryConfigId, industryConfigs.id))
-    .where(eq(userIndustrySubscriptions.id, userSubscriptionId))
-    .get();
+    .where(eq(userIndustrySubscriptions.id, userSubscriptionId)))[0];
 
   if (!row) throw new Error('USER_SUBSCRIPTION_NOT_FOUND');
 
-  const profiles = db
+  const profiles = (await db
     .select()
     .from(industryMonitoringProfiles)
-    .where(eq(industryMonitoringProfiles.industryConfigId, row.industry.id))
-    .all();
+    .where(eq(industryMonitoringProfiles.industryConfigId, row.industry.id)));
 
   const activePool = profiles.find((profile) => profile.status === 'active' && !!profile.sharedSubscriptionId);
 
   const now = new Date();
 
   if (activePool) {
-    db.update(userIndustrySubscriptions)
+    await db.update(userIndustrySubscriptions)
       .set({
         monitoringProfileId: activePool.id,
         status: 'active',
         updatedAt: now,
       })
-      .where(eq(userIndustrySubscriptions.id, row.subscription.id))
-      .run();
-    return db
+      .where(eq(userIndustrySubscriptions.id, row.subscription.id));
+    return (await db
       .select()
       .from(userIndustrySubscriptions)
-      .where(eq(userIndustrySubscriptions.id, row.subscription.id))
-      .get();
+      .where(eq(userIndustrySubscriptions.id, row.subscription.id)))[0];
   }
 
   const match = matchMonitoringProfile({
@@ -154,7 +147,7 @@ export function bindSubscriptionToProfile(userSubscriptionId: string) {
       ? '已有需求簇尚未绑定可用信息池，需要管理员确认'
       : match.criteriaSummary;
 
-  const profile = db
+  const profile = (await db
     .insert(industryMonitoringProfiles)
     .values({
       id: createId(),
@@ -171,58 +164,53 @@ export function bindSubscriptionToProfile(userSubscriptionId: string) {
       createdAt: now,
       updatedAt: now,
     })
-    .returning()
-    .get();
+    .returning())[0];
 
-  db.update(userIndustrySubscriptions)
+  await db.update(userIndustrySubscriptions)
     .set({
       monitoringProfileId: profile.id,
       status: 'pending_profile',
       updatedAt: now,
     })
-    .where(eq(userIndustrySubscriptions.id, row.subscription.id))
-    .run();
+    .where(eq(userIndustrySubscriptions.id, row.subscription.id));
 
-  return db
+  return (await db
     .select()
     .from(userIndustrySubscriptions)
-    .where(eq(userIndustrySubscriptions.id, row.subscription.id))
-    .get();
+    .where(eq(userIndustrySubscriptions.id, row.subscription.id)))[0];
 }
 
-export function approveUserIndustrySubscription(id: string, adminUserId: string) {
+export async function approveUserIndustrySubscription(id: string, adminUserId: string) {
   void adminUserId;
   const db = getDb();
-  db.update(userIndustrySubscriptions)
+  await db.update(userIndustrySubscriptions)
     .set({
       status: 'pending_profile',
       approvalReason: null,
       updatedAt: new Date(),
     })
-    .where(eq(userIndustrySubscriptions.id, id))
-    .run();
+    .where(eq(userIndustrySubscriptions.id, id));
   return bindSubscriptionToProfile(id);
 }
 
-export function updateMyIndustrySubscription(
+export async function updateMyIndustrySubscription(
   id: string,
   userId: string,
   input: { customCriteria?: string; extraRecipientEmails?: string[] }
 ) {
   const db = getDb();
-  const existing = db
+  const existing = (await db
     .select()
     .from(userIndustrySubscriptions)
-    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId)))
-    .get();
+    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId))))[0];
   if (!existing) return null;
 
-  const user = db.select().from(users).where(eq(users.id, userId)).get();
+  const user = (await db.select().from(users).where(eq(users.id, userId)))[0];
   const recipients = normalizeRecipientEmails(user?.email, input.extraRecipientEmails ?? []);
   const validation = validateRecipientEmails(recipients);
   if (!validation.valid) throw new Error(validation.error);
 
-  db.update(userIndustrySubscriptions)
+  await db.update(userIndustrySubscriptions)
     .set({
       customCriteria: input.customCriteria?.trim() || existing.customCriteria,
       recipientEmailsJson: JSON.stringify(recipients),
@@ -230,27 +218,24 @@ export function updateMyIndustrySubscription(
       monitoringProfileId: null,
       updatedAt: new Date(),
     })
-    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId)))
-    .run();
+    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId)));
 
   return bindSubscriptionToProfile(id);
 }
 
-export function pauseMyIndustrySubscription(id: string, userId: string, paused: boolean) {
+export async function pauseMyIndustrySubscription(id: string, userId: string, paused: boolean) {
   const db = getDb();
-  db.update(userIndustrySubscriptions)
+  await db.update(userIndustrySubscriptions)
     .set({
       status: paused ? 'paused' : 'pending_profile',
       updatedAt: new Date(),
     })
-    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId)))
-    .run();
+    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId)));
 
-  const row = db
+  const row = (await db
     .select()
     .from(userIndustrySubscriptions)
-    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId)))
-    .get();
+    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId))))[0];
 
   if (!row) return null;
   return paused ? row : bindSubscriptionToProfile(row.id);

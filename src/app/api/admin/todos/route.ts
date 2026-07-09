@@ -4,7 +4,7 @@ import { listAdminTodos } from '@/lib/admin/todos';
 export async function GET() {
   try {
     await requireAdmin();
-    return Response.json(listAdminTodos());
+    return Response.json(await listAdminTodos());
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

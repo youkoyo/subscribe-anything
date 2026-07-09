@@ -1,4 +1,4 @@
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import type { Db } from '@/lib/db';
 import { notifications } from '@/lib/db/schema';
 
 interface NotificationPayload {
@@ -10,10 +10,9 @@ interface NotificationPayload {
   relatedEntityId?: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createNotification(db: BetterSQLite3Database<any>, payload: NotificationPayload): void {
+export async function createNotification(db: Db, payload: NotificationPayload): Promise<void> {
   try {
-    db.insert(notifications)
+    await db.insert(notifications)
       .values({
         type: payload.type,
         title: payload.title,
@@ -23,8 +22,7 @@ export function createNotification(db: BetterSQLite3Database<any>, payload: Noti
         relatedEntityType: payload.relatedEntityType ?? null,
         relatedEntityId: payload.relatedEntityId ?? null,
         createdAt: new Date(),
-      })
-      .run();
+      });
   } catch (err) {
     console.error('[Notifications] Failed to create notification:', err);
   }

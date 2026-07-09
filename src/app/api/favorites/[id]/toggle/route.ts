@@ -17,19 +17,17 @@ export async function POST(
     const db = getDb();
 
     // Find the favorite by its own ID and verify ownership
-    const existingFavorite = db
+    const existingFavorite = (await db
       .select()
       .from(favorites)
-      .where(and(eq(favorites.id, id), eq(favorites.userId, session.userId)))
-      .get();
+      .where(and(eq(favorites.id, id), eq(favorites.userId, session.userId))))[0];
 
     if (existingFavorite) {
       // Toggle the isFavorite flag
       const newIsFavorite = !existingFavorite.isFavorite;
-      db.update(favorites)
+      await db.update(favorites)
         .set({ isFavorite: newIsFavorite })
-        .where(eq(favorites.id, id))
-        .run();
+        .where(eq(favorites.id, id));
       return Response.json({ ok: true, isFavorite: newIsFavorite });
     }
 

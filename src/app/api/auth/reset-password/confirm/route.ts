@@ -20,11 +20,10 @@ export async function POST(req: Request) {
     const db = getDb();
     const now = new Date();
 
-    const resetToken = db
+    const resetToken = (await db
       .select()
       .from(passwordResetTokens)
-      .where(eq(passwordResetTokens.token, token))
-      .get();
+      .where(eq(passwordResetTokens.token, token)))[0];
 
     if (!resetToken) {
       return Response.json({ error: '令牌无效' }, { status: 400 });
@@ -44,16 +43,14 @@ export async function POST(req: Request) {
     const passwordHash = await hashPassword(newPassword);
 
     // Update user password
-    db.update(users)
+    await db.update(users)
       .set({ passwordHash, updatedAt: now })
-      .where(eq(users.id, resetToken.userId))
-      .run();
+      .where(eq(users.id, resetToken.userId));
 
     // Mark token as used
-    db.update(passwordResetTokens)
+    await db.update(passwordResetTokens)
       .set({ usedAt: now })
-      .where(eq(passwordResetTokens.id, resetToken.id))
-      .run();
+      .where(eq(passwordResetTokens.id, resetToken.id));
 
     return Response.json({ success: true });
   } catch (err) {

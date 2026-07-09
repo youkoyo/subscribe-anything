@@ -13,7 +13,7 @@ export async function GET() {
     }
 
     const db = getDb();
-    const user = db.select().from(users).where(eq(users.id, session.userId)).get();
+    const user = (await db.select().from(users).where(eq(users.id, session.userId)))[0];
 
     if (!user) {
       // Session has invalid user ID, destroy it

@@ -9,15 +9,14 @@ export async function GET() {
   try {
     await requireAuth();
     const db = getDb();
-    const rows = db
+    const rows = (await db
       .select({
         id: llmProviders.id,
         modelId: llmProviders.modelId,
         isActive: llmProviders.isActive,
       })
       .from(llmProviders)
-      .orderBy(llmProviders.createdAt)
-      .all();
+      .orderBy(llmProviders.createdAt));
     return Response.json(rows);
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {

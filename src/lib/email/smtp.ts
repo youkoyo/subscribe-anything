@@ -41,9 +41,9 @@ export interface EmailAttachment {
 /**
  * Get SMTP configuration from database
  */
-export function getSmtpConfig(): SmtpConfigData | null {
+export async function getSmtpConfig(): Promise<SmtpConfigData | null> {
   const db = getDb();
-  const config = db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')).get();
+  const config = (await db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')))[0];
 
   if (!config) {
     return null;
@@ -71,8 +71,8 @@ export function getSmtpConfig(): SmtpConfigData | null {
 /**
  * Check if SMTP is configured
  */
-export function isSmtpConfigured(): boolean {
-  const config = getSmtpConfig();
+export async function isSmtpConfigured(): Promise<boolean> {
+  const config = await getSmtpConfig();
   if (!config) return false;
   if (config.provider === 'zeabur') {
     return !!(config.zeaburApiKey && config.fromEmail);
@@ -89,8 +89,8 @@ export function isSmtpConfigured(): boolean {
 /**
  * Check if email verification is required for registration
  */
-export function isVerificationRequired(): boolean {
-  const config = getSmtpConfig();
+export async function isVerificationRequired(): Promise<boolean> {
+  const config = await getSmtpConfig();
   if (!config) return false;
   return config.requireVerification ?? true;
 }
@@ -274,7 +274,7 @@ function toApiAttachment(attachment: EmailAttachment) {
 }
 
 export async function sendEmail({ to, subject, html, text, attachments }: SendEmailOptions): Promise<{ success: boolean; error?: string }> {
-  const config = getSmtpConfig();
+  const config = await getSmtpConfig();
 
   if (!config) {
     return { success: false, error: 'SMTP not configured' };

@@ -22,11 +22,10 @@ export async function POST(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db
+    const existing = (await db
       .select()
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
 
     if (!existing) {
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -52,7 +51,7 @@ export async function POST(
     let resolvedIndustryConfigSnapshot = existing.industryConfigSnapshot;
     if (!resolvedIndustryConfigSnapshot && (industryConfigId || industryConfigSnapshot)) {
       try {
-        const industrySelection = resolveSubscriptionIndustrySelection(session.userId, {
+        const industrySelection = await resolveSubscriptionIndustrySelection(session.userId, {
           industryConfigId,
           industryConfigSnapshot,
         }, { isAdmin: session.isAdmin });
@@ -70,7 +69,7 @@ export async function POST(
 
     // Mark subscription as active
     const now = new Date();
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({
         managedStatus: null,
         managedError: null,
@@ -80,8 +79,7 @@ export async function POST(
         isEnabled: true,
         updatedAt: now,
       })
-      .where(eq(subscriptions.id, id))
-      .run();
+      .where(eq(subscriptions.id, id));
 
     return Response.json({ id });
   } catch (err) {

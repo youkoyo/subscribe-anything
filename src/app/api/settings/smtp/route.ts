@@ -9,7 +9,7 @@ export async function GET() {
   try {
     await requireAdmin();
     const db = getDb();
-    const row = db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')).get();
+    const row = (await db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')))[0];
 
     if (!row) {
       return Response.json({
@@ -88,11 +88,11 @@ export async function PUT(req: Request) {
     }
 
     const db = getDb();
-    const existing = db.select({
+    const existing = (await db.select({
       password: smtpConfig.password,
       zeaburApiKey: smtpConfig.zeaburApiKey,
       resendApiKey: smtpConfig.resendApiKey,
-    }).from(smtpConfig).where(eq(smtpConfig.id, 'default')).get();
+    }).from(smtpConfig).where(eq(smtpConfig.id, 'default')))[0];
 
     // Keep existing secrets if new ones are empty
     const finalPassword = password || (existing?.password ?? '');
@@ -103,7 +103,7 @@ export async function PUT(req: Request) {
     const finalAliyunDirectMailAccessKeySecret = aliyunDirectMailAccessKeySecret && aliyunDirectMailAccessKeySecret !== '••••••••' ? aliyunDirectMailAccessKeySecret : null;
 
     const now = new Date();
-    db.insert(smtpConfig)
+    await db.insert(smtpConfig)
       .values({
         id: 'default',
         provider,
@@ -143,8 +143,7 @@ export async function PUT(req: Request) {
           requireVerification: requireVerification !== false,
           updatedAt: now,
         },
-      })
-      .run();
+      });
 
     return Response.json({ success: true });
   } catch (err) {

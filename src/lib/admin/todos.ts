@@ -40,10 +40,10 @@ function sortTodos(items: AdminTodoItem[]) {
   return items.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
-export function listAdminTodos(): AdminTodoItem[] {
+export async function listAdminTodos(): Promise<AdminTodoItem[]> {
   const db = getDb();
 
-  const approvalTodos = db
+  const approvalTodos = (await db
     .select({
       subscription: userIndustrySubscriptions,
       industry: industryConfigs,
@@ -56,8 +56,7 @@ export function listAdminTodos(): AdminTodoItem[] {
     .innerJoin(industryConfigs, eq(userIndustrySubscriptions.industryConfigId, industryConfigs.id))
     .leftJoin(users, eq(userIndustrySubscriptions.userId, users.id))
     .where(eq(userIndustrySubscriptions.status, 'pending_approval'))
-    .orderBy(desc(userIndustrySubscriptions.updatedAt))
-    .all()
+    .orderBy(desc(userIndustrySubscriptions.updatedAt)))
     .map(({ subscription, industry, user }) => ({
       id: `subscription:${subscription.id}`,
       type: 'approve_subscription' as const,
@@ -71,7 +70,7 @@ export function listAdminTodos(): AdminTodoItem[] {
       updatedAt: subscription.updatedAt,
     }));
 
-  const expansionTodos = db
+  const expansionTodos = (await db
     .select({
       profile: industryMonitoringProfiles,
       industry: industryConfigs,
@@ -84,8 +83,7 @@ export function listAdminTodos(): AdminTodoItem[] {
     .innerJoin(industryConfigs, eq(industryMonitoringProfiles.industryConfigId, industryConfigs.id))
     .leftJoin(users, eq(industryMonitoringProfiles.triggeredByUserId, users.id))
     .where(eq(industryMonitoringProfiles.requiresAdminApproval, true))
-    .orderBy(desc(industryMonitoringProfiles.updatedAt))
-    .all()
+    .orderBy(desc(industryMonitoringProfiles.updatedAt)))
     .map(({ profile, industry, user }) => ({
       id: `profile-approval:${profile.id}`,
       type: 'confirm_profile_expansion' as const,
@@ -99,7 +97,7 @@ export function listAdminTodos(): AdminTodoItem[] {
       updatedAt: profile.updatedAt,
     }));
 
-  const retryTodos = db
+  const retryTodos = (await db
     .select({
       profile: industryMonitoringProfiles,
       industry: industryConfigs,
@@ -112,8 +110,7 @@ export function listAdminTodos(): AdminTodoItem[] {
     .innerJoin(industryConfigs, eq(industryMonitoringProfiles.industryConfigId, industryConfigs.id))
     .leftJoin(users, eq(industryMonitoringProfiles.triggeredByUserId, users.id))
     .where(eq(industryMonitoringProfiles.status, 'failed'))
-    .orderBy(desc(industryMonitoringProfiles.updatedAt))
-    .all()
+    .orderBy(desc(industryMonitoringProfiles.updatedAt)))
     .map(({ profile, industry, user }) => ({
       id: `profile-retry:${profile.id}`,
       type: 'retry_profile_provisioning' as const,
@@ -132,8 +129,8 @@ export function listAdminTodos(): AdminTodoItem[] {
   return sortTodos([...approvalTodos, ...expansionTodos, ...retryTodos]);
 }
 
-export function getAdminTodoSummary(): AdminTodoSummary {
-  const todos = listAdminTodos();
+export async function getAdminTodoSummary(): Promise<AdminTodoSummary> {
+  const todos = await listAdminTodos();
   return {
     total: todos.length,
     approveSubscription: todos.filter((todo) => todo.type === 'approve_subscription').length,

@@ -23,7 +23,7 @@ export async function GET(req: Request) {
 
     const orderCol = status === 'read' ? desc(messageCards.readAt) : desc(messageCards.createdAt);
 
-    const rows = db
+    const rows = (await db
       .select({
         id: messageCards.id,
         subscriptionId: messageCards.subscriptionId,
@@ -47,8 +47,7 @@ export async function GET(req: Request) {
       .where(and(...conditions))
       .orderBy(orderCol)
       .limit(limit)
-      .offset(offset)
-      .all();
+      .offset(offset));
 
     return Response.json({ data: rows, offset, limit });
   } catch (err) {

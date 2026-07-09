@@ -8,15 +8,14 @@ export async function GET() {
   try {
     const session = await requireAuth();
     const db = getDb();
-    const rows = db
+    const rows = (await db
       .select({ count: messageCards.id })
       .from(messageCards)
       .innerJoin(subscriptions, eq(messageCards.subscriptionId, subscriptions.id))
       .where(and(
         isNull(messageCards.readAt),
         eq(subscriptions.userId, session.userId)
-      ))
-      .all();
+      )));
     return Response.json({ count: rows.length });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {

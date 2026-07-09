@@ -8,7 +8,7 @@ export async function GET() {
   try {
     await requireAdmin();
     const db = getDb();
-    const row = db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')).get();
+    const row = (await db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')))[0];
 
     if (!row) {
       return Response.json({ configured: false, clientId: '', enabled: false });
@@ -40,17 +40,16 @@ export async function PUT(req: Request) {
     const { clientId, clientSecret, enabled } = body;
 
     const db = getDb();
-    const existing = db
+    const existing = (await db
       .select({ clientSecret: oauthConfig.clientSecret })
       .from(oauthConfig)
-      .where(eq(oauthConfig.id, 'google'))
-      .get();
+      .where(eq(oauthConfig.id, 'google')))[0];
 
     // Keep existing secret if new one is empty
     const finalSecret = clientSecret || (existing?.clientSecret ?? '');
 
     const now = new Date();
-    db.insert(oauthConfig)
+    await db.insert(oauthConfig)
       .values({
         id: 'google',
         clientId: clientId ?? '',
@@ -66,8 +65,7 @@ export async function PUT(req: Request) {
           enabled: enabled !== false,
           updatedAt: now,
         },
-      })
-      .run();
+      });
 
     return Response.json({ success: true });
   } catch (err) {

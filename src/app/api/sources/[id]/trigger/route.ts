@@ -19,11 +19,10 @@ export async function POST(
     const db = getDb();
 
     // Verify source belongs to user via subscription
-    const result = db.select()
+    const result = (await db.select()
       .from(sources)
       .innerJoin(subscriptions, eq(sources.subscriptionId, subscriptions.id))
-      .where(and(eq(sources.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(sources.id, id), eq(subscriptions.userId, session.userId))))[0];
 
     if (!result) {
       return Response.json({ error: 'Source not found' }, { status: 404 });

@@ -45,7 +45,7 @@ export async function createSourcesForSubscription(
     const isFailed = !!srcInput.failedReason;
 
     // Insert source record
-    const source = db
+    const source = (await db
       .insert(sources)
       .values({
         subscriptionId,
@@ -60,14 +60,13 @@ export async function createSourcesForSubscription(
         createdAt: now,
         updatedAt: now,
       })
-      .returning()
-      .get();
+      .returning())[0];
 
     // Skip message cards, stats, and scheduling for failed sources
     if (isFailed) {
       // Only notify for genuinely failed sources, not ones that were never generated
       if (srcInput.failedReason !== '未生成') {
-        db.insert(notifications)
+        await db.insert(notifications)
           .values({
             type: 'source_failed',
             title: `订阅源待修复：${source.title}`,
@@ -77,8 +76,7 @@ export async function createSourcesForSubscription(
             relatedEntityType: 'source',
             relatedEntityId: source.id,
             createdAt: now,
-          })
-          .run();
+          });
       }
       continue;
     }
@@ -99,7 +97,7 @@ export async function createSourcesForSubscription(
         : false;
 
       try {
-        db.insert(messageCards)
+        await db.insert(messageCards)
           .values({
             subscriptionId,
             sourceId: source.id,
@@ -114,8 +112,7 @@ export async function createSourcesForSubscription(
             rawData: JSON.stringify(item),
             createdAt: now,
           })
-          .onConflictDoNothing()
-          .run();
+          .onConflictDoNothing();
 
         newCards++;
       } catch {
@@ -126,7 +123,7 @@ export async function createSourcesForSubscription(
     totalNewCards += newCards;
 
     // Update source stats to reflect the initial validation run
-    db.update(sources)
+    await db.update(sources)
       .set({
         totalRuns: 1,
         successRuns: 1,
@@ -135,11 +132,10 @@ export async function createSourcesForSubscription(
         lastRunSuccess: true,
         updatedAt: now,
       })
-      .where(eq(sources.id, source.id))
-      .run();
+      .where(eq(sources.id, source.id));
 
     // Write source_created notification
-    db.insert(notifications)
+    await db.insert(notifications)
       .values({
         type: 'source_created',
         title: `订阅源已创建：${source.title}`,
@@ -149,8 +145,7 @@ export async function createSourcesForSubscription(
         relatedEntityType: 'source',
         relatedEntityId: source.id,
         createdAt: now,
-      })
-      .run();
+      });
 
     // Schedule source
     try {
@@ -165,14 +160,13 @@ export async function createSourcesForSubscription(
 
   // Update subscription counts
   if (totalNewCards > 0) {
-    db.update(subscriptions)
+    await db.update(subscriptions)
       .set({
         unreadCount: totalNewCards,
         totalCount: totalNewCards,
         lastUpdatedAt: now,
         updatedAt: now,
       })
-      .where(eq(subscriptions.id, subscriptionId))
-      .run();
+      .where(eq(subscriptions.id, subscriptionId));
   }
 }

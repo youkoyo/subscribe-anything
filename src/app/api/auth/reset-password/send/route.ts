@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     }
 
     // Check if email provider is configured
-    if (!isSmtpConfigured()) {
+    if (!(await isSmtpConfigured())) {
       return Response.json({ error: '邮件服务未配置' }, { status: 400 });
     }
 
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     const now = new Date();
 
     // Find user by email
-    const user = db.select().from(users).where(eq(users.email, email)).get();
+    const user = (await db.select().from(users).where(eq(users.email, email)))[0];
 
     // Always return success to prevent email enumeration
     if (!user) {
@@ -60,12 +60,11 @@ export async function POST(req: Request) {
     }
 
     // Check cooldown
-    const recentToken = db
+    const recentToken = (await db
       .select()
       .from(passwordResetTokens)
       .where(eq(passwordResetTokens.userId, user.id))
-      .orderBy(passwordResetTokens.createdAt)
-      .all()
+      .orderBy(passwordResetTokens.createdAt))
       .filter(t => !t.usedAt && t.createdAt.getTime() > now.getTime() - COOLDOWN_MS)
       .at(0);
 
@@ -77,24 +76,22 @@ export async function POST(req: Request) {
     }
 
     // Invalidate existing unused tokens for this user
-    db.delete(passwordResetTokens)
-      .where(eq(passwordResetTokens.userId, user.id))
-      .run();
+    await db.delete(passwordResetTokens)
+      .where(eq(passwordResetTokens.userId, user.id));
 
     // Create new token
     const resetToken = generateToken();
     const id = createId();
     const expiresAt = new Date(now.getTime() + TOKEN_EXPIRY_MS);
 
-    db.insert(passwordResetTokens)
+    await db.insert(passwordResetTokens)
       .values({
         id,
         userId: user.id,
         token: resetToken,
         expiresAt,
         createdAt: now,
-      })
-      .run();
+      });
 
     // Send email
     const { sendEmail } = await import('@/lib/email/smtp');

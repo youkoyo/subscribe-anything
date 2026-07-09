@@ -33,14 +33,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if SMTP is configured
-    if (!isSmtpConfigured()) {
+    if (!(await isSmtpConfigured())) {
       return NextResponse.json({ error: '邮件服务未配置，请联系管理员' }, { status: 500 });
     }
 
     const db = getDb();
 
     // Check if email already registered
-    const existingUser = db.select().from(users).where(eq(users.email, email)).get();
+    const existingUser = (await db.select().from(users).where(eq(users.email, email)))[0];
     if (existingUser) {
       return NextResponse.json({ error: '该邮箱已被注册' }, { status: 400 });
     }

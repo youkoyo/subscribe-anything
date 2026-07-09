@@ -24,11 +24,11 @@ export function parseIndustryConfigSnapshot(value: string | null | undefined) {
   }
 }
 
-export function resolveSubscriptionIndustrySelection(
+export async function resolveSubscriptionIndustrySelection(
   userId: string,
   input: IndustrySelectionInput,
   options: { isAdmin?: boolean } = {}
-): SubscriptionIndustrySelection {
+): Promise<SubscriptionIndustrySelection> {
   const industryConfigId =
     typeof input.industryConfigId === 'string' ? input.industryConfigId.trim() : '';
 
@@ -36,12 +36,13 @@ export function resolveSubscriptionIndustrySelection(
     const config = options.isAdmin
       ? getIndustryConfigForAdmin(industryConfigId)
       : getIndustryConfigForUser(industryConfigId, userId);
-    if (!config) throw new Error(INDUSTRY_CONFIG_NOT_FOUND);
+    const resolvedConfig = await config;
+    if (!resolvedConfig) throw new Error(INDUSTRY_CONFIG_NOT_FOUND);
 
     return {
-      industryConfigId: config.id,
-      industryConfigSnapshot: JSON.stringify(config.snapshot),
-      snapshot: config.snapshot,
+      industryConfigId: resolvedConfig.id,
+      industryConfigSnapshot: JSON.stringify(resolvedConfig.snapshot),
+      snapshot: resolvedConfig.snapshot,
     };
   }
 

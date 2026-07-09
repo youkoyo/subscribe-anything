@@ -67,7 +67,7 @@ export async function reloadSource(sourceId: string): Promise<void> {
   const { eq } = await import('drizzle-orm');
 
   const db = getDb();
-  const source = db.select().from(sources).where(eq(sources.id, sourceId)).get();
+  const source = (await db.select().from(sources).where(eq(sources.id, sourceId)))[0];
 
   if (!source) {
     unscheduleSource(sourceId);

@@ -13,10 +13,9 @@ export async function GET(
     const { reportId } = await params;
     const db = getDb();
 
-    const report = db.select()
+    const report = (await db.select()
       .from(analysisReports)
-      .where(eq(analysisReports.userId, session.userId))
-      .all()
+      .where(eq(analysisReports.userId, session.userId)))
       .find(r => r.id === reportId);
 
     if (!report) return Response.json({ error: 'Report not found' }, { status: 404 });

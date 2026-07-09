@@ -29,11 +29,10 @@ export async function GET(
     await requireAdmin();
     const { id } = await params;
     const db = getDb();
-    const row = db
+    const row = (await db
       .select()
       .from(llmProviders)
-      .where(eq(llmProviders.id, id))
-      .get();
+      .where(eq(llmProviders.id, id)))[0];
 
     if (!row) {
       return Response.json({ error: 'Provider not found' }, { status: 404 });
@@ -57,11 +56,10 @@ export async function PATCH(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db
+    const existing = (await db
       .select()
       .from(llmProviders)
-      .where(eq(llmProviders.id, id))
-      .get();
+      .where(eq(llmProviders.id, id)))[0];
     if (!existing) {
       return Response.json({ error: 'Provider not found' }, { status: 404 });
     }
@@ -81,13 +79,12 @@ export async function PATCH(
       updates.headers = headers ? JSON.stringify(headers) : null;
     }
 
-    db.update(llmProviders).set(updates).where(eq(llmProviders.id, id)).run();
+    await db.update(llmProviders).set(updates).where(eq(llmProviders.id, id));
 
-    const updated = db
+    const updated = (await db
       .select()
       .from(llmProviders)
-      .where(eq(llmProviders.id, id))
-      .get();
+      .where(eq(llmProviders.id, id)))[0];
 
     return Response.json(maskApiKey(updated!));
   } catch (err) {
@@ -108,16 +105,15 @@ export async function DELETE(
     const { id } = await params;
     const db = getDb();
 
-    const existing = db
+    const existing = (await db
       .select()
       .from(llmProviders)
-      .where(eq(llmProviders.id, id))
-      .get();
+      .where(eq(llmProviders.id, id)))[0];
     if (!existing) {
       return Response.json({ error: 'Provider not found' }, { status: 404 });
     }
 
-    db.delete(llmProviders).where(eq(llmProviders.id, id)).run();
+    await db.delete(llmProviders).where(eq(llmProviders.id, id));
     return new Response(null, { status: 204 });
   } catch (err) {
     const authError = handleAuthError(err);

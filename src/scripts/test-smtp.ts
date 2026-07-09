@@ -45,20 +45,19 @@ async function seedConfig() {
     requireVerification: true,
     updatedAt: now,
   };
-  db.insert(smtpConfig)
+  await db.insert(smtpConfig)
     .values(values)
     .onConflictDoUpdate({
       target: smtpConfig.id,
       set: values,
-    })
-    .run();
+    });
   console.log('[seed] smtp_config row upserted with tlsServername=smtp.126.com');
 }
 
 async function verifyHandshake() {
   // Pull config straight from DB so we mirror what sendEmail() will see.
   const db = getDb();
-  const row = db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')).get();
+  const row = (await db.select().from(smtpConfig).where(eq(smtpConfig.id, 'default')))[0];
   if (!row) throw new Error('smtp_config row missing after seed');
 
   const options: SMTPTransport.Options & { family?: number } = {

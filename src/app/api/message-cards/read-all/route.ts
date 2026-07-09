@@ -15,10 +15,9 @@ export async function POST(req: Request) {
     const subscriptionId = url.searchParams.get('subscriptionId');
 
     // Get user's subscription IDs
-    const userSubs = db.select({ id: subscriptions.id })
+    const userSubs = (await db.select({ id: subscriptions.id })
       .from(subscriptions)
-      .where(eq(subscriptions.userId, session.userId))
-      .all();
+      .where(eq(subscriptions.userId, session.userId)));
 
     if (userSubs.length === 0) {
       return Response.json({ ok: true });
@@ -32,29 +31,25 @@ export async function POST(req: Request) {
         return Response.json({ error: 'Not found' }, { status: 404 });
       }
 
-      db.update(messageCards)
+      await db.update(messageCards)
         .set({ readAt: now })
-        .where(and(isNull(messageCards.readAt), eq(messageCards.subscriptionId, subscriptionId)))
-        .run();
+        .where(and(isNull(messageCards.readAt), eq(messageCards.subscriptionId, subscriptionId)));
 
-      db.update(subscriptions)
+      await db.update(subscriptions)
         .set({ unreadCount: 0, updatedAt: now })
-        .where(eq(subscriptions.id, subscriptionId))
-        .run();
+        .where(eq(subscriptions.id, subscriptionId));
     } else {
       // Mark all unread cards for user's subscriptions as read
-      db.update(messageCards)
+      await db.update(messageCards)
         .set({ readAt: now })
         .where(and(
           isNull(messageCards.readAt),
           inArray(messageCards.subscriptionId, userSubIds)
-        ))
-        .run();
+        ));
 
-      db.update(subscriptions)
+      await db.update(subscriptions)
         .set({ unreadCount: 0, updatedAt: now })
-        .where(eq(subscriptions.userId, session.userId))
-        .run();
+        .where(eq(subscriptions.userId, session.userId));
     }
 
     return Response.json({ ok: true });

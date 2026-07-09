@@ -15,11 +15,10 @@ export async function GET(
     const { id } = await params;
     const db = getDb();
 
-    const sub = db
+    const sub = (await db
       .select({ userId: subscriptions.userId })
       .from(subscriptions)
-      .where(eq(subscriptions.id, id))
-      .get();
+      .where(eq(subscriptions.id, id)))[0];
 
     if (!sub || sub.userId !== session.userId) {
       return Response.json({ error: 'Not found' }, { status: 404 });

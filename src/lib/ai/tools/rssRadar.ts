@@ -138,7 +138,7 @@ export function findMatchingTemplateUrl(url: string): string | null {
  * Returns up to 20 matching routes built against the active RSS instance.
  */
 export async function rssRadar(query: string): Promise<RadarRoute[]> {
-  const baseUrl = getActiveRssBaseUrl();
+  const baseUrl = await getActiveRssBaseUrl();
   const rules = await getRules(baseUrl);
   const q = query.toLowerCase().trim();
   const results: RadarRoute[] = [];

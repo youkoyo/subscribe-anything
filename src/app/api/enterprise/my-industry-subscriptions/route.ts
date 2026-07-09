@@ -4,7 +4,7 @@ import { listMyIndustrySubscriptions } from '@/lib/enterprise/subscriptionServic
 export async function GET() {
   try {
     const session = await requireAuth();
-    return Response.json(listMyIndustrySubscriptions(session.userId));
+    return Response.json(await listMyIndustrySubscriptions(session.userId));
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

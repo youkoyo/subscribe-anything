@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     const db = getDb();
 
     // Read credentials from DB (fall back to env for backwards compat)
-    const config = db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')).get();
+    const config = (await db.select().from(oauthConfig).where(eq(oauthConfig.id, 'google')))[0];
     const clientId = config?.clientId || GOOGLE_CLIENT_ID;
     const clientSecret = config?.clientSecret || GOOGLE_CLIENT_SECRET;
 
@@ -50,11 +50,10 @@ export async function GET(req: NextRequest) {
     }
 
     // Verify state
-    const stateRecord = db
+    const stateRecord = (await db
       .select()
       .from(oauthStates)
-      .where(and(eq(oauthStates.state, state), gt(oauthStates.expiresAt, new Date())))
-      .get();
+      .where(and(eq(oauthStates.state, state), gt(oauthStates.expiresAt, new Date()))))[0];
 
     if (!stateRecord) {
       return NextResponse.redirect(new URL('/login?error=invalid_state', getPublicBaseUrl(req)));
@@ -97,11 +96,11 @@ export async function GET(req: NextRequest) {
     const googleUser = await userResponse.json();
 
     // Check if user exists by googleId
-    let user = db.select().from(users).where(eq(users.googleId, googleUser.id)).get();
+    let user = (await db.select().from(users).where(eq(users.googleId, googleUser.id)))[0];
 
     if (!user && googleUser.email) {
       // Check if user exists by email (might have registered with password)
-      user = db.select().from(users).where(eq(users.email, googleUser.email)).get();
+      user = (await db.select().from(users).where(eq(users.email, googleUser.email)))[0];
 
       if (user) {
         // Link Google account to existing user
@@ -115,11 +114,10 @@ export async function GET(req: NextRequest) {
 
     if (!user) {
       // Check if this is the first non-guest user (will be admin)
-      const userCountResult = db
+      const userCountResult = (await db
         .select({ count: sql<number>`count(*)` })
         .from(users)
-        .where(eq(users.isGuest, false))
-        .get();
+        .where(eq(users.isGuest, false)))[0];
       const isFirstUser = (userCountResult?.count ?? 0) === 0;
 
       // Create new user

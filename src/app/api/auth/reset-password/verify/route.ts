@@ -15,11 +15,10 @@ export async function POST(req: Request) {
     const db = getDb();
     const now = new Date();
 
-    const resetToken = db
+    const resetToken = (await db
       .select()
       .from(passwordResetTokens)
-      .where(eq(passwordResetTokens.token, token))
-      .get();
+      .where(eq(passwordResetTokens.token, token)))[0];
 
     if (!resetToken) {
       return Response.json({ valid: false, error: '令牌无效' });

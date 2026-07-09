@@ -24,6 +24,7 @@ test('admin profile routes require admin access', async () => {
   const retryRoute = await readFile('src/app/api/industry-profiles/[id]/retry/route.ts', 'utf8');
 
   assert.match(profilesRoute, /requireAdmin/);
+  assert.match(profilesRoute, /Response\.json\(await listMonitoringProfilesForIndustry\(id\)/);
   assert.match(approveRoute, /requireAdmin/);
   assert.match(retryRoute, /requireAdmin/);
 });

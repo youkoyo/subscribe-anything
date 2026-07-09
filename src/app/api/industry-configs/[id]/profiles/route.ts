@@ -8,7 +8,7 @@ export async function GET(
   try {
     await requireAdmin();
     const { id } = await params;
-    return Response.json(listMonitoringProfilesForIndustry(id));
+    return Response.json(await listMonitoringProfilesForIndustry(id));
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

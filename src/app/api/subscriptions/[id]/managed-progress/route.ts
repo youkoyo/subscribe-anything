@@ -14,25 +14,23 @@ export async function GET(
     const { id } = await params;
     const db = getDb();
 
-    const sub = db
+    const sub = (await db
       .select({
         managedStatus: subscriptions.managedStatus,
         managedError: subscriptions.managedError,
       })
       .from(subscriptions)
-      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId)))
-      .get();
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, session.userId))))[0];
 
     if (!sub) {
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
-    const logs = db
+    const logs = (await db
       .select()
       .from(managedBuildLogs)
       .where(eq(managedBuildLogs.subscriptionId, id))
-      .orderBy(asc(managedBuildLogs.createdAt))
-      .all();
+      .orderBy(asc(managedBuildLogs.createdAt)));
 
     return Response.json({
       status: sub.managedStatus,

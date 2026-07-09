@@ -14,11 +14,10 @@ export async function initScheduler(): Promise<void> {
 
   // Load all sources that are enabled and not in 'pending' state.
   // 'pending' sources haven't had their script generated yet, so skip them.
-  const enabledSources = db
+  const enabledSources = (await db
     .select()
     .from(sources)
-    .where(and(eq(sources.isEnabled, true), ne(sources.status, 'pending')))
-    .all();
+    .where(and(eq(sources.isEnabled, true), ne(sources.status, 'pending'))));
 
   for (const source of enabledSources) {
     try {

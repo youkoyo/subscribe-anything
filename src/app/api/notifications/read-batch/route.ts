@@ -16,10 +16,9 @@ export async function POST(req: Request) {
     const db = getDb();
 
     // Get user's subscription IDs for ownership check
-    const userSubs = db.select({ id: subscriptions.id })
+    const userSubs = (await db.select({ id: subscriptions.id })
       .from(subscriptions)
-      .where(eq(subscriptions.userId, session.userId))
-      .all();
+      .where(eq(subscriptions.userId, session.userId)));
 
     if (userSubs.length === 0) {
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -28,13 +27,12 @@ export async function POST(req: Request) {
     const userSubIds = userSubs.map(s => s.id);
 
     // Only update notifications that belong to the user's subscriptions
-    db.update(notifications)
+    await db.update(notifications)
       .set({ isRead: true })
       .where(and(
         inArray(notifications.id, ids),
         inArray(notifications.subscriptionId, userSubIds),
-      ))
-      .run();
+      ));
 
     return Response.json({ ok: true });
   } catch (err) {

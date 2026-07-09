@@ -14,14 +14,13 @@ export async function POST(
     const db = getDb();
 
     // Get notification and verify ownership via subscription
-    const notification = db
+    const notification = (await db
       .select({
         id: notifications.id,
         subscriptionId: notifications.subscriptionId,
       })
       .from(notifications)
-      .where(eq(notifications.id, id))
-      .get();
+      .where(eq(notifications.id, id)))[0];
 
     if (!notification) {
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -29,20 +28,19 @@ export async function POST(
 
     // Verify the notification's subscription belongs to user
     if (notification.subscriptionId) {
-      const sub = db.select()
+      const sub = (await db.select()
         .from(subscriptions)
         .where(and(
           eq(subscriptions.id, notification.subscriptionId),
           eq(subscriptions.userId, session.userId)
-        ))
-        .get();
+        )))[0];
 
       if (!sub) {
         return Response.json({ error: 'Not found' }, { status: 404 });
       }
     }
 
-    db.update(notifications).set({ isRead: true }).where(eq(notifications.id, id)).run();
+    await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, id));
     return Response.json({ ok: true });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {

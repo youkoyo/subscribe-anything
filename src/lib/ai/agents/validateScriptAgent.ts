@@ -41,8 +41,10 @@ export async function validateScriptAgent(
   onLLMCall?: (info: LLMCallInfo) => void,
   userId?: string | null
 ): Promise<LLMValidateResult> {
-  const provider = getProviderForTemplate('validate-script', userId);
-  const tpl = getTemplate('validate-script', userId);
+  const [provider, tpl] = await Promise.all([
+    getProviderForTemplate('validate-script', userId),
+    getTemplate('validate-script', userId),
+  ]);
 
   // Fail open if template missing — don't block script generation entirely
   if (!tpl) {
