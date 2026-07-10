@@ -103,6 +103,10 @@ export interface ManagedPayload {
   /** All discovered sources (for display); foundSources is the selected subset for generation */
   allFoundSources?: FoundSource[];
   generatedSources?: GeneratedSource[];
+  /** Comma-separated topic keywords derived from industry config, used for relevance filtering. */
+  topicKeywords?: string;
+  /** Optional user instruction appended to the find-sources agent prompt, e.g. "continue searching, exclude these URLs". */
+  userPrompt?: string;
 }
 
 type LogLevel = 'info' | 'progress' | 'success' | 'error';
@@ -179,7 +183,9 @@ export async function runFindSourcesStep(
   subscriptionId: string,
   topic: string,
   criteria: string | undefined,
-  userId: string
+  userId: string,
+  topicKeywords?: string,
+  userPrompt?: string
 ): Promise<void> {
   writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
 
@@ -187,7 +193,7 @@ export async function runFindSourcesStep(
     const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
 
     const discovered = await findSourcesAgent(
-      { topic, criteria },
+      { topic, criteria, topicKeywords, userPrompt },
       (event: unknown) => {
         const e = event as Record<string, unknown>;
         if (e.type === 'tool_call' && e.name === 'webSearch') {
@@ -219,7 +225,8 @@ export async function runGenerateScriptsStep(
   subscriptionId: string,
   sources: FoundSource[],
   criteria: string | undefined,
-  userId: string
+  userId: string,
+  topicKeywords?: string
 ): Promise<void> {
   if (sources.length === 0) {
     writeLog(subscriptionId, 'generate_script', 'error', '没有可用的数据源，跳过脚本生成');
@@ -252,6 +259,7 @@ export async function runGenerateScriptsStep(
               url: source.url,
               description: source.description,
               criteria,
+              topicKeywords,
             },
             (msg: string) => {
               if (abortedSourceKeys.has(abortKey)) return;
@@ -320,7 +328,8 @@ export async function retryGenerateSourceStep(
   source: FoundSource,
   criteria: string | undefined,
   userId: string,
-  userPrompt?: string
+  userPrompt?: string,
+  topicKeywords?: string
 ): Promise<void> {
   const signal = registerSourceAbort(subscriptionId, source.url);
 
@@ -336,6 +345,7 @@ export async function retryGenerateSourceStep(
         description: source.description,
         criteria,
         userPrompt: userPrompt?.trim() || undefined,
+        topicKeywords,
       },
       (msg: string) => {
         writeLog(subscriptionId, 'generate_script', 'progress', `[${source.title}] ${msg}`, { sourceUrl: source.url });
@@ -615,7 +625,7 @@ export async function runManagedPipeline(
   subscriptionId: string,
   payload: ManagedPayload
 ): Promise<void> {
-  const { topic, criteria, startStep, userId, foundSources: initialFoundSources, allFoundSources: initialAllFoundSources, generatedSources: initialGeneratedSources } = payload;
+  const { topic, criteria, startStep, userId, foundSources: initialFoundSources, allFoundSources: initialAllFoundSources, generatedSources: initialGeneratedSources, topicKeywords, userPrompt } = payload;
 
   try {
     let foundSources: FoundSource[] = initialFoundSources ?? [];
@@ -717,7 +727,7 @@ export async function runManagedPipeline(
             const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
 
             const discovered = await findSourcesAgent(
-              { topic, criteria },
+              { topic, criteria, topicKeywords, userPrompt },
               (event: unknown) => {
                 const e = event as Record<string, unknown>;
                 if (e.type === 'tool_call' && e.name === 'webSearch') {
@@ -828,6 +838,7 @@ export async function runManagedPipeline(
                     url: source.url,
                     description: source.description,
                     criteria,
+                    topicKeywords,
                   },
                   (msg: string) => {
                     if (abortedSourceKeys.has(`${subscriptionId}:${source.url}`)) return;

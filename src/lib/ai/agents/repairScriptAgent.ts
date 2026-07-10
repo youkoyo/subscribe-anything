@@ -169,14 +169,27 @@ export async function repairScriptAgent(
     return { success: true, script: lastGoodScript };
   }
 
-  // Extract the best script from the conversation — use permissive regex and take the last match
+  // Extract the best script from conversation — pick the most complete one
   const lastText = messages
     .filter((m) => m.role === 'assistant')
     .map((m) => (typeof m.content === 'string' ? m.content : ''))
     .join('\n');
 
-  const scriptMatch = [...lastText.matchAll(/```[^\n]*\n([\s\S]*?)```/g)];
-  const finalScript = scriptMatch.at(-1)?.[1];
+  const scriptMatches = [...lastText.matchAll(/```[^\n]*\n([\s\S]*?)```/g)];
+  const candidates = scriptMatches.map((m) => m[1]).reverse();
+
+  let finalScript: string | undefined;
+  for (const cand of candidates) {
+    const trimmed = cand.trim();
+    if (!trimmed || !/function\s+|async\s+function|export\s+/.test(trimmed)) continue;
+    let depth = 0;
+    for (const ch of trimmed) { if (ch === '{') depth++; else if (ch === '}') depth--; }
+    if (depth === 0) { finalScript = trimmed; break; }
+  }
+  if (!finalScript) {
+    finalScript = candidates.reduce((best, cur) => cur.trim().length > best.length ? cur.trim() : best, '') || undefined;
+  }
+
   if (finalScript) {
     return { success: false, script: finalScript, reason: '脚本已生成但验证失败，请手动检查' };
   }

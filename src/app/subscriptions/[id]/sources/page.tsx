@@ -50,6 +50,7 @@ export default function SourcesPage() {
   const [loading, setLoading] = useState(true);
   const [repairTarget, setRepairTarget] = useState<Source | null>(null);
   const [scriptTarget, setScriptTarget] = useState<Source | null>(null);
+  const [logsTarget, setLogsTarget] = useState<Source | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [retryStates, setRetryStates] = useState<Record<string, RetryInfo>>({});
   const prevRetryIdsRef = useRef<Set<string>>(new Set());
@@ -307,6 +308,7 @@ export default function SourcesPage() {
                 onTitleChange={(t) => handleTitleChange(src, t)}
                 onRepair={() => setRepairTarget(src)}
                 onViewScript={() => setScriptTarget(src)}
+                onViewLogs={() => setLogsTarget(src)}
                 onDelete={() => setDeleteTarget(src)}
               />
             ))}
@@ -323,6 +325,7 @@ export default function SourcesPage() {
                 onTitleChange={(t) => handleTitleChange(src, t)}
                 onRepair={() => setRepairTarget(src)}
                 onViewScript={() => setScriptTarget(src)}
+                onViewLogs={() => setLogsTarget(src)}
                 onDelete={() => setDeleteTarget(src)}
               />
             ))}
@@ -350,6 +353,14 @@ export default function SourcesPage() {
         <ScriptViewDialog
           source={scriptTarget}
           onClose={() => setScriptTarget(null)}
+        />
+      )}
+
+      {/* Collection logs dialog */}
+      {logsTarget && (
+        <CollectionLogsDialog
+          source={logsTarget}
+          onClose={() => setLogsTarget(null)}
         />
       )}
 
@@ -562,10 +573,10 @@ function RetryBanner({ retryState }: { retryState: RetryInfo }) {
 }
 
 /* ── Desktop Source Card ── */
-function SourceCard({ src, retryState, isBusy, isRepairing, onToggle, onTrigger, onCronChange, onTitleChange, onRepair, onViewScript, onDelete }: {
+function SourceCard({ src, retryState, isBusy, isRepairing, onToggle, onTrigger, onCronChange, onTitleChange, onRepair, onViewScript, onViewLogs, onDelete }: {
   src: Source; retryState?: RetryInfo; isBusy: boolean; isRepairing: boolean; onToggle: (v: boolean) => void;
   onTrigger: () => void; onCronChange: (v: string) => void;
-  onTitleChange: (v: string) => void; onRepair: () => void; onViewScript: () => void; onDelete: () => void;
+  onTitleChange: (v: string) => void; onRepair: () => void; onViewScript: () => void; onViewLogs: () => void; onDelete: () => void;
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingValue, setEditingValue] = useState('');
@@ -657,16 +668,19 @@ function SourceCard({ src, retryState, isBusy, isRepairing, onToggle, onTrigger,
         <Button variant="outline" size="sm" className="gap-1 px-2" onClick={onViewScript} title="查看脚本">
           <Code2 className="h-3.5 w-3.5" />
         </Button>
+        <Button variant="outline" size="sm" className="gap-1 px-2" onClick={onViewLogs} title="查看采集日志">
+          <ScrollText className="h-3.5 w-3.5" />
+        </Button>
       </div>
     </div>
   );
 }
 
 /* ── Mobile Accordion ── */
-function SourceAccordion({ src, retryState, isBusy, isRepairing, onToggle, onTrigger, onCronChange, onTitleChange, onRepair, onViewScript, onDelete }: {
+function SourceAccordion({ src, retryState, isBusy, isRepairing, onToggle, onTrigger, onCronChange, onTitleChange, onRepair, onViewScript, onViewLogs, onDelete }: {
   src: Source; retryState?: RetryInfo; isBusy: boolean; isRepairing: boolean; onToggle: (v: boolean) => void;
   onTrigger: () => void; onCronChange: (v: string) => void;
-  onTitleChange: (v: string) => void; onRepair: () => void; onViewScript: () => void; onDelete: () => void;
+  onTitleChange: (v: string) => void; onRepair: () => void; onViewScript: () => void; onViewLogs: () => void; onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -765,6 +779,9 @@ function SourceAccordion({ src, retryState, isBusy, isRepairing, onToggle, onTri
             )}
             <Button variant="outline" size="sm" className="gap-1 px-2" onClick={onViewScript} title="查看脚本">
               <Code2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1 px-2" onClick={onViewLogs} title="查看采集日志">
+              <ScrollText className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
@@ -1023,5 +1040,121 @@ function ScriptViewDialog({ source, onClose }: { source: Source; onClose: () => 
         </div>
       </div>
     </>
+  );
+}
+
+/* ── Collection Logs Dialog ── */
+interface CollectionLogEntry {
+  id: string;
+  level: 'info' | 'success' | 'warn' | 'error';
+  event: 'start' | 'success' | 'failure' | 'zero_items' | 'retry_scheduled' | 'retry_exhausted' | 'concurrent_skip';
+  message: string;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+const EVENT_LABELS: Record<CollectionLogEntry['event'], string> = {
+  start: '开始',
+  success: '成功',
+  failure: '失败',
+  zero_items: '零数据',
+  retry_scheduled: '计划重试',
+  retry_exhausted: '重试耗尽',
+  concurrent_skip: '并发跳过',
+};
+
+const LEVEL_STYLES: Record<CollectionLogEntry['level'], string> = {
+  info: 'text-muted-foreground',
+  success: 'text-emerald-600 dark:text-emerald-400',
+  warn: 'text-amber-600 dark:text-amber-400',
+  error: 'text-destructive',
+};
+
+function CollectionLogsDialog({ source, onClose }: { source: Source; onClose: () => void }) {
+  const [logs, setLogs] = useState<CollectionLogEntry[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetch(`/api/sources/${source.id}/logs?limit=50`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = (await r.json()) as { logs: CollectionLogEntry[] };
+        if (!cancelled) {
+          setLogs(data.logs ?? []);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+          setLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [source.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/50"
+      onClick={onClose}>
+      <div className="bg-card w-full md:max-w-3xl md:rounded-lg rounded-t-2xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm truncate">采集日志</h3>
+            <p className="text-xs text-muted-foreground truncate">{source.title}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-3 text-xs">
+          {loading && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />加载中…
+            </div>
+          )}
+          {error && (
+            <p className="text-destructive">加载失败：{error}</p>
+          )}
+          {logs && logs.length === 0 && (
+            <p className="text-muted-foreground">暂无日志。下次采集后会显示在此处。</p>
+          )}
+          {logs && logs.length > 0 && (
+            <ol className="space-y-2">
+              {logs.map((entry) => (
+                <li key={entry.id} className="rounded border bg-background/40 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`font-mono text-[10px] uppercase tracking-wide ${LEVEL_STYLES[entry.level]}`}>
+                        {entry.event}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{EVENT_LABELS[entry.event]}</span>
+                    </div>
+                    <time className="text-[10px] text-muted-foreground flex-shrink-0">
+                      {new Date(entry.createdAt).toLocaleString('zh-CN')}
+                    </time>
+                  </div>
+                  <p className="mt-1 break-words">{entry.message}</p>
+                  {entry.payload && Object.keys(entry.payload).length > 0 && (
+                    <pre className="mt-1.5 text-[10px] text-muted-foreground bg-muted/40 rounded px-2 py-1 overflow-x-auto">
+                      {JSON.stringify(entry.payload, null, 2)}
+                    </pre>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
+        <div className="px-4 py-2 border-t text-[10px] text-muted-foreground">
+          仅显示最近 72 小时内的日志
+        </div>
+      </div>
+    </div>
   );
 }

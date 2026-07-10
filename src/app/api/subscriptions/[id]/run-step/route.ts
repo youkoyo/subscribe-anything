@@ -4,7 +4,23 @@ import { subscriptions, managedBuildLogs } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
 import { runFindSourcesStep, runGenerateScriptsStep } from '@/lib/managed/pipeline';
 import { clearLLMCalls } from '@/lib/managed/llmCallStore';
+import { parseIndustryConfigSnapshot } from '@/lib/industry-configs/subscriptionSelection';
 import type { FoundSource } from '@/types/wizard';
+
+/** Extract a comma-separated keyword string from an industry config snapshot JSON. */
+function extractTopicKeywords(snapshotJson: string | null): string | undefined {
+  if (!snapshotJson) return undefined;
+  const snapshot = parseIndustryConfigSnapshot(snapshotJson);
+  if (!snapshot) return undefined;
+  const parts = [
+    snapshot.name,
+    snapshot.category,
+    snapshot.subCategory,
+    ...(snapshot.keywords ?? []),
+    ...(snapshot.entities ?? []),
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : undefined;
+}
 
 // In-memory set to prevent duplicate concurrent runs per subscription+step.
 // Works because everything runs in a single Node.js process.
@@ -22,7 +38,7 @@ export async function POST(
     const session = await requireAuth();
     const { id } = await params;
     const body = await req.json();
-    const { step, sources } = body as { step?: string; sources?: FoundSource[] };
+    const { step, sources, userPrompt } = body as { step?: string; sources?: FoundSource[]; userPrompt?: string };
 
     if (step !== 'find_sources' && step !== 'generate_scripts') {
       return Response.json({ error: 'Invalid step. Must be find_sources or generate_scripts' }, { status: 400 });
@@ -55,7 +71,8 @@ export async function POST(
         );
 
       runningSteps.add(key);
-      runFindSourcesStep(id, sub.topic, sub.criteria ?? undefined, session.userId)
+      const topicKeywords = extractTopicKeywords(sub.industryConfigSnapshot);
+      runFindSourcesStep(id, sub.topic, sub.criteria ?? undefined, session.userId, topicKeywords, userPrompt)
         .finally(() => runningSteps.delete(key))
         .catch(() => {});
     } else {
@@ -65,7 +82,8 @@ export async function POST(
       const srcList = (sources ?? []) as FoundSource[];
 
       runningSteps.add(key);
-      runGenerateScriptsStep(id, srcList, sub.criteria ?? undefined, session.userId)
+      const topicKeywords = extractTopicKeywords(sub.industryConfigSnapshot);
+      runGenerateScriptsStep(id, srcList, sub.criteria ?? undefined, session.userId, topicKeywords)
         .finally(() => runningSteps.delete(key))
         .catch(() => {});
     }

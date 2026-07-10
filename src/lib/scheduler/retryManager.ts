@@ -85,6 +85,9 @@ export function scheduleRetry(sourceId: string, error: string): boolean {
 
   if (attempt > MAX_RETRIES) {
     retryStates.delete(sourceId);
+    // The collector will log `retry_exhausted` to collection_logs; this is just
+    // a stderr breadcrumb so the in-process retry chain's end is visible in stdout.
+    console.error(`[Retry] source=${sourceId} retries exhausted after ${MAX_RETRIES} attempts: ${error}`);
     return false;
   }
 

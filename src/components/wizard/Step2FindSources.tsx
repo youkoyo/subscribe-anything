@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Loader2, Search, BrainCircuit, Trash2 } from 'lucide-react';
+import { ExternalLink, Loader2, Search, BrainCircuit, Trash2, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -65,6 +65,16 @@ export default function Step2FindSources({
   const abortRef = useRef<AbortController | null>(null);
   const seenQueriesRef = useRef(new Set<string>());
 
+  // ── Manual add source state ──
+  const [showManualAdd, setShowManualAdd] = useState(false);
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualUrl, setManualUrl] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
+
+  // ── Continue searching state ──
+  const [continueError, setContinueError] = useState('');
+  const isContinueSearchRef = useRef(false);
+
   // Poll for LLM calls while subscriptionId is available
   useEffect(() => {
     if (!state.subscriptionId) return;
@@ -75,7 +85,6 @@ export default function Step2FindSources({
         .then((data: { calls?: LLMCallInfo[] }) => {
           if (data.calls && data.calls.length > 0) {
             setLLMCalls(data.calls);
-            // 同步到 wizard state，确保暂存退出/重入向导时能从 DB 恢复
             onStateChange({ step2LlmCalls: data.calls });
           }
         })
@@ -134,7 +143,6 @@ export default function Step2FindSources({
 
               if (event.type !== 'log' || event.step !== 'find_sources') continue;
 
-              // Search query progress
               if (event.level === 'progress' && event.message.startsWith('搜索：')) {
                 const q = event.message.slice(3);
                 if (!seenQueriesRef.current.has(q)) {
@@ -143,22 +151,38 @@ export default function Step2FindSources({
                 }
               }
 
-              // Success: sources found
               if (event.level === 'success' && Array.isArray(event.payload)) {
-                const allSources = event.payload as FoundSource[];
-                const sel = defaultSelection(allSources);
-                setSources(allSources);
-                setCheckedIndices(sel);
+                const resultSources = event.payload as FoundSource[];
+                if (isContinueSearchRef.current) {
+                  // Append new sources, skip duplicates by URL
+                  const existingUrls = new Set(sources.map((s) => s.url));
+                  const newOnes = resultSources.filter((s) => !existingUrls.has(s.url));
+                  if (newOnes.length > 0) {
+                    const merged = [...sources, ...newOnes];
+                    const sel = new Set([...checkedIndices]);
+                    for (let i = sources.length; i < merged.length; i++) sel.add(i);
+                    setSources(merged);
+                    setCheckedIndices(sel);
+                    onStateChange({
+                      foundSources: merged,
+                      selectedIndices: Array.from(sel).sort((a, b) => a - b),
+                    });
+                  }
+                  isContinueSearchRef.current = false;
+                } else {
+                  const sel = defaultSelection(resultSources);
+                  setSources(resultSources);
+                  setCheckedIndices(sel);
+                  onStateChange({
+                    foundSources: resultSources,
+                    selectedIndices: Array.from(sel).sort((a, b) => a - b),
+                  });
+                }
                 setIsDone(true);
                 setIsStreaming(false);
-                onStateChange({
-                  foundSources: allSources,
-                  selectedIndices: Array.from(sel).sort((a, b) => a - b),
-                });
                 return;
               }
 
-              // Error
               if (event.level === 'error') {
                 setErrorMessage(event.message);
                 if (
@@ -191,8 +215,7 @@ export default function Step2FindSources({
     })();
   };
 
-  // Connect to SSE on mount if we have a subscriptionId and sources not yet cached
-  // If managedError exists, show it instead of connecting (managed pipeline already failed)
+  // Connect to SSE on mount
   useEffect(() => {
     if (state.managedError && state.foundSources.length === 0) {
       setErrorMessage(state.managedError);
@@ -224,7 +247,6 @@ export default function Step2FindSources({
     setLLMCalls([]);
     onStateChange({ step2LlmCalls: [], managedError: null });
 
-    // Restart find_sources step in background (clears old logs)
     await fetch(`/api/subscriptions/${state.subscriptionId}/run-step`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -232,6 +254,69 @@ export default function Step2FindSources({
     }).catch(() => {});
 
     connectSSE();
+  };
+
+  // ── Continue searching: ask AI to find more sources excluding already-found ones ──
+  const handleContinueSearch = async () => {
+    if (!state.subscriptionId) return;
+
+    const existingUrls = sources.map((s) => s.url);
+    const userPrompt = `请继续搜索更多数据源，要求：
+1. 排除以下已找到的 URL（不要重复）：\n${existingUrls.map((u) => `   - ${u}`).join('\n')}
+2. 寻找与上述来源不同的新数据源，优先搜索：
+   - 行业垂直媒体和专业网站
+   - 行业协会/官方机构的公告/数据发布频道
+   - 有活跃 RSS 或定期更新的高质量源
+3. 如果搜索了两轮仍无新源，就如实告知并结束。`;
+
+    setContinueError('');
+    isContinueSearchRef.current = true;
+
+    try {
+      await fetch(`/api/subscriptions/${state.subscriptionId}/run-step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: 'find_sources', userPrompt }),
+      }).catch(() => {});
+
+      setTimeout(() => connectSSE(), 500);
+    } catch {
+      setContinueError('继续搜索请求失败');
+      isContinueSearchRef.current = false;
+    }
+  };
+
+  const handleManualAdd = () => {
+    const title = manualTitle.trim();
+    const url = manualUrl.trim();
+    if (!title || !url) return;
+
+    try {
+      new URL(url);
+    } catch {
+      return; // invalid URL
+    }
+
+    const newSource: FoundSource = {
+      title,
+      url,
+      description: manualDesc.trim() || '手动添加',
+    };
+
+    const newSources = [...sources, newSource];
+    const newIndex = newSources.length - 1;
+    setSources(newSources);
+    setCheckedIndices((prev) => new Set([...prev, newIndex]));
+    onStateChange({
+      foundSources: newSources,
+      selectedIndices: [...checkedIndices, newIndex].sort((a, b) => a - b),
+    });
+
+    // Reset form
+    setManualTitle('');
+    setManualUrl('');
+    setManualDesc('');
+    setShowManualAdd(false);
   };
 
   const toggleIndex = (idx: number) => {
@@ -293,7 +378,7 @@ export default function Step2FindSources({
         )}
       </div>
 
-      {/* Search progress pills — hide once sources are loaded */}
+      {/* Search progress pills */}
       {!isDone && (isStreaming || searchQueries.length > 0) && (
         <div className="flex flex-wrap items-center gap-2">
           {searchQueries.map((q, i) => (
@@ -338,7 +423,7 @@ export default function Step2FindSources({
       {/* Source list */}
       {sources.length > 0 && (
         <>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <p className="text-sm text-muted-foreground">
               共发现 {sources.length} 个数据源
               {recommendedCount > 0 && (
@@ -354,17 +439,20 @@ export default function Step2FindSources({
                 </>
               )}
             </p>
-            {isDone && (
-              <Button variant="ghost" size="sm" onClick={toggleAll} className="text-xs h-7 px-2">
-                {checkedIndices.size === sources.length ? '取消全选' : '全选'}
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {isDone && (
+                <Button variant="ghost" size="sm" onClick={toggleAll} className="text-xs h-7 px-2">
+                  {checkedIndices.size === sources.length ? '取消全选' : '全选'}
+                </Button>
+              )}
+            </div>
           </div>
 
-          <ScrollArea className="h-[46vh] md:h-[42vh] rounded-lg border">
+          <ScrollArea className="h-[38vh] md:h-[36vh] rounded-lg border">
             <div className="divide-y">
               {sources.map((source, idx) => {
                 const isChecked = checkedIndices.has(idx);
+                const isManual = source.description === '手动添加';
                 return (
                   <label
                     key={idx}
@@ -380,6 +468,11 @@ export default function Step2FindSources({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                         <span className="font-semibold text-sm leading-snug">{source.title}</span>
+                        {isManual && (
+                          <Badge className="h-4 px-1.5 text-[10px] bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 font-medium">
+                            手动
+                          </Badge>
+                        )}
                         {source.recommended && (
                           <Badge className="h-4 px-1.5 text-[10px] bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30 font-medium">
                             推荐
@@ -406,6 +499,85 @@ export default function Step2FindSources({
               })}
             </div>
           </ScrollArea>
+
+          {/* ── After sources list: manual add + continue search ── */}
+          {isDone && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Manual add button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowManualAdd(!showManualAdd)}
+                className="text-xs h-7"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                手动添加源
+              </Button>
+
+              {/* Continue search button */}
+              {state.subscriptionId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleContinueSearch}
+                  disabled={isStreaming}
+                  className="text-xs h-7"
+                >
+                  {isStreaming ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      搜索中...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="h-3.5 w-3.5 mr-1" />
+                      继续搜索更多源
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {continueError && (
+                <span className="text-xs text-destructive">{continueError}</span>
+              )}
+            </div>
+          )}
+
+          {/* ── Manual add form ── */}
+          {showManualAdd && (
+            <div className="rounded-lg border p-3 space-y-2 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">手动添加数据源</span>
+                <button onClick={() => setShowManualAdd(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="数据源名称（如：中国茶叶流通协会）"
+                value={manualTitle}
+                onChange={(e) => setManualTitle(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <input
+                type="url"
+                placeholder="URL（如：https://example.com/feed.xml）"
+                value={manualUrl}
+                onChange={(e) => setManualUrl(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <input
+                type="text"
+                placeholder="描述（可选）"
+                value={manualDesc}
+                onChange={(e) => setManualDesc(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <Button size="sm" onClick={handleManualAdd} disabled={!manualTitle.trim() || !manualUrl.trim()}>
+                确认添加
+              </Button>
+            </div>
+          )}
         </>
       )}
 
@@ -413,9 +585,15 @@ export default function Step2FindSources({
       {!isStreaming && isDone && sources.length === 0 && !errorMessage && (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-sm gap-3">
           <p>没有找到数据源</p>
-          <Button variant="outline" size="sm" onClick={handleRetry}>
-            重试
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleRetry}>
+              重试
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowManualAdd(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              手动添加
+            </Button>
+          </div>
         </div>
       )}
 

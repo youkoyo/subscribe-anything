@@ -86,7 +86,8 @@ export async function POST(
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const message = err instanceof Error ? err.message : String(err);
     console.error('[complete-wizard POST]', err);
-    return Response.json({ error: 'Failed to complete wizard' }, { status: 500 });
+    return Response.json({ error: `Failed to complete wizard: ${message}` }, { status: 500 });
   }
 }

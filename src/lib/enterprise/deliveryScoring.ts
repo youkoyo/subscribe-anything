@@ -16,63 +16,43 @@ export interface DeliveryCardLike {
 export interface DeliveryScore {
   relevance: number;
   authority: number;
-  importance: number;
-  freshness: number;
-  contentQuality: number;
-  total: number;
   matchReason?: string;
 }
 
 export type DeliverySelectionMode = 'new' | 'previous' | 'empty';
 
-const IMPORTANT_TERMS = ['事故', '处罚', '召回', '监管', '政策', '条例', '检查', '整改', '风险'];
-const AUTHORITY_TERMS = ['监管', '市场监管', '政府', '总局', '部', '厅', '局', '法院', '协会'];
+const AUTHORITY_TERMS = ['政府', '总局', '部', '厅', '局', '法院', '协会', '海关', '商务部', '市场监管', '人民日报', '新华社', '央视', '中新网', '证券日报', '经济日报', '行业标准'];
 
-function includesAny(text: string, terms: string[]) {
-  return terms.some((term) => text.includes(term));
+function scoreAuthority(sourceName: string | null, title: string): number {
+  const text = `${sourceName ?? ''} ${title}`;
+  const matches = AUTHORITY_TERMS.filter((t) => text.includes(t)).length;
+  if (matches >= 2) return 90;
+  if (matches >= 1) return 65;
+  return 30;
 }
 
-function scoreFreshness(value: Date | string | null, now: Date) {
-  const date = value ? new Date(value) : now;
-  const ageHours = Math.max(0, (now.getTime() - date.getTime()) / 3_600_000);
-  if (ageHours <= 24) return 100;
-  if (ageHours <= 72) return 70;
-  if (ageHours <= 168) return 40;
-  return 15;
-}
-
+/**
+ * Scoring: relevance from criteriaMatcher, authority from source name.
+ * Only relevance determines inclusion; authority is for display only.
+ */
 export function scoreDeliveryCard(
   card: DeliveryCardLike,
   customCriteria: string,
   now: Date,
   parsedCriteria = parseDeliveryCriteria(customCriteria)
 ): DeliveryScore {
-  const text = `${card.title} ${card.summary ?? ''}`;
-  const criteriaMatch = scoreCardAgainstCriteria(card, parsedCriteria, now);
-  const relevance = criteriaMatch.score;
-  const authority = includesAny(card.sourceName ?? '', AUTHORITY_TERMS) ? 90 : 55;
-  const importance = includesAny(text, IMPORTANT_TERMS) ? 85 : 45;
-  const freshness = scoreFreshness(card.publishedAt ?? card.createdAt, now);
-  const contentQuality = (card.summary?.length ?? 0) >= 30 ? 80 : 45;
-  const total = Math.round(
-    relevance * 0.45 +
-      authority * 0.20 +
-      importance * 0.15 +
-      freshness * 0.10 +
-      contentQuality * 0.10
-  );
-
+  const match = scoreCardAgainstCriteria(card, parsedCriteria, now);
   return {
-    relevance,
-    authority,
-    importance,
-    freshness,
-    contentQuality,
-    total,
-    matchReason: criteriaMatch.reason,
+    relevance: match.score,
+    authority: scoreAuthority(card.sourceName, card.title),
+    matchReason: match.reason,
   };
 }
 
+/**
+ * Select cards for delivery. Any card where the criteria matcher says "matched"
+ * is included. Score is used only for ordering, not for filtering.
+ */
 export function selectDeliveryCards(input: {
   cards: DeliveryCardLike[];
   customCriteria: string;
@@ -80,15 +60,70 @@ export function selectDeliveryCards(input: {
   maxItems: number;
 }) {
   const limit = Math.min(500, Math.max(1, input.maxItems));
-  const parsedCriteria: ParsedDeliveryCriteria = parseDeliveryCriteria(input.customCriteria);
-  return input.cards
-    .map((card) => ({
-      card,
-      score: scoreDeliveryCard(card, input.customCriteria, input.now, parsedCriteria),
-    }))
-    .filter((item) => item.score.relevance >= 35 || item.score.total >= 52)
-    .sort((a, b) => b.score.total - a.score.total)
-    .slice(0, limit);
+  const parsedCriteria = parseDeliveryCriteria(input.customCriteria);
+
+  const scored = input.cards.map((card) => {
+    const score = scoreDeliveryCard(card, input.customCriteria, input.now, parsedCriteria);
+    const match = scoreCardAgainstCriteria(card, parsedCriteria, input.now);
+    return { card, score, matched: match.matched, matchedTerms: match.matchedTerms, reason: match.reason };
+  });
+
+  // Include everything that matched the criteria
+  const matched = scored.filter((item) => item.matched);
+  // Sort by relevance score descending, then pick top N
+  const sorted = matched.sort((a, b) => b.score.relevance - a.score.relevance);
+  const selected = sorted.slice(0, limit);
+
+  return selected;
+}
+
+/**
+ * Same scoring as selectDeliveryCards but returns per-card disposition for the trace log.
+ */
+export function scoreCardsForTrace(input: {
+  cards: DeliveryCardLike[];
+  customCriteria: string;
+  now: Date;
+  maxItems: number;
+}): {
+  parsedCriteria: ParsedDeliveryCriteria;
+  scored: Array<{
+    card: DeliveryCardLike;
+    score: ReturnType<typeof scoreDeliveryCard>;
+    matched: boolean;
+    matchedTerms: string[];
+    reason: string;
+    disposition: 'selected' | 'ranked_outside_top_n' | 'not_matched';
+  }>;
+  selected: Array<{ card: DeliveryCardLike; score: ReturnType<typeof scoreDeliveryCard> }>;
+} {
+  const limit = Math.min(500, Math.max(1, input.maxItems));
+  const parsedCriteria = parseDeliveryCriteria(input.customCriteria);
+
+  const allScored = input.cards.map((card) => {
+    const score = scoreDeliveryCard(card, input.customCriteria, input.now, parsedCriteria);
+    const match = scoreCardAgainstCriteria(card, parsedCriteria, input.now);
+    return { card, score, matched: match.matched, matchedTerms: match.matchedTerms, reason: match.reason };
+  });
+
+  const matched = allScored.filter((item) => item.matched);
+  const sorted = [...matched].sort((a, b) => b.score.relevance - a.score.relevance);
+  const topN = sorted.slice(0, limit);
+  const topNIds = new Set(topN.map((i) => i.card.id));
+
+  const scored = allScored.map((item) => {
+    let disposition: 'selected' | 'ranked_outside_top_n' | 'not_matched';
+    if (topNIds.has(item.card.id)) {
+      disposition = 'selected';
+    } else if (item.matched) {
+      disposition = 'ranked_outside_top_n';
+    } else {
+      disposition = 'not_matched';
+    }
+    return { ...item, disposition };
+  });
+
+  return { parsedCriteria, scored, selected: topN };
 }
 
 export function resolveDeliverySelection(input: {

@@ -8,8 +8,18 @@
  *   (the runner wraps the script so that a top-level `collect` function is found)
  *
  * Available globals inside the sandbox:
- *   fetch(url, options?)  — proxied, max 5 requests per run, 5 MB response limit
- *   URL, URLSearchParams  — standard Web APIs
+ *   fetch(url, opts)         — HTTP client, supports method, headers, body (max 5 req, 5 MB resp)
+ *   URL, URLSearchParams     — standard Web APIs
+ *   TextDecoder, TextEncoder — standard encoding APIs (utf-8, gbk, etc.)
+ *   atob, btoa               — base64 encode / decode
+ *   console.log(...)         — debug output (visible during validation, discarded at runtime)
+ *
+ * HTML helpers (pre-defined utility functions for parsing HTML without DOM API):
+ *   __htmlGetText(html)          — strip tags, decode entities, return plain text
+ *   __htmlGetByTag(html, tag)    — return array of innerHTML strings for all <tag> elements
+ *   __htmlGetAttr(tagStr, attr)  — extract attribute value from an opening tag string
+ *   __htmlGetLinks(html)         — return [{href, text}] for all <a> links in the HTML
+ *   __htmlGetElements(html, tag) — return [{text, html, attrs}] for all <tag> elements
  */
 export interface CollectedItem {
   title: string;        // required

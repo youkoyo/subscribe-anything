@@ -9,7 +9,10 @@
     "start": "cross-env NODE_ENV=production node dist/server.js",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "scripts:reset-and-regenerate": "tsx --env-file=.env.local scripts/reset-and-regenerate.ts",
+    "scripts:pool-stats": "tsx --env-file=.env.local scripts/pool-card-stats.ts",
+    "scripts:test-criteria": "tsx --env-file=.env.local scripts/test-criteria.ts"
   },
   "dependencies": {
     "@alicloud/credentials": "^2.4.4",

@@ -8,7 +8,7 @@ export async function POST(req: Request) {
   try {
     const session = await requireAuth();
     const body = await req.json().catch(() => ({}));
-    const { topic, criteria } = body as { topic?: string; criteria?: string };
+    const { topic, criteria, topicKeywords, userPrompt } = body as { topic?: string; criteria?: string; topicKeywords?: string; userPrompt?: string };
 
     if (!topic?.trim()) {
       return Response.json({ error: 'topic is required' }, { status: 400 });
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
 
     return sseStream(async (emit) => {
       await findSourcesAgent(
-        { topic: topic.trim(), criteria: criteria?.trim() },
+        { topic: topic.trim(), criteria: criteria?.trim(), topicKeywords, userPrompt },
         emit,
         (info) => emit({ type: 'llm_call', ...info }),
         session.userId

@@ -6,6 +6,9 @@ import { runIndustryDeliveryGroup } from './deliveryService';
 
 const deliveryJobs = new Map<string, ScheduledTask>();
 const scheduledIndustries = new Map<string, typeof industryConfigs.$inferSelect>();
+/** Industry ids that the in-memory map still references but the DB no longer has.
+ *  Tracked separately so the next re-init can drop them cleanly. */
+const missingIndustryIds = new Set<string>();
 
 function deliveryGroupKey(industry: typeof industryConfigs.$inferSelect) {
   return `${industry.deliveryTimezone || 'Asia/Shanghai'}::${industry.deliveryCron}`;
@@ -42,9 +45,24 @@ function scheduleDeliveryGroups() {
     const task = cron.schedule(
       first.deliveryCron!,
       () => {
-        runIndustryDeliveryGroup(industryIds).catch((err) =>
-          console.error(`[DeliveryScheduler] Delivery failed for group ${key}`, err)
-        );
+        runIndustryDeliveryGroup(industryIds)
+          .then((result) => {
+            // Prune stale in-memory entries so we don't keep retrying ids
+            // that no longer exist in the DB.
+            for (const missingId of result.missing) {
+              missingIndustryIds.add(missingId);
+              scheduledIndustries.delete(missingId);
+            }
+            if (result.missing.length > 0) {
+              console.warn(
+                `[DeliveryScheduler] Pruned ${result.missing.length} stale industry config(s) ` +
+                  `from in-memory map: ${result.missing.join(', ')}`
+              );
+            }
+          })
+          .catch((err) =>
+            console.error(`[DeliveryScheduler] Delivery failed for group ${key}`, err)
+          );
       },
       {
         timezone: first.deliveryTimezone || 'Asia/Shanghai',

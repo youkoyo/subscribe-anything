@@ -10,17 +10,30 @@ export interface SourceToGenerate {
 }
 
 // POST /api/wizard/generate-scripts — SSE stream
-// Body: { sources: SourceToGenerate[], criteria?: string }
+// Body: { sources: SourceToGenerate[], criteria?: string, topicKeywords?: string }
 // Emits: { type: 'source_progress', sourceIndex, status, script?, items?, error? }
 export async function POST(req: Request) {
   try {
     const session = await requireAuth();
     const body = await req.json().catch(() => ({}));
-    const { sources, criteria } = body as { sources?: SourceToGenerate[]; criteria?: string };
+    const { sources, criteria, topicKeywords } = body as {
+      sources?: SourceToGenerate[];
+      criteria?: string;
+      topicKeywords?: string;
+    };
 
     if (!Array.isArray(sources) || sources.length === 0) {
       return Response.json({ error: 'sources array is required' }, { status: 400 });
     }
+
+    // Derive topic keywords from criteria if the frontend didn't pass them explicitly.
+    // The LLM needs a positive list of what "on-topic" means so it can hard-filter items
+    // in the generated script. Without this, scripts collect loosely related (or unrelated)
+    // items, and admin has to clean them out at the source level.
+    const effectiveTopicKeywords =
+      topicKeywords?.trim() ||
+      (criteria ?? '').split(/[\s,，、;；。\n]+/).filter((kw) => kw.length >= 2).join('、') ||
+      undefined;
 
     return sseStream(async (emit) => {
       // Kick off all sources in parallel; each one streams progress events independently
@@ -33,6 +46,7 @@ export async function POST(req: Request) {
               {
                 ...source,
                 criteria: criteria?.trim() || undefined,
+                topicKeywords: effectiveTopicKeywords,
                 userPrompt: source.userPrompt?.trim() || undefined,
               },
               (message) => {

@@ -137,6 +137,19 @@ export async function POST(req: Request) {
       subscriptionId = subscription.id;
     }
 
+    // Extract topic keywords from industry config for relevance filtering
+    let topicKeywords: string | undefined;
+    if (industrySelection.snapshot) {
+      const parts = [
+        industrySelection.snapshot.name,
+        industrySelection.snapshot.category,
+        industrySelection.snapshot.subCategory,
+        ...(industrySelection.snapshot.keywords ?? []),
+        ...(industrySelection.snapshot.entities ?? []),
+      ].filter(Boolean);
+      topicKeywords = parts.length > 0 ? parts.join(', ') : undefined;
+    }
+
     // Fire-and-forget managed pipeline
     runManagedPipeline(subscriptionId, {
       topic: topic.trim(),
@@ -148,6 +161,7 @@ export async function POST(req: Request) {
       foundSources,
       allFoundSources,
       generatedSources,
+      topicKeywords,
     })
       .then(() => {
         if (!industrySelection.industryConfigId) return;

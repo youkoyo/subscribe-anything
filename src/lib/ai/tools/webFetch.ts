@@ -35,8 +35,13 @@ export async function webFetch(url: string): Promise<FetchResult> {
     const res = await fetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; SubscribeAnything/1.0)',
-        Accept: 'text/html,application/xhtml+xml,application/json,*/*',
+        // Use a real-browser UA — many sites reject the default Node UA with 403/empty,
+        // which the LLM then misreads as "site is broken" instead of "we look like a bot".
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+          '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       },
     });
 

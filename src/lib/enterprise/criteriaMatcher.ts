@@ -145,15 +145,63 @@ function extractUserTerms(text: string) {
   const parts = text
     .split(/[\s,，、;；。！？!?.：:（）()《》"“”]+/)
     .map(cleanUserTerm)
-    .filter((part) => part.length >= 2);
+    // Single-character keywords ("鞋", "车", "房") used to be silently dropped here,
+    // which meant writing "鞋" as a criterion returned 0 cards even when 28 of them
+    // were about shoes. Keep ≥ 1 so common single-character category words work;
+    // pure stopwords ("的", "了", "和", etc.) are filtered below.
+    .filter((part) => part.length >= 1);
 
   for (const part of parts) {
+    if (isStopword(part)) continue;
     if (!includesAny(part, ['最近', '关注', '监控'])) terms.push(part);
     const latinTerms = part.match(/[A-Za-z][A-Za-z0-9+#./-]*/g) ?? [];
     terms.push(...latinTerms);
   }
 
   return unique(terms).slice(0, 12);
+}
+
+/** Common Chinese single-character stopwords that would create false-positive matches if
+ *  passed through to title/summary search. 保持小且只放"任何文档几乎都出现"的字。 */
+const STOPWORDS = new Set([
+  '的', '了', '和', '与', '或', '及', '在', '是', '有', '我', '你', '他', '她', '它',
+  '这', '那', '此', '哪', '谁', '为', '以', '所', '而', '但', '也', '都', '就', '还',
+]);
+
+function isStopword(term: string): boolean {
+  return term.length === 1 && STOPWORDS.has(term);
+}
+
+/**
+ * Common single-character industry terms that users type as a shorthand for the
+ * whole vertical. When the user writes just "鞋" they mean everything shoe-related
+ * (鞋业/鞋类/皮鞋/运动鞋/球鞋/制鞋/鞋厂...) — without expansion they'd only see
+ * the few items that happen to contain the literal character "鞋".
+ *
+ * Keep this list small and high-signal. Each entry maps a short keyword to the
+ * realistic set of surface forms the term appears under in real-world news.
+ */
+const SYNONYM_EXPANSIONS: Record<string, string[]> = {
+  鞋: ['鞋业', '鞋类', '皮鞋', '运动鞋', '球鞋', '制鞋', '鞋厂', '鞋企', '布鞋', '童鞋', '帆布鞋', '胶鞋'],
+  车: ['汽车', '车辆', '轿车', '客车', '货车', '新能源车', '电动车', '汽车业', '整车'],
+  房: ['房地产', '楼市', '房产', '楼盘', '住房', '住宅'],
+  医: ['医疗', '医药', '医院', '医生', '医药行业', '医疗器械'],
+  食: ['食品', '食品安全', '餐饮', '食安', '食品行业'],
+  衣: ['服装', '纺织', '服装业', '纺织业', '服饰'],
+  钢: ['钢铁', '钢材', '钢铁行业', '粗钢'],
+  煤: ['煤炭', '煤矿', '煤化工', '煤炭行业'],
+  电: ['电力', '电网', '电池', '电池行业', '电力行业'],
+  药: ['医药', '药品', '制药', '医药行业', '药企'],
+  化: ['化工', '化学品', '化工行业', '化工厂', '化工企业'],
+  网: ['互联网', '网络', '网络安全', '互联网行业', '网络平台'],
+};
+
+/** Expand a user term by adding common synonym/surface forms. The original term
+ *  is always kept (no-op if no entry in SYNONYM_EXPANSIONS). */
+function expandSynonyms(term: string): string[] {
+  const expansions = SYNONYM_EXPANSIONS[term];
+  if (!expansions) return [term];
+  return [term, ...expansions];
 }
 
 export function parseDeliveryCriteria(criteria: string): ParsedDeliveryCriteria {
@@ -171,7 +219,12 @@ export function parseDeliveryCriteria(criteria: string): ParsedDeliveryCriteria 
   }
 
   const dictionaryTerms = new Set(groups.flatMap((group) => group.terms));
-  const userTerms = extractUserTerms(originalText).filter((term) => !dictionaryTerms.has(term));
+  const rawUserTerms = extractUserTerms(originalText).filter((term) => !dictionaryTerms.has(term));
+  // Expand single-character industry terms to their common surface forms
+  // ("鞋" → 鞋业/鞋类/皮鞋/...) so users get the full vertical of news, not
+  // just items that happen to contain the bare character. Longer terms pass
+  // through unchanged via expandSynonyms' default branch.
+  const userTerms = unique(rawUserTerms.flatMap(expandSynonyms));
   if (userTerms.length > 0) {
     groups.push({
       name: '用户条件',

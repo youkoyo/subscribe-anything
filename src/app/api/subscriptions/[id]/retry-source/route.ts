@@ -4,6 +4,7 @@ import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
 import { deleteSourceLogs, retryGenerateSourceStep } from '@/lib/managed/pipeline';
 import { clearSourceLLMCalls } from '@/lib/managed/llmCallStore';
+import { parseIndustryConfigSnapshot } from '@/lib/industry-configs/subscriptionSelection';
 import type { FoundSource } from '@/types/wizard';
 
 // In-memory set to prevent duplicate concurrent retries per source
@@ -56,8 +57,24 @@ export async function POST(
       description: sourceDescription ?? '',
     };
 
+    // Extract topic keywords from industry config
+    let topicKeywords: string | undefined;
+    if (sub.industryConfigSnapshot) {
+      const snapshot = parseIndustryConfigSnapshot(sub.industryConfigSnapshot);
+      if (snapshot) {
+        const parts = [
+          snapshot.name,
+          snapshot.category,
+          snapshot.subCategory,
+          ...(snapshot.keywords ?? []),
+          ...(snapshot.entities ?? []),
+        ].filter(Boolean);
+        topicKeywords = parts.length > 0 ? parts.join(', ') : undefined;
+      }
+    }
+
     retryingSource.add(key);
-    retryGenerateSourceStep(id, source, sub.criteria ?? undefined, session.userId, userPrompt)
+    retryGenerateSourceStep(id, source, sub.criteria ?? undefined, session.userId, userPrompt, topicKeywords)
       .finally(() => retryingSource.delete(key))
       .catch(() => {});
 

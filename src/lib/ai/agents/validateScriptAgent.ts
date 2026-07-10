@@ -51,11 +51,18 @@ export async function validateScriptAgent(
     return { valid: true, reason: 'validate-script 模板未找到，跳过 LLM 审查' };
   }
 
+  // Pre-compute deterministic freshness/relevance stats so the LLM doesn't have to eyeball
+  // raw timestamps. These objective numbers are far more reliable than the LLM judging
+  // "is 2024-03-15 recent?" from a string.
+  const stats = computeQualityStats(items, source.topicKeywords);
+
   const itemsPreview = JSON.stringify(items.slice(0, 5), null, 2);
   const systemContent = tpl.content
     .replace('{{url}}', source.url)
     .replace('{{description}}', source.description || '无描述')
     .replace('{{criteria}}', source.criteria?.trim() || '无')
+    .replace('{{topicKeywords}}', source.topicKeywords?.trim() || '无')
+    .replace('{{qualityStats}}', JSON.stringify(stats, null, 2))
     .replace('{{script}}', script)
     .replace('{{items}}', itemsPreview);
 
@@ -193,4 +200,86 @@ function parseValidateResult(text: string): LLMValidateResult {
   }
 
   return { valid: valid ?? false, reason, fixedScript };
+}
+
+interface QualityStats {
+  totalItems: number;
+  itemsWithDate: number;
+  itemsWithin30Days: number;
+  itemsWithin90Days: number;
+  itemsWithin7Days: number;
+  oldestDate: string | null;
+  newestDate: string | null;
+  daysSinceNewest: number | null;
+  itemsOnTopic: number;
+  onTopicRatio: number;
+  freshRatio30: number;
+  freshRatio90: number;
+  appearsStale: boolean;
+}
+
+/**
+ * Pre-compute objective freshness + topic-relevance statistics for the LLM to weigh
+ * alongside its own quality review. The LLM is bad at judging dates and topic
+ * relevance by eye — give it hard numbers.
+ */
+function computeQualityStats(items: CollectedItem[], topicKeywordsRaw?: string): QualityStats {
+  const topicKeywords = (topicKeywordsRaw ?? '')
+    .split(/[\s,，、;；\n]+/)
+    .map((kw) => kw.trim().toLowerCase())
+    .filter((kw) => kw.length >= 2);
+
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  let withDate = 0;
+  let within30 = 0;
+  let within90 = 0;
+  let within7 = 0;
+  let oldest = Number.POSITIVE_INFINITY;
+  let newest = Number.NEGATIVE_INFINITY;
+
+  for (const item of items) {
+    if (!item.publishedAt) continue;
+    const t = new Date(item.publishedAt).getTime();
+    if (Number.isNaN(t)) continue;
+    withDate++;
+    const age = now - t;
+    if (age <= 30 * day) within30++;
+    if (age <= 90 * day) within90++;
+    if (age <= 7 * day) within7++;
+    if (t < oldest) oldest = t;
+    if (t > newest) newest = t;
+  }
+
+  let onTopic = 0;
+  if (topicKeywords.length > 0) {
+    for (const item of items) {
+      const text = `${item.title ?? ''} ${item.summary ?? ''}`.toLowerCase();
+      if (topicKeywords.some((kw) => text.includes(kw))) onTopic++;
+    }
+  } else {
+    // No topic keywords provided — count all items as on-topic (no filter to evaluate against)
+    onTopic = items.length;
+  }
+
+  const newestTs = newest !== Number.NEGATIVE_INFINITY ? newest : null;
+  const daysSinceNewest = newestTs != null ? Math.floor((now - newestTs) / day) : null;
+  // Stale if the newest item is > 180 days old AND we actually saw dated items
+  const appearsStale = newestTs != null && now - newestTs > 180 * day;
+
+  return {
+    totalItems: items.length,
+    itemsWithDate: withDate,
+    itemsWithin30Days: within30,
+    itemsWithin90Days: within90,
+    itemsWithin7Days: within7,
+    oldestDate: oldest !== Number.POSITIVE_INFINITY ? new Date(oldest).toISOString() : null,
+    newestDate: newestTs != null ? new Date(newestTs).toISOString() : null,
+    daysSinceNewest,
+    itemsOnTopic: onTopic,
+    onTopicRatio: items.length > 0 ? onTopic / items.length : 0,
+    freshRatio30: items.length > 0 ? within30 / items.length : 0,
+    freshRatio90: items.length > 0 ? within90 / items.length : 0,
+    appearsStale,
+  };
 }

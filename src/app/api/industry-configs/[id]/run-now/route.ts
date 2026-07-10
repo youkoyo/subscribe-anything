@@ -28,7 +28,8 @@ export async function POST(
     if (err instanceof Error && err.message === 'FORBIDDEN') {
       return Response.json({ error: 'Admin access required' }, { status: 403 });
     }
+    const message = err instanceof Error ? err.message : String(err);
     console.error('[industry-configs run-now POST]', err);
-    return Response.json({ error: 'Failed to run delivery' }, { status: 500 });
+    return Response.json({ error: `Failed to run delivery: ${message}` }, { status: 500 });
   }
 }

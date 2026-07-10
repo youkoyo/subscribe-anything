@@ -15,6 +15,11 @@ import {
   Activity,
   Trash2,
   Users,
+  Inbox,
+  ArrowRight,
+  Play,
+  Wand2,
+  Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -444,13 +449,17 @@ export default function IndustryConfigManager() {
           <div className="mt-2 text-2xl font-semibold text-cyan-50">{subscriberCount}</div>
           <div className="mt-1 text-xs text-muted-foreground">按用户条件个性化筛选</div>
         </div>
-        <div className="flex rounded-lg border border-cyan-300/25 bg-card p-4 md:items-center md:justify-end">
+        <div className="flex flex-col gap-2 rounded-lg border border-cyan-300/25 bg-card p-4 md:items-end md:justify-end">
           <Button asChild className="w-full md:w-auto">
             <Link href="/industry-configs/new">
               <Plus className="h-4 w-4" />
               新建产业配置
             </Link>
           </Button>
+          <PromptOpsButtons
+            disabled={configs.length === 0}
+            onAfterRegenerate={fetchConfigs}
+          />
         </div>
       </div>
 
@@ -534,13 +543,34 @@ export default function IndustryConfigManager() {
                           {pool?.sourceCount ?? 0} 个，{pool?.activeSourceCount ?? 0} 个启用
                         </div>
                       </div>
-                      <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
-                        <div className="flex items-center gap-1 text-cyan-50/80">
-                          <Activity className="h-3.5 w-3.5" />
-                          入池消息
+                      {hasPool && pool?.sharedSubscriptionId ? (
+                        <Link
+                          href={(pool?.messageCount ?? 0) > 0
+                            ? `/subscriptions/${pool.sharedSubscriptionId}`
+                            : `/subscriptions/${pool.sharedSubscriptionId}/sources`}
+                          className="group rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2 transition-colors hover:border-cyan-300/45 hover:bg-secondary/55"
+                        >
+                          <div className="flex items-center gap-1 text-cyan-50/80">
+                            <Activity className="h-3.5 w-3.5" />
+                            入池消息
+                            <ArrowRight className="h-3 w-3 ml-auto opacity-0 transition-opacity group-hover:opacity-100" />
+                          </div>
+                          <div className="mt-1 text-cyan-50">
+                            {pool?.messageCount ?? 0} 条
+                            {(pool?.messageCount ?? 0) === 0 && (
+                              <span className="ml-1.5 text-xs text-muted-foreground">点击触发</span>
+                            )}
+                          </div>
+                        </Link>
+                      ) : (
+                        <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
+                          <div className="flex items-center gap-1 text-cyan-50/80">
+                            <Activity className="h-3.5 w-3.5" />
+                            入池消息
+                          </div>
+                          <div className="mt-1 text-cyan-50">{pool?.messageCount ?? 0} 条</div>
                         </div>
-                        <div className="mt-1 text-cyan-50">{pool?.messageCount ?? 0} 条</div>
-                      </div>
+                      )}
                       <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
                         <div className="flex items-center gap-1 text-cyan-50/80">
                           <Users className="h-3.5 w-3.5" />
@@ -566,6 +596,23 @@ export default function IndustryConfigManager() {
                   </div>
 
                   <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
+                    {hasPool && pool?.sharedSubscriptionId && (
+                      (pool?.messageCount ?? 0) > 0 ? (
+                        <Button asChild size="sm" variant="secondary">
+                          <Link href={`/subscriptions/${pool.sharedSubscriptionId}`}>
+                            <Inbox className="h-4 w-4" />
+                            查看已采集信息
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button asChild size="sm" variant="secondary">
+                          <Link href={`/subscriptions/${pool.sharedSubscriptionId}/sources`}>
+                            <Play className="h-4 w-4" />
+                            触发首次采集
+                          </Link>
+                        </Button>
+                      )
+                    )}
                     <Button asChild size="sm">
                       <Link
                         href={`/subscriptions/new?industryConfigId=${config.id}`}
@@ -941,5 +988,122 @@ export default function IndustryConfigManager() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/* ── Prompt & Script Operations (admin only) ─────────────────────────── */
+function PromptOpsButtons({
+  disabled,
+  onAfterRegenerate,
+}: {
+  disabled: boolean;
+  onAfterRegenerate?: () => void;
+}) {
+  const { toast } = useToast();
+  const [resetting, setResetting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
+  const handleResetPrompts = useCallback(async () => {
+    if (!confirm('确认把 generate-script / validate-script 两个模板的「当前内容」重置为默认？\n\n这会覆盖你之前在这两个模板上的自定义修改。')) {
+      return;
+    }
+    setResetting(true);
+    try {
+      const res = await fetch('/api/admin/reset-prompts', { method: 'POST' });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`${res.status} ${txt}`);
+      }
+      const body = (await res.json()) as { reset: Array<{ id: string; name: string }> };
+      toast({
+        title: `已重置 ${body.reset.length} 个 prompt 模板`,
+        description: body.reset.map((r) => r.id).join('、'),
+      });
+    } catch (err) {
+      toast({
+        title: '重置 prompt 失败',
+        description: err instanceof Error ? err.message : String(err),
+        variant: 'destructive',
+      });
+    } finally {
+      setResetting(false);
+    }
+  }, [toast]);
+
+  const handleRegenerateAll = useCallback(async () => {
+    if (
+      !confirm(
+        '将所有数据源加入 AI 重新生成队列？\n\n' +
+          '• 旧的脚本会被 LLM 用最新 prompt 完整重写\n' +
+          '• 过程会消耗 LLM 调用配额\n' +
+          '• 完成后在「数据源」页的「AI 修复」对话框里看进度'
+      )
+    ) {
+      return;
+    }
+    setRegenerating(true);
+    try {
+      const res = await fetch('/api/admin/regenerate-scripts', { method: 'POST' });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`${res.status} ${txt}`);
+      }
+      const body = (await res.json()) as {
+        total: number;
+        queued: number;
+        skipped: number;
+        failed: number;
+      };
+      toast({
+        title: `已入队 ${body.queued} 个数据源`,
+        description: `总数 ${body.total} · 跳过 ${body.skipped} · 失败 ${body.failed}`,
+      });
+      onAfterRegenerate?.();
+    } catch (err) {
+      toast({
+        title: '入队失败',
+        description: err instanceof Error ? err.message : String(err),
+        variant: 'destructive',
+      });
+    } finally {
+      setRegenerating(false);
+    }
+  }, [onAfterRegenerate, toast]);
+
+  return (
+    <div className="flex w-full flex-col gap-1 md:items-end">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs text-muted-foreground"
+        onClick={handleResetPrompts}
+        disabled={disabled || resetting || regenerating}
+        title="把 generate-script / validate-script 模板的当前内容重置为默认"
+      >
+        {resetting ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <RefreshCw className="h-3 w-3" />
+        )}
+        重置 prompt 模板
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs text-cyan-100/80 hover:text-cyan-50"
+        onClick={handleRegenerateAll}
+        disabled={disabled || resetting || regenerating}
+        title="把所有数据源加入 AI 重新生成队列（用最新 prompt）"
+      >
+        {regenerating ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Wand2 className="h-3 w-3" />
+        )}
+        全部重新生成脚本
+      </Button>
+    </div>
   );
 }

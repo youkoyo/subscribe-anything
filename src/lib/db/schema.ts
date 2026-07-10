@@ -178,6 +178,26 @@ export const managedBuildLogs = pgTable('managed_build_logs', {
     .notNull(),
 });
 
+// ─── collection_logs ─────────────────────────────────────────────────────────
+// Records every collection attempt outcome (start, success, failure, retry-exhausted).
+// The runner currently only returns success/items/error (no console capture yet),
+// so payload holds: scriptReturnedItems, newItems, skipped, durationMs, errorMessage.
+// When sandbox console capture is added, drop the full script output in here too.
+export const collectionLogs = pgTable('collection_logs', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  sourceId: text('source_id')
+    .notNull()
+    .references(() => sources.id, { onDelete: 'cascade' }),
+  level: text('level', { enum: ['info', 'success', 'warn', 'error'] }).notNull(),
+  /** e.g. 'start' | 'success' | 'failure' | 'retry_scheduled' | 'retry_exhausted' | 'concurrent_skip' */
+  event: text('event').notNull(),
+  message: text('message').notNull(),
+  payload: text('payload'), // JSON: { scriptReturnedItems?, newItems?, skipped?, durationMs?, errorMessage?, attempt? }
+  createdAt: timestamp('created_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
 // ─── industry_monitoring_profiles ───────────────────────────────────────────
 export const industryMonitoringProfiles = pgTable('industry_monitoring_profiles', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
@@ -546,6 +566,14 @@ export const sourcesRelations = relations(sources, ({ one, many }) => ({
     references: [subscriptions.id],
   }),
   messageCards: many(messageCards),
+  collectionLogs: many(collectionLogs),
+}));
+
+export const collectionLogsRelations = relations(collectionLogs, ({ one }) => ({
+  source: one(sources, {
+    fields: [collectionLogs.sourceId],
+    references: [sources.id],
+  }),
 }));
 
 export const messageCardsRelations = relations(messageCards, ({ one }) => ({

@@ -40,6 +40,8 @@ export interface SourceInput {
   criteria?: string;
   /** Optional user-supplied hint appended to the LLM user message (used on retry). */
   userPrompt?: string;
+  /** Comma-separated topic keywords from industry config, used for relevance filtering in the generated script. */
+  topicKeywords?: string;
 }
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
@@ -65,7 +67,8 @@ export async function generateScriptAgent(
     .replace('{{url}}', source.url)
     .replace('{{domain}}', sourceDomain)
     .replace('{{description}}', source.description || '无描述')
-    .replace('{{criteria}}', source.criteria?.trim() || '无');
+    .replace('{{criteria}}', source.criteria?.trim() || '无')
+    .replace('{{topicKeywords}}', source.topicKeywords?.trim() || '无');
 
   const userPromptSuffix = source.userPrompt?.trim()
     ? `\n\n用户补充说明：\n${source.userPrompt.trim()}`
@@ -82,6 +85,7 @@ export async function generateScriptAgent(
   let lastValidItems: CollectedItem[] | undefined;
   let lastScript: string | undefined;
   let lastCronExpression = '0 * * * *';
+  let fatalError: string | undefined;
   let sandboxUnavailable = false;
   let lastScriptAttempted: string | undefined;
 
@@ -219,18 +223,42 @@ export async function generateScriptAgent(
           } else if (!result.success) {
             // Layer 1 failure: sandbox execution error or no data collected
             onProgress?.(`验证失败: ${(result.error ?? '').slice(0, 80)}`);
-            resultContent = JSON.stringify({
+            const resultPayload: Record<string, unknown> = {
               success: false,
               itemCount: result.itemCount ?? 0,
               items: result.items?.slice(0, 3),
               error: result.error,
-            });
-            if (validateAttempts >= MAX_RETRIES) {
-              resultContent = JSON.stringify({
-                ...JSON.parse(resultContent),
-                note: `已尝试 ${MAX_RETRIES} 次验证，请返回当前最佳脚本并结束。`,
-              });
+            };
+            // Source is fundamentally unreachable (CAPTCHA / WAF / parked domain)
+            // → abort the agent loop immediately, do not waste more iterations.
+            if (result.fatal) {
+              fatalError = result.failureHint ?? '源不可达';
+              onProgress?.(`源不可达，放弃: ${fatalError.slice(0, 80)}`);
+              break; // exit the agent loop
             }
+            // Surface source-staleness
+            if (result.stale) {
+              resultPayload.stale = result.stale;
+              resultPayload.hint =
+                '源已停更（最新数据 > 180 天）。脚本逻辑没问题，是站点本身没新数据了。' +
+                '请直接返回当前最佳脚本并结束，不要再尝试修复。';
+            }
+            // Structured failure hint: tells the LLM exactly which strategy to switch to
+            if (result.failureHint) {
+              resultPayload.failureHint = result.failureHint;
+              // Always prepend a note that prevents the LLM from retrying the same approach
+              resultPayload.note =
+                '不是脚本写法问题——请不要再用同样的 fetch/选择器方案重试。' +
+                '必须按 failureHint 的指引改用 webFetchBrowser / rssRadar / webSearch 寻找替代入口。' +
+                (validateAttempts >= MAX_RETRIES
+                  ? ` 已重试 ${MAX_RETRIES} 轮，请返回当前最佳脚本并结束。`
+                  : '');
+            } else if (validateAttempts >= MAX_RETRIES) {
+              resultPayload.note =
+                `已重试 ${MAX_RETRIES} 轮验证，请返回当前最佳脚本并结束。` +
+                '如果实在无法采集，请在最终回复中说明原因（如：目标站需 JS 渲染、页面结构无法解析、无 RSS/API）。';
+            }
+            resultContent = JSON.stringify(resultPayload);
           } else {
             // Layer 1 passed: ≥1 items collected — run layers 2 & 3 (LLM quality + data check)
             onProgress?.(`沙箱验证通过（${result.itemCount} 条），正在进行质量审查...`);
@@ -342,6 +370,12 @@ export async function generateScriptAgent(
     };
   }
 
+  // If the source was marked as fatally unreachable, stop immediately.
+  // Don't try to salvage a script — there is no recovery.
+  if (fatalError) {
+    return { success: false, error: `源不可达：${fatalError}` };
+  }
+
   // If no successful validation, try to extract a script from the conversation.
   // The LLM often outputs its "best attempt" as a final code block after being
   // told to stop retrying — run one last validation instead of failing immediately.
@@ -350,10 +384,30 @@ export async function generateScriptAgent(
     .map((m) => (typeof m.content === 'string' ? m.content : ''))
     .join('\n');
 
-  // Permissive regex: match any language tag (javascript, JavaScript, js, typescript, etc.)
-  const scriptMatch = [...lastAssistantMsg.matchAll(/```[^\n]*\n([\s\S]*?)```/g)];
+  // Extract all code blocks, newest first
+  const scriptMatches = [...lastAssistantMsg.matchAll(/```[^\n]*\n([\s\S]*?)```/g)];
+  const candidates = scriptMatches.map((m) => m[1]).reverse();
 
-  const finalScript = scriptMatch.at(-1)?.[1] ?? lastScriptAttempted;
+  // Pick the first candidate that looks "complete": has a function body and balanced braces.
+  // This avoids truncated scripts caused by LLM output cut-off or malformed code blocks.
+  let finalScript: string | undefined;
+  for (const cand of candidates) {
+    const trimmed = cand.trim();
+    if (!trimmed) continue;
+    // Must contain function declaration or at least 'collect'
+    if (!/function\s+collect|async\s+function|export\s+(default\s+)?(async\s+)?function/.test(trimmed)) continue;
+    // Quick brace balance check
+    let depth = 0;
+    for (const ch of trimmed) {
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+    }
+    if (depth === 0) { finalScript = trimmed; break; }
+  }
+  if (!finalScript) {
+    // Fallback: take the longest code block (most likely the complete one)
+    finalScript = candidates.reduce((best, cur) => cur.trim().length > best.length ? cur.trim() : best, '') || lastScriptAttempted;
+  }
 
   // Sandbox unavailable — return the best script the LLM produced (from final text output
   // if available, otherwise the last validateScript attempt) unverified.
@@ -385,6 +439,14 @@ export async function generateScriptAgent(
         };
       }
 
+      if (result.fatal) {
+        return {
+          success: false,
+          script: finalScript,
+          error: `源不可达：${result.failureHint ?? result.error}`,
+        };
+      }
+
       if (result.success) {
         onProgress?.(`沙箱验证通过（${result.itemCount} 条），正在进行质量审查...`);
         const llmCheck = await validateScriptAgent(
@@ -411,6 +473,15 @@ export async function generateScriptAgent(
       }
 
       // Real execution error (syntax / runtime or no data collected)
+      // If the script itself detected the source is stale, surface a clean reason
+      // so the admin knows the script worked correctly and the source is the problem.
+      if (result.stale) {
+        return {
+          success: false,
+          script: finalScript,
+          error: `源已停更：最新数据时间 ${result.stale.latestDate}（超过 180 天），建议在管理后台废弃该源`,
+        };
+      }
       return {
         success: false,
         script: finalScript,

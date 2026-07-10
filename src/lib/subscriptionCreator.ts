@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions, sources, messageCards, notifications } from '@/lib/db/schema';
 import { hash } from '@/lib/utils/hash';
+import { parseIndustryConfigSnapshot } from '@/lib/industry-configs/subscriptionSelection';
 import type { CollectedItem } from '@/lib/sandbox/contract';
 
 export interface SourceInput {
@@ -85,15 +86,36 @@ export async function createSourcesForSubscription(
     const items = srcInput.initialItems ?? [];
     let newCards = 0;
 
+    // Load industry config keywords once before the item loop
+    const matchKeywords: string[] = criteria
+      ? criteria.split(/[\s,，、]+/).filter(Boolean)
+      : [];
+    try {
+      const sub = (await db.select({ industryConfigSnapshot: subscriptions.industryConfigSnapshot })
+        .from(subscriptions)
+        .where(eq(subscriptions.id, subscriptionId)))[0];
+      if (sub?.industryConfigSnapshot) {
+        const snapshot = parseIndustryConfigSnapshot(sub.industryConfigSnapshot);
+        if (snapshot) {
+          matchKeywords.push(
+            snapshot.name,
+            snapshot.category,
+            snapshot.subCategory,
+            ...(snapshot.keywords ?? []),
+            ...(snapshot.entities ?? []),
+          );
+        }
+      }
+    } catch { /* ignore */ }
+
     for (const item of items) {
       if (!item.title || !item.url) continue;
       const contentHash = hash(item.title + item.url);
 
-      // Check criteria match (simple keyword)
-      const criteriaText = criteria?.trim().toLowerCase() ?? '';
+      // Check criteria match (simple keyword + industry config keywords)
       const itemText = `${item.title} ${item.summary ?? ''}`.toLowerCase();
-      const meetsCriteria = criteriaText
-        ? criteriaText.split(/[\s,，、]+/).filter(Boolean).some((kw) => itemText.includes(kw))
+      const meetsCriteria = matchKeywords.filter(Boolean).length > 0
+        ? matchKeywords.some((kw) => itemText.includes(kw.toLowerCase()))
         : false;
 
       try {

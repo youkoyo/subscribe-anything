@@ -31,7 +31,7 @@ type Message = OpenAI.Chat.ChatCompletionMessageParam;
 
 /** Run the find-sources agentic loop and emit SSE events via `emit`. */
 export async function findSourcesAgent(
-  { topic, criteria }: { topic: string; criteria?: string },
+  { topic, criteria, topicKeywords, userPrompt }: { topic: string; criteria?: string; topicKeywords?: string; userPrompt?: string },
   emit: (event: unknown) => void,
   onLLMCall?: (info: LLMCallInfo) => void,
   userId?: string | null
@@ -42,22 +42,27 @@ export async function findSourcesAgent(
   ]);
   const systemContent = tpl.content
     .replace('{{topic}}', topic)
-    .replace('{{criteria}}', criteria ?? '无');
+    .replace('{{criteria}}', criteria ?? '无')
+    .replace('{{topicKeywords}}', topicKeywords ?? '无');
+
+  const userMessage = userPrompt?.trim()
+    ? systemContent + '\n\n用户补充指令：\n' + userPrompt.trim()
+    : systemContent;
 
   const messages: Message[] = [
-    { role: 'user', content: systemContent },
+    { role: 'user', content: userMessage },
   ];
 
   const openai = buildOpenAIClient(provider);
   let lastTextBuffer = '';
   let allTextBuffer = '';
 
-  // Track webSearch call count — max 10 calls as per prompt template
+  // Track webSearch call count
   let webSearchCount = 0;
-  const MAX_WEB_SEARCH_CALLS = 10;
+  const MAX_WEB_SEARCH_CALLS = 6;
+  const MAX_ITERATIONS = 12;
 
-  // Agentic loop — max 32 iterations to prevent runaway
-  for (let iteration = 0; iteration < 32; iteration++) {
+  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     let textBuffer = '';
     const toolCallMap = new Map<number, { id: string; name: string; args: string }>();
 
@@ -180,7 +185,11 @@ export async function findSourcesAgent(
           resultContent = JSON.stringify(results.map((r, i) => ({ url: urls[i], ...r })));
           const validCount = results.filter((r) => r.valid).length;
           const summary = results.map((r, i) => {
-            if (r.valid) return `✓ ${urls[i]}`;
+            if (r.valid) {
+              const fresh = r.freshness ? ` [${r.freshness}]` : '';
+              const count = r.itemCount ? ` (${r.itemCount}条)` : '';
+              return `✓ ${urls[i]}${fresh}${count}`;
+            }
             if (r.templateMismatch) return `✗ ${urls[i]} (结构有误)`;
             if (r.keywordFound === false) return `✗ ${urls[i]} (实体 ID 有误)`;
             return `✗ ${urls[i]} (HTTP ${r.status})`;
