@@ -250,55 +250,6 @@ export async function runIndustryDelivery(industryConfigId: string, scheduledFor
   return finalRun;
 }
 
-function parseSelectedCardIds(value: string | null | undefined) {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.map((item) => String(item)).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function loadPreviouslyDeliveredCards(
-  db: ReturnType<typeof getDb>,
-  userIndustrySubscriptionId: string
-) {
-  const previousLog = (await db
-    .select({ selectedCardIdsJson: userDeliveryLogs.selectedCardIdsJson })
-    .from(userDeliveryLogs)
-    .where(
-      and(
-        eq(userDeliveryLogs.userIndustrySubscriptionId, userIndustrySubscriptionId),
-        eq(userDeliveryLogs.status, 'sent')
-      )
-    )
-    .orderBy(desc(userDeliveryLogs.createdAt))
-    .limit(1))[0];
-
-  const previousIds = parseSelectedCardIds(previousLog?.selectedCardIdsJson);
-  if (previousIds.length === 0) return [];
-
-  const rows = (await db
-    .select({
-      id: messageCards.id,
-      title: messageCards.title,
-      summary: messageCards.summary,
-      sourceName: sources.title,
-      sourceUrl: messageCards.sourceUrl,
-      publishedAt: messageCards.publishedAt,
-      createdAt: messageCards.createdAt,
-    })
-    .from(messageCards)
-    .innerJoin(sources, eq(messageCards.sourceId, sources.id))
-    .where(inArray(messageCards.id, previousIds)));
-
-  const byId = new Map(rows.map((card) => [card.id, card]));
-  return previousIds
-    .map((id) => byId.get(id))
-    .filter((card): card is NonNullable<typeof card> => !!card);
-}
-
 export async function runIndustryDeliveryGroup(
   industryConfigIds: string[],
   scheduledFor = new Date()
@@ -336,23 +287,13 @@ export async function runIndustryDeliveryGroup(
       const prepared: PreparedDigestDelivery[] = [];
       for (const row of userRows) {
         const rawCards = await loadNewCardsForSubscription(db, row);
-        let selection = resolveDeliverySelection({
+        const selection = resolveDeliverySelection({
           newCards: rawCards,
           previousCards: [],
           customCriteria: row.userSub.customCriteria,
           now: new Date(),
           maxItems: DIGEST_DETAIL_ITEM_LIMIT,
         });
-        if (selection.mode === 'empty') {
-          const previousCards = await loadPreviouslyDeliveredCards(db, row.userSub.id);
-          selection = resolveDeliverySelection({
-            newCards: rawCards,
-            previousCards,
-            customCriteria: row.userSub.customCriteria,
-            now: new Date(),
-            maxItems: DIGEST_DETAIL_ITEM_LIMIT,
-          });
-        }
 
         prepared.push({
           row,
@@ -490,23 +431,13 @@ export async function runUserDelivery(runId: string, userIndustrySubscriptionId:
     .orderBy(desc(messageCards.createdAt))
     .limit(100));
 
-  let selection = resolveDeliverySelection({
+  const selection = resolveDeliverySelection({
     newCards: rawCards,
     previousCards: [],
     customCriteria: row.userSub.customCriteria,
     now: new Date(),
     maxItems: row.industry.maxItemsPerEmail,
   });
-  if (selection.mode === 'empty') {
-    const previousCards = await loadPreviouslyDeliveredCards(db, row.userSub.id);
-    selection = resolveDeliverySelection({
-      newCards: rawCards,
-      previousCards,
-      customCriteria: row.userSub.customCriteria,
-      now: new Date(),
-      maxItems: row.industry.maxItemsPerEmail,
-    });
-  }
 
   const recipients = parseRecipientEmailsJson(row.userSub.recipientEmailsJson);
   if (recipients.length === 0) {

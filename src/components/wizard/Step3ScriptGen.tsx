@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bot,
   BrainCircuit,
+  ChevronLeft,
   CheckCircle2,
   Eye,
   Loader2,
@@ -29,6 +30,7 @@ interface Step3ScriptGenProps {
   onStateChange: (updates: Partial<WizardState>) => void;
   onNext: () => void;
   onBack: () => void;
+  onPreviousStep: (generatedSources: GeneratedSource[]) => void;
   onManagedCreate?: (generatedSources: GeneratedSource[], allSelectedTerminated: boolean) => void;
   onDiscard?: () => void;
 }
@@ -57,7 +59,7 @@ interface LogEntry {
   payload: { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: CollectedItem[]; unverified?: boolean } | null;
 }
 
-export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, onManagedCreate, onDiscard }: Step3ScriptGenProps) {
+export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, onPreviousStep, onManagedCreate, onDiscard }: Step3ScriptGenProps) {
   const allSources = state.foundSources;
   const selectedSet = new Set(state.selectedIndices);
 
@@ -99,6 +101,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
   // Track which source's LLM log dialog is open (globalIdx), null = none
   const [llmLogOpenFor, setLLMLogOpenFor] = useState<number | null>(null);
   const [previewSourceIdx, setPreviewSourceIdx] = useState<number | null>(null);
+  const [isReturningToSources, setIsReturningToSources] = useState(false);
   // Track sources manually aborted — SSE success/error events for these will be ignored
   const abortedIndicesRef = useRef(new Set<number>());
   const abortRef = useRef<AbortController | null>(null);
@@ -369,6 +372,31 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
     onNext();
   };
 
+  const handleReturnToSources = async () => {
+    if (isReturningToSources) return;
+    setIsReturningToSources(true);
+    abortRef.current?.abort();
+
+    // A new source selection should not leave old generation tasks running.
+    // Abort pending tasks as well: some may still be waiting for a concurrency slot.
+    const activeIndices = state.selectedIndices.filter((index) => isInProgress(sourceStatuses[index]));
+    if (state.subscriptionId && activeIndices.length > 0) {
+      await Promise.all(
+        activeIndices.map((index) => {
+          const source = allSources[index];
+          if (!source) return Promise.resolve();
+          return fetch(`/api/subscriptions/${state.subscriptionId}/abort-source`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceUrl: source.url }),
+          }).catch(() => {});
+        })
+      );
+    }
+
+    onPreviousStep(allResultSources);
+  };
+
   // ── Per-source LLM calls ──────────────────────────────────────────────────
   const getSourceLLMCalls = (sourceUrl: string) =>
     llmCalls.filter((c) => c.sourceUrl === sourceUrl);
@@ -590,8 +618,17 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
       <div className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-[calc(4rem+env(safe-area-inset-bottom))] bg-background border-t md:static md:border-t-0 md:bg-transparent md:p-0 md:mt-2">
         <div className="flex gap-3">
           <Button
+            variant="outline"
+            onClick={handleReturnToSources}
+            disabled={isReturningToSources}
+            className="flex-none"
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            {isReturningToSources ? '正在返回...' : '返回发现源'}
+          </Button>
+          <Button
             onClick={handleNext}
-            disabled={anyInProgress || !allSelectedTerminated || !hasSuccess}
+            disabled={isReturningToSources || anyInProgress || !allSelectedTerminated || !hasSuccess}
             className="flex-1 md:flex-none"
           >
             {anyInProgress

@@ -206,11 +206,15 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
     const selectedIndices = state.foundSources
       .map((s, i) => (selectedSources.some((sel) => sel.url === s.url) ? i : -1))
       .filter((i) => i >= 0);
+    const selectedUrls = new Set(selectedSources.map((source) => source.url));
 
     const newState: WizardState = {
       ...state,
       step: 3,
       selectedIndices,
+      // Keep completed scripts only for sources that remain selected. This prevents
+      // a source deselected after returning to step 2 from being published later.
+      generatedSources: state.generatedSources.filter((source) => selectedUrls.has(source.url)),
       managedError: null, // Clear managed error when proceeding manually
     };
     setState(newState);
@@ -224,6 +228,16 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
         body: JSON.stringify({ step: 'generate_scripts', sources: selectedSources }),
       }).catch(() => {});
     }
+  };
+
+  // Step 3 back: Step3ScriptGen stops unfinished work before invoking this,
+  // so the user can safely adjust their source selection in step 2.
+  const handleStep3Previous = (generatedSources: GeneratedSource[]) => {
+    setState((prev) => {
+      const newState: WizardState = { ...prev, step: 2, generatedSources };
+      persistToDb(newState);
+      return newState;
+    });
   };
 
   const handleNext = () => {
@@ -479,6 +493,7 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
         {state.step === 3 && (
           <Step3ScriptGen
             {...stepProps}
+            onPreviousStep={handleStep3Previous}
             onManagedCreate={(generatedSources, allSelectedTerminated) => {
               const selectedSources = state.foundSources.filter((_, i) =>
                 state.selectedIndices.includes(i)

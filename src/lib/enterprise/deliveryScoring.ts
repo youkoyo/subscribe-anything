@@ -93,6 +93,7 @@ export function selectDeliveryCards(input: {
 
 export function resolveDeliverySelection(input: {
   newCards: DeliveryCardLike[];
+  /** Retained for API compatibility; prior cards are never re-sent in a daily digest. */
   previousCards: DeliveryCardLike[];
   customCriteria: string;
   now: Date;
@@ -109,16 +110,6 @@ export function resolveDeliverySelection(input: {
   });
   if (selectedNew.length > 0) {
     return { mode: 'new', selected: selectedNew };
-  }
-
-  const selectedPrevious = selectDeliveryCards({
-    cards: input.previousCards,
-    customCriteria: input.customCriteria,
-    now: input.now,
-    maxItems: input.maxItems,
-  });
-  if (selectedPrevious.length > 0) {
-    return { mode: 'previous', selected: selectedPrevious };
   }
 
   return { mode: 'empty', selected: [] };

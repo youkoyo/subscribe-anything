@@ -1,21 +1,60 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/lib/db';
 import {
   industryConfigs,
   industryMonitoringProfiles,
+  messageCards,
+  sources,
   userIndustrySubscriptions,
   users,
 } from '@/lib/db/schema';
 import { getPublishedIndustryConfig } from '@/lib/industry-configs/service';
 import { matchMonitoringProfile } from './profileMatcher';
 import { normalizeRecipientEmails, validateRecipientEmails } from './recipientEmails';
+import { selectDeliveryCards } from './deliveryScoring';
 
 export interface CreateUserIndustrySubscriptionInput {
   userId: string;
   industryConfigId: string;
   customCriteria: string;
   extraRecipientEmails?: string[];
+}
+
+const POOL_FRESHNESS_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+async function hasRecentPoolCoverage(
+  db: ReturnType<typeof getDb>,
+  sharedSubscriptionId: string,
+  customCriteria: string
+) {
+  const now = new Date();
+  const cards = await db
+    .select({
+      id: messageCards.id,
+      title: messageCards.title,
+      summary: messageCards.summary,
+      sourceName: sources.title,
+      publishedAt: messageCards.publishedAt,
+      createdAt: messageCards.createdAt,
+    })
+    .from(messageCards)
+    .innerJoin(sources, eq(messageCards.sourceId, sources.id))
+    .where(
+      and(
+        eq(messageCards.subscriptionId, sharedSubscriptionId),
+        gte(messageCards.publishedAt, new Date(now.getTime() - POOL_FRESHNESS_WINDOW_MS))
+      )
+    )
+    .orderBy(desc(messageCards.publishedAt))
+    .limit(200);
+
+  return selectDeliveryCards({
+    cards,
+    customCriteria,
+    now,
+    maxItems: 1,
+  }).length > 0;
 }
 
 export async function listMyIndustrySubscriptions(userId: string) {
@@ -115,37 +154,51 @@ export async function bindSubscriptionToProfile(userSubscriptionId: string) {
     .from(industryMonitoringProfiles)
     .where(eq(industryMonitoringProfiles.industryConfigId, row.industry.id)));
 
-  const activePool = profiles.find((profile) => profile.status === 'active' && !!profile.sharedSubscriptionId);
-
   const now = new Date();
-
-  if (activePool) {
-    await db.update(userIndustrySubscriptions)
-      .set({
-        monitoringProfileId: activePool.id,
-        status: 'active',
-        updatedAt: now,
-      })
-      .where(eq(userIndustrySubscriptions.id, row.subscription.id));
-    return (await db
-      .select()
-      .from(userIndustrySubscriptions)
-      .where(eq(userIndustrySubscriptions.id, row.subscription.id)))[0];
-  }
-
-  const match = matchMonitoringProfile({
+  const reusableProfiles = profiles.filter(
+    (profile) => profile.status === 'active' && !!profile.sharedSubscriptionId
+  );
+  let match = matchMonitoringProfile({
     customCriteria: row.subscription.customCriteria,
-    profiles,
+    profiles: reusableProfiles,
     autoProfileExpansion: false,
   });
-  const pendingTitle =
-    match.action === 'reuse'
-      ? '待绑定信息池'
-      : match.suggestedTitle;
-  const criteriaSummary =
-    match.action === 'reuse'
-      ? '已有需求簇尚未绑定可用信息池，需要管理员确认'
-      : match.criteriaSummary;
+
+  if (match.action === 'reuse') {
+    const matchedProfile = reusableProfiles.find((profile) => profile.id === match.profileId);
+    if (matchedProfile?.sharedSubscriptionId && await hasRecentPoolCoverage(
+      db,
+      matchedProfile.sharedSubscriptionId,
+      row.subscription.customCriteria
+    )) {
+      await db.update(userIndustrySubscriptions)
+        .set({
+          monitoringProfileId: match.profileId,
+          status: 'active',
+          updatedAt: now,
+        })
+        .where(eq(userIndustrySubscriptions.id, row.subscription.id));
+      return (await db
+        .select()
+        .from(userIndustrySubscriptions)
+        .where(eq(userIndustrySubscriptions.id, row.subscription.id)))[0];
+    }
+
+    // A similarly named pool is not reusable when it has no fresh content for
+    // the user's actual condition. Request a separately provisioned pool.
+    match = matchMonitoringProfile({
+      customCriteria: row.subscription.customCriteria,
+      profiles: [],
+      autoProfileExpansion: false,
+    });
+  }
+
+  if (match.action === 'reuse') {
+    throw new Error('PROFILE_MATCH_REQUIRES_FRESH_POOL');
+  }
+
+  const pendingTitle = match.suggestedTitle;
+  const criteriaSummary = match.criteriaSummary;
 
   const profile = (await db
     .insert(industryMonitoringProfiles)

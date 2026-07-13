@@ -62,7 +62,7 @@ test('selectDeliveryCards returns top relevant cards within max count', () => {
   assert.ok(selected[0].score.total >= selected[1].score.total);
 });
 
-test('resolveDeliverySelection falls back to previously delivered cards when there are no new cards', () => {
+test('resolveDeliverySelection never re-sends previously delivered cards when there are no new cards', () => {
   const selection = resolveDeliverySelection({
     newCards: [],
     previousCards: cards,
@@ -71,9 +71,8 @@ test('resolveDeliverySelection falls back to previously delivered cards when the
     maxItems: 3,
   });
 
-  assert.equal(selection.mode, 'previous');
-  assert.ok(selection.selected.length > 0);
-  assert.equal(selection.selected[0].card.id, 'regulation');
+  assert.equal(selection.mode, 'empty');
+  assert.equal(selection.selected.length, 0);
 });
 
 test('resolveDeliverySelection returns an empty status when neither new nor previous cards exist', () => {

@@ -15,6 +15,7 @@ import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
 import { createId } from '@paralleldrive/cuid2';
 import pLimit from 'p-limit';
 import { upsertLLMCall, clearLLMCalls } from './llmCallStore';
+import { isReusableGeneratedSample } from '@/lib/ai/agents/sourceSampleQuality';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
 
@@ -194,6 +195,9 @@ export async function runFindSourcesStep(
           const args = e.args as { query: string };
           writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query}`);
         }
+        if (e.type === 'source_audit' && Array.isArray(e.records)) {
+          writeLog(subscriptionId, 'find_sources', 'info', 'AI_SOURCE_AUDIT', e.records);
+        }
       },
       (info) => upsertLLMCall(subscriptionId, info),
       userId
@@ -228,8 +232,9 @@ export async function runGenerateScriptsStep(
 
   writeLog(subscriptionId, 'generate_script', 'info', `开始为 ${sources.length} 个数据源生成脚本...`);
 
-  // Check which sources already have success logs (for resume scenarios)
-  const completedUrls = await getCompletedSourceUrls(subscriptionId);
+  // Reuse only successful logs whose saved sample still meets the current
+  // freshness and relevance gate. Old "non-empty" successes must be rerun.
+  const completedUrls = await getCompletedSourceUrls(subscriptionId, criteria);
 
   const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
   const limit = pLimit(5);
@@ -422,7 +427,7 @@ export async function deleteSourceLogs(subscriptionId: string, sourceUrl: string
   }
 }
 
-async function getCompletedSourceUrls(subscriptionId: string): Promise<Set<string>> {
+async function getCompletedSourceUrls(subscriptionId: string, criteria: string | undefined): Promise<Set<string>> {
   try {
     const db = getDb();
     const logs = (await db
@@ -441,8 +446,14 @@ async function getCompletedSourceUrls(subscriptionId: string): Promise<Set<strin
         .map((l) => {
           if (!l.payload) return null;
           try {
-            const p = JSON.parse(l.payload) as { sourceUrl?: string };
-            return p.sourceUrl ?? null;
+            const p = JSON.parse(l.payload) as {
+              sourceUrl?: string;
+              initialItems?: GeneratedSource['initialItems'];
+              unverified?: boolean;
+            };
+            return p.sourceUrl && !p.unverified && isReusableGeneratedSample(p.initialItems, criteria)
+              ? p.sourceUrl
+              : null;
           } catch {
             return null;
           }
@@ -541,7 +552,8 @@ function autoSelectSources(discovered: FoundSource[]): FoundSource[] {
  */
 async function getSourceResultFromLogs(
   subscriptionId: string,
-  source: FoundSource
+  source: FoundSource,
+  criteria: string | undefined
 ): Promise<GeneratedSource | null> {
   try {
     const db = getDb();
@@ -563,14 +575,15 @@ async function getSourceResultFromLogs(
         const p = JSON.parse(log.payload) as { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: unknown[]; unverified?: boolean };
         if (p.sourceUrl !== source.url) continue;
 
-        if (log.level === 'success' && p.script) {
+        const initialItems = (p.initialItems as GeneratedSource['initialItems']) ?? [];
+        if (log.level === 'success' && p.script && !p.unverified && isReusableGeneratedSample(initialItems, criteria)) {
           return {
             title: source.title,
             url: source.url,
             description: source.description,
             script: p.script,
             cronExpression: p.cronExpression ?? '0 * * * *',
-            initialItems: (p.initialItems as GeneratedSource['initialItems']) ?? [],
+            initialItems,
             isEnabled: true,
           };
         } else if (log.level === 'error') {
@@ -600,11 +613,12 @@ async function getSourceResultFromLogs(
 async function waitForSourceResult(
   subscriptionId: string,
   source: FoundSource,
+  criteria: string | undefined,
   maxWaitMs = 10 * 60 * 1000
 ): Promise<GeneratedSource | null> {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
-    const result = await getSourceResultFromLogs(subscriptionId, source);
+    const result = await getSourceResultFromLogs(subscriptionId, source, criteria);
     if (result) return result;
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
@@ -621,7 +635,10 @@ export async function runManagedPipeline(
     let foundSources: FoundSource[] = initialFoundSources ?? [];
     // allFoundSources: full discovered list for display (superset of foundSources)
     let allFoundSources: FoundSource[] = initialAllFoundSources ?? initialFoundSources ?? [];
-    let generatedSources: GeneratedSource[] = initialGeneratedSources ?? [];
+    const reusableInitialGeneratedSources = (initialGeneratedSources ?? []).filter((source) =>
+      isReusableGeneratedSample(source.initialItems, criteria)
+    );
+    let generatedSources: GeneratedSource[] = reusableInitialGeneratedSources;
 
     // ── Phase 1: find_sources ─────────────────────────────────────────────────
     if (startStep === 'find_sources') {
@@ -724,6 +741,9 @@ export async function runManagedPipeline(
                   const args = e.args as { query: string };
                   writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query}`);
                 }
+                if (e.type === 'source_audit' && Array.isArray(e.records)) {
+                  writeLog(subscriptionId, 'find_sources', 'info', 'AI_SOURCE_AUDIT', e.records);
+                }
               },
               (info) => upsertLLMCall(subscriptionId, info),
               userId
@@ -771,9 +791,9 @@ export async function runManagedPipeline(
         : foundSources;  // Use what Phase 1 set (should be selected sources from info log)
 
       // Skip sources already provided in initialGeneratedSources (wizard handoff)
-      const alreadyDoneUrls = new Set((initialGeneratedSources ?? []).map((s) => s.url));
+      const alreadyDoneUrls = new Set(reusableInitialGeneratedSources.map((s) => s.url));
       // Seed generatedSources with already-completed ones so phase 3 can create them
-      for (const done of (initialGeneratedSources ?? [])) {
+      for (const done of reusableInitialGeneratedSources) {
         if (!generatedSources.some((gs) => gs.url === done.url)) {
           generatedSources.push(done);
         }
@@ -801,7 +821,7 @@ export async function runManagedPipeline(
               // Check if a task is already running for this source (from manual step)
               if (sourceAbortControllers.has(key)) {
                 writeLog(subscriptionId, 'generate_script', 'info', `等待 "${source.title}" 已有任务完成...`, { sourceUrl: source.url });
-                const result = await waitForSourceResult(subscriptionId, source);
+                const result = await waitForSourceResult(subscriptionId, source, criteria);
                 if (result) {
                   generatedSources.push(result);
                   updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
@@ -810,7 +830,7 @@ export async function runManagedPipeline(
               }
 
               // Check if already completed in DB logs (from a previous run)
-              const existingResult = await getSourceResultFromLogs(subscriptionId, source);
+              const existingResult = await getSourceResultFromLogs(subscriptionId, source, criteria);
               if (existingResult) {
                 generatedSources.push(existingResult);
                 updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
@@ -945,7 +965,7 @@ export async function runManagedPipeline(
     if (startStep !== 'complete' && !(await shouldAutoAdvance(subscriptionId))) return;
     if (await isCancelled(subscriptionId)) return;
 
-    const sourcesToCreate = generatedSources.length > 0 ? generatedSources : (initialGeneratedSources ?? []);
+    const sourcesToCreate = generatedSources.length > 0 ? generatedSources : reusableInitialGeneratedSources;
 
     if (sourcesToCreate.length === 0) {
       writeLog(subscriptionId, 'complete', 'error', '没有成功生成的脚本，创建失败');

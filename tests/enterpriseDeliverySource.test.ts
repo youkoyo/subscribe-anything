@@ -9,7 +9,7 @@ test('delivery service sends scored email and writes logs', async () => {
   assert.match(source, /industryDeliveryRuns/);
   assert.match(source, /userDeliveryLogs/);
   assert.match(source, /resolveDeliverySelection/);
-  assert.match(source, /loadPreviouslyDeliveredCards/);
+  assert.doesNotMatch(source, /loadPreviouslyDeliveredCards/);
   assert.match(source, /renderIndustryDeliveryEmail/);
   assert.match(source, /renderIndustryDigestEmail/);
   assert.match(source, /renderIndustryDigestExcelAttachment/);

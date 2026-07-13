@@ -17,6 +17,22 @@ export interface ValidateResult {
 }
 
 export async function validateScript(script: string): Promise<ValidateResult> {
+  const trimmed = script.trim();
+  if (/^<\/?[a-z!]/i.test(trimmed)) {
+    return {
+      success: false,
+      error: '传入的是 HTML 片段，不是采集脚本。请只传入完整 JavaScript 脚本。',
+    };
+  }
+
+  const definesCollect = /(?:export\s+default\s+)?(?:async\s+)?function\s+collect\s*\(|(?:export\s+)?(?:const|let|var)\s+collect\s*=\s*async\b/.test(trimmed);
+  if (!definesCollect) {
+    return {
+      success: false,
+      error: '脚本不完整：必须传入包含完整的 async function collect() 的 JavaScript 脚本，不能只传代码片段。',
+    };
+  }
+
   const result = await runScript(script);
   if (!result.success) {
     return { success: false, error: result.error };

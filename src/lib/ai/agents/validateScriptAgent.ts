@@ -23,6 +23,7 @@ import type { LLMCallInfo } from '@/lib/ai/client';
 import { webFetch, webFetchToolDef } from '@/lib/ai/tools/webFetch';
 import type { CollectedItem } from '@/lib/sandbox/contract';
 import type { SourceInput } from './generateScriptAgent';
+import { assessInitialItemsQuality } from './sourceSampleQuality';
 import type OpenAI from 'openai';
 
 export interface LLMValidateResult {
@@ -41,6 +42,11 @@ export async function validateScriptAgent(
   onLLMCall?: (info: LLMCallInfo) => void,
   userId?: string | null
 ): Promise<LLMValidateResult> {
+  const sampleQuality = assessInitialItemsQuality(items, source.criteria);
+  if (!sampleQuality.valid) {
+    return { valid: false, reason: sampleQuality.reason };
+  }
+
   const [provider, tpl] = await Promise.all([
     getProviderForTemplate('validate-script', userId),
     getTemplate('validate-script', userId),

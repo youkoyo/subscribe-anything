@@ -15,6 +15,7 @@
  */
 
 import { stripHtml, isHtmlContent } from '@/lib/utils/htmlStrip';
+import { decodeHttpText } from '@/lib/utils/httpTextDecoder';
 
 const MAX_DOWNLOAD_BYTES = 500 * 1024; // 500 KB — limits what we read from server
 const MAX_RETURN_BYTES   = 100 * 1024; // 100 KB — limits what we send to LLM (≈ 25k tokens)
@@ -49,7 +50,7 @@ export async function webFetch(url: string): Promise<FetchResult> {
     const bytes = new Uint8Array(buffer);
     const downloadTruncated = bytes.byteLength > MAX_DOWNLOAD_BYTES;
     const slice = downloadTruncated ? bytes.slice(0, MAX_DOWNLOAD_BYTES) : bytes;
-    const raw = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+    const raw = decodeHttpText(slice, res.headers.get('content-type') ?? undefined);
 
     // Strip HTML to drastically reduce token usage; leave JSON/text as-is
     const processed = isHtmlContent(raw) ? stripHtml(raw) : raw;

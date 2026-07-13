@@ -19,10 +19,17 @@ import { webSearch, webSearchToolDef } from '@/lib/ai/tools/webSearch';
 import { validateScript, validateScriptToolDef } from '@/lib/ai/tools/validateScript';
 import { rssRadar, rssRadarToolDef } from '@/lib/ai/tools/rssRadar';
 import { validateScriptAgent } from './validateScriptAgent';
+import {
+  hasRemainingScriptValidationAttempt,
+  MAX_SCRIPT_VALIDATION_ATTEMPTS,
+} from './scriptGenerationGuard';
 import type { CollectedItem } from '@/lib/sandbox/contract';
 import type OpenAI from 'openai';
 
-const MAX_RETRIES = 3;
+const COLLECTION_SCRIPT_CONTRACT = `
+**脚本提交硬约束**
+每次调用 validateScript 时，参数必须是一份完整 JavaScript 脚本：包含从 fetch 开始到 return items 结束的 async function collect()。禁止传入 HTML、页面片段、只含 await 的片段或未闭合代码。
+只能采集 webFetch 或 webFetchBrowser 实际返回的列表链接、接口和字段；禁止猜测文章 ID、伪造详情页 URL 或用示例 HTML 当脚本。`;
 
 export interface GenerateResult {
   success: boolean;
@@ -65,7 +72,7 @@ export async function generateScriptAgent(
     .replace('{{url}}', source.url)
     .replace('{{domain}}', sourceDomain)
     .replace('{{description}}', source.description || '无描述')
-    .replace('{{criteria}}', source.criteria?.trim() || '无');
+    .replace('{{criteria}}', source.criteria?.trim() || '无') + COLLECTION_SCRIPT_CONTRACT;
 
   const userPromptSuffix = source.userPrompt?.trim()
     ? `\n\n用户补充说明：\n${source.userPrompt.trim()}`
@@ -202,6 +209,13 @@ export async function generateScriptAgent(
               : '未捕获到 JSON API 请求，请根据渲染后的 HTML 结构编写采集脚本',
           });
         } else if (tc.name === 'validateScript') {
+          if (!hasRemainingScriptValidationAttempt(validateAttempts)) {
+            return {
+              success: false,
+              script: lastScriptAttempted,
+              error: `脚本已连续 ${MAX_SCRIPT_VALIDATION_ATTEMPTS} 次验证失败，停止继续猜测脚本。请基于实际列表页链接重试。`,
+            };
+          }
           validateAttempts++;
           const scriptArg = args.script ?? '';
           lastScriptAttempted = scriptArg;
@@ -225,10 +239,10 @@ export async function generateScriptAgent(
               items: result.items?.slice(0, 3),
               error: result.error,
             });
-            if (validateAttempts >= MAX_RETRIES) {
+            if (validateAttempts >= MAX_SCRIPT_VALIDATION_ATTEMPTS) {
               resultContent = JSON.stringify({
                 ...JSON.parse(resultContent),
-                note: `已尝试 ${MAX_RETRIES} 次验证，请返回当前最佳脚本并结束。`,
+                note: `已尝试 ${MAX_SCRIPT_VALIDATION_ATTEMPTS} 次验证，请返回当前最佳脚本并结束。`,
               });
             }
           } else {
@@ -285,8 +299,8 @@ export async function generateScriptAgent(
                     itemCount: fixResult.itemCount ?? 0,
                     sandboxPassed: true,
                     error: `修复脚本质量审查仍失败：${fixLlmCheck.reason}`,
-                    ...(validateAttempts >= MAX_RETRIES
-                      ? { note: `已尝试 ${MAX_RETRIES} 次，请返回当前最佳脚本并结束。` }
+                    ...(validateAttempts >= MAX_SCRIPT_VALIDATION_ATTEMPTS
+                      ? { note: `已尝试 ${MAX_SCRIPT_VALIDATION_ATTEMPTS} 次，请返回当前最佳脚本并结束。` }
                       : {}),
                   });
                 }
@@ -297,8 +311,8 @@ export async function generateScriptAgent(
                   success: false,
                   itemCount: fixResult.itemCount ?? 0,
                   error: `修复脚本沙箱验证失败：${fixResult.error ?? '未采集到数据'}`,
-                  ...(validateAttempts >= MAX_RETRIES
-                    ? { note: `已尝试 ${MAX_RETRIES} 次，请返回当前最佳脚本并结束。` }
+                  ...(validateAttempts >= MAX_SCRIPT_VALIDATION_ATTEMPTS
+                    ? { note: `已尝试 ${MAX_SCRIPT_VALIDATION_ATTEMPTS} 次，请返回当前最佳脚本并结束。` }
                     : {}),
                 });
               }
@@ -310,8 +324,8 @@ export async function generateScriptAgent(
                 itemCount: result.itemCount ?? 0,
                 sandboxPassed: true,
                 error: `质量审查失败：${llmCheck.reason}`,
-                ...(validateAttempts >= MAX_RETRIES
-                  ? { note: `已尝试 ${MAX_RETRIES} 次，请返回当前最佳脚本并结束。` }
+                ...(validateAttempts >= MAX_SCRIPT_VALIDATION_ATTEMPTS
+                  ? { note: `已尝试 ${MAX_SCRIPT_VALIDATION_ATTEMPTS} 次，请返回当前最佳脚本并结束。` }
                   : {}),
               });
             }

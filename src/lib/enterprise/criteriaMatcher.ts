@@ -35,6 +35,12 @@ interface DictionaryRule {
 
 const DICTIONARY_RULES: DictionaryRule[] = [
   {
+    name: '鞋业',
+    weight: 52,
+    triggers: ['鞋业', '制鞋', '鞋厂', '鞋企', '鞋类', '运动鞋', '鞋服'],
+    terms: ['鞋业', '制鞋', '鞋厂', '鞋企', '鞋类', '运动鞋', '鞋服'],
+  },
+  {
     name: '行业',
     weight: 22,
     triggers: ['化工', '危化品', '化学品', '化工原料', '化工企业'],
@@ -98,6 +104,8 @@ function includesAny(text: string, terms: string[]) {
   return terms.some((term) => text.includes(term));
 }
 
+export const DEFAULT_DELIVERY_TIME_WINDOW_DAYS = 14;
+
 function parseChineseNumber(value: string) {
   if (/^\d+$/.test(value)) return Number(value);
   const map: Record<string, number> = {
@@ -125,9 +133,9 @@ function parseChineseNumber(value: string) {
 
 function parseTimeWindowDays(text: string) {
   const match = text.match(/(?:最近|近)\s*([一二两三四五六七八九十\d]+)\s*[天日]/);
-  if (!match) return null;
+  if (!match) return DEFAULT_DELIVERY_TIME_WINDOW_DAYS;
   const days = parseChineseNumber(match[1]);
-  return days && days > 0 ? days : null;
+  return days && days > 0 ? days : DEFAULT_DELIVERY_TIME_WINDOW_DAYS;
 }
 
 function cleanUserTerm(value: string) {

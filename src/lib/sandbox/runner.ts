@@ -18,6 +18,7 @@
 
 import type { CollectedItem, RunResult } from './contract';
 import { checkSafety } from './safety';
+import { decodeHttpText } from '@/lib/utils/httpTextDecoder';
 import vm from 'vm';
 
 const MEMORY_LIMIT_MB = 64;
@@ -267,7 +268,7 @@ export async function runScript(script: string): Promise<RunResult> {
         if (buffer.byteLength > MAX_RESPONSE_BYTES) {
           throw new Error('Response body exceeds 5 MB limit');
         }
-        const body = new TextDecoder().decode(buffer);
+        const body = decodeHttpText(new Uint8Array(buffer), res.headers.get('content-type') ?? undefined);
 
         return JSON.stringify({
           ok: res.ok,

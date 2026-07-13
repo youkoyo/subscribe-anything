@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Loader2, Search, BrainCircuit, Trash2 } from 'lucide-react';
+import { ExternalLink, Loader2, Search, BrainCircuit, ListChecks, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Bot as BotIcon } from 'lucide-react';
 import LLMLogDialog from '@/components/debug/LLMLogDialog';
+import SourceDiscoveryAuditDialog from './SourceDiscoveryAuditDialog';
 import type { LLMCallInfo } from '@/lib/ai/client';
+import type { SourceDecisionRecord } from '@/lib/ai/agents/sourcePortfolioPolicy';
 import type { FoundSource, WizardState } from '@/types/wizard';
 
 interface Step2FindSourcesProps {
@@ -39,6 +41,14 @@ function defaultSelection(sources: FoundSource[]): Set<number> {
   return new Set(recommended.length > 0 ? recommended : sources.map((_, i) => i));
 }
 
+const SOURCE_TYPE_LABEL = {
+  general_news: '实时综合新闻',
+  local_news: '地方动态',
+  industry_vertical: '行业垂直',
+  finance: '财经补充',
+  other: '其他来源',
+} as const;
+
 export default function Step2FindSources({
   state,
   onStateChange,
@@ -62,6 +72,8 @@ export default function Step2FindSources({
   const [isSearchProviderError, setIsSearchProviderError] = useState(false);
   const [llmCalls, setLLMCalls] = useState<LLMCallInfo[]>(state.step2LlmCalls ?? []);
   const [showLLMLog, setShowLLMLog] = useState(false);
+  const [sourceAudit, setSourceAudit] = useState<SourceDecisionRecord[]>(state.sourceAudit ?? []);
+  const [showSourceAudit, setShowSourceAudit] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const seenQueriesRef = useRef(new Set<string>());
 
@@ -86,6 +98,27 @@ export default function Step2FindSources({
     return () => clearInterval(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.subscriptionId]);
+
+  // The find-source audit is stored as a managed build log so it survives a
+  // refresh or returning from step 3. Restore it even when sources are already
+  // present and the progress SSE does not need to reconnect.
+  useEffect(() => {
+    if (!state.subscriptionId || sourceAudit.length > 0) return;
+    fetch(`/api/subscriptions/${state.subscriptionId}/managed-progress`)
+      .then((r) => r.json())
+      .then((data: { logs?: LogEntry[] }) => {
+        const auditLog = data.logs?.slice().reverse().find((log) =>
+          log.step === 'find_sources' && log.message === 'AI_SOURCE_AUDIT' && Array.isArray(log.payload)
+        );
+        if (auditLog && Array.isArray(auditLog.payload)) {
+          const records = auditLog.payload as SourceDecisionRecord[];
+          setSourceAudit(records);
+          onStateChange({ sourceAudit: records });
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.subscriptionId, sourceAudit.length]);
 
   const connectSSE = () => {
     const subscriptionId = state.subscriptionId;
@@ -133,6 +166,13 @@ export default function Step2FindSources({
               }
 
               if (event.type !== 'log' || event.step !== 'find_sources') continue;
+
+              if (event.level === 'info' && event.message === 'AI_SOURCE_AUDIT' && Array.isArray(event.payload)) {
+                const records = event.payload as SourceDecisionRecord[];
+                setSourceAudit(records);
+                onStateChange({ sourceAudit: records });
+                continue;
+              }
 
               // Search query progress
               if (event.level === 'progress' && event.message.startsWith('搜索：')) {
@@ -222,7 +262,8 @@ export default function Step2FindSources({
     setErrorMessage('');
     setIsSearchProviderError(false);
     setLLMCalls([]);
-    onStateChange({ step2LlmCalls: [], managedError: null });
+    setSourceAudit([]);
+    onStateChange({ step2LlmCalls: [], sourceAudit: [], managedError: null });
 
     // Restart find_sources step in background (clears old logs)
     await fetch(`/api/subscriptions/${state.subscriptionId}/run-step`, {
@@ -267,6 +308,7 @@ export default function Step2FindSources({
 
   const selectedCount = checkedIndices.size;
   const recommendedCount = sources.filter((s) => s.recommended).length;
+  const alternativeCount = sources.length - recommendedCount;
 
   return (
     <div className="flex flex-col gap-4 pt-4">
@@ -281,15 +323,29 @@ export default function Step2FindSources({
             </>
           )}
         </p>
-        {llmCalls.length > 0 && (
-          <button
-            onClick={() => setShowLLMLog(true)}
-            className="mt-1.5 inline-flex items-center gap-1 text-xs h-6 px-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-            title="查看 LLM 调用日志"
-          >
-            <BrainCircuit className="h-3 w-3" />
-            LLM调用日志
-          </button>
+        {(llmCalls.length > 0 || sourceAudit.length > 0) && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {llmCalls.length > 0 && (
+              <button
+                onClick={() => setShowLLMLog(true)}
+                className="inline-flex items-center gap-1 text-xs h-6 px-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                title="查看 LLM 调用日志"
+              >
+                <BrainCircuit className="h-3 w-3" />
+                LLM调用日志
+              </button>
+            )}
+            {sourceAudit.length > 0 && (
+              <button
+                onClick={() => setShowSourceAudit(true)}
+                className="inline-flex items-center gap-1 text-xs h-6 px-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                title="查看 AI 找到、采用和排除的来源"
+              >
+                <ListChecks className="h-3 w-3" />
+                AI找源记录
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -340,11 +396,16 @@ export default function Step2FindSources({
         <>
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              共发现 {sources.length} 个数据源
+              AI 共找到 {sources.length} 个候选数据源
               {recommendedCount > 0 && (
                 <>
-                  ，已默认勾选{' '}
-                  <span className="font-medium text-foreground">{recommendedCount}</span> 个推荐源
+                  ，建议优先使用{' '}
+                  <span className="font-medium text-foreground">{recommendedCount}</span> 个
+                </>
+              )}
+              {alternativeCount > 0 && (
+                <>
+                  ，候选 <span className="font-medium text-foreground">{alternativeCount}</span> 个
                 </>
               )}
               {isDone && (
@@ -361,6 +422,10 @@ export default function Step2FindSources({
             )}
           </div>
 
+          <p className="-mt-2 text-xs text-muted-foreground">
+            AI 判断和推荐理由在每条下方；勾选决定本次是否使用该源。
+          </p>
+
           <ScrollArea className="h-[46vh] md:h-[42vh] rounded-lg border">
             <div className="divide-y">
               {sources.map((source, idx) => {
@@ -375,16 +440,33 @@ export default function Step2FindSources({
                       checked={isChecked}
                       onChange={() => toggleIndex(idx)}
                       disabled={!isDone}
+                      aria-label={`${isChecked ? '不使用' : '使用'}${source.title}`}
                       className="mt-1 h-4 w-4 rounded border-border accent-primary flex-shrink-0 cursor-pointer disabled:cursor-default"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                         <span className="font-semibold text-sm leading-snug">{source.title}</span>
-                        {source.recommended && (
-                          <Badge className="h-4 px-1.5 text-[10px] bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30 font-medium">
-                            推荐
+                        <Badge
+                          className={`h-4 px-1.5 text-[10px] font-medium ${source.recommended
+                            ? 'bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30'
+                            : 'bg-muted text-muted-foreground border-border'
+                          }`}
+                        >
+                          {source.recommended ? 'AI 建议使用' : 'AI 建议备用'}
+                        </Badge>
+                        {source.sourceType && (
+                          <Badge className="h-4 px-1.5 text-[10px] font-medium bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30">
+                            {SOURCE_TYPE_LABEL[source.sourceType]}
                           </Badge>
                         )}
+                        <Badge
+                          className={`h-4 px-1.5 text-[10px] font-medium ${isChecked
+                            ? 'bg-primary/15 text-primary border-primary/30'
+                            : 'bg-muted text-muted-foreground border-border'
+                          }`}
+                        >
+                          {isChecked ? '本次使用' : '本次不使用'}
+                        </Badge>
                         <a
                           href={source.url}
                           target="_blank"
@@ -398,7 +480,8 @@ export default function Step2FindSources({
                       </div>
                       <p className="text-xs text-muted-foreground truncate mb-1">{source.url}</p>
                       <p className="text-xs text-muted-foreground line-clamp-2">
-                        {source.description}
+                        <span className="font-medium text-foreground/80">AI 判断：</span>{' '}
+                        {source.description || '未提供判断理由'}
                       </p>
                     </div>
                   </label>
@@ -487,6 +570,13 @@ export default function Step2FindSources({
           totalTokens={llmCalls.reduce((sum, c) => sum + (c.usage?.total ?? 0), 0)}
           model={llmCalls[0]?.model}
           onClose={() => setShowLLMLog(false)}
+        />
+      )}
+      {showSourceAudit && (
+        <SourceDiscoveryAuditDialog
+          records={sourceAudit}
+          selectedUrls={new Set(sources.filter((_, index) => checkedIndices.has(index)).map((source) => source.url))}
+          onClose={() => setShowSourceAudit(false)}
         />
       )}
     </div>

@@ -6,6 +6,7 @@ import PromptTemplateEditor from '@/components/settings/PromptTemplateEditor';
 import SearchProviderForm from '@/components/settings/SearchProviderForm';
 import SmtpConfigForm from '@/components/settings/SmtpConfigForm';
 import UserPersonalSettings from '@/components/settings/UserPersonalSettings';
+import SourcePreferenceList from '@/components/settings/SourcePreferenceList';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function SettingsPage() {
@@ -26,6 +27,7 @@ export default function SettingsPage() {
             <TabsTrigger value="prompts">提示词模板</TabsTrigger>
             <TabsTrigger value="llm">AI 供应商</TabsTrigger>
             <TabsTrigger value="search">搜索供应商</TabsTrigger>
+            <TabsTrigger value="sources">信息源偏好</TabsTrigger>
             <TabsTrigger value="auth">用户服务</TabsTrigger>
           </TabsList>
           <TabsContent value="llm">
@@ -36,6 +38,9 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value="search">
             <SearchProviderForm />
+          </TabsContent>
+          <TabsContent value="sources">
+            <SourcePreferenceList />
           </TabsContent>
           <TabsContent value="auth">
             <SmtpConfigForm />

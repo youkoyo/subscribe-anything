@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions, managedBuildLogs } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
-import { runFindSourcesStep, runGenerateScriptsStep } from '@/lib/managed/pipeline';
+import { abortedSourceKeys, runFindSourcesStep, runGenerateScriptsStep } from '@/lib/managed/pipeline';
 import { clearLLMCalls } from '@/lib/managed/llmCallStore';
 import type { FoundSource } from '@/types/wizard';
 
@@ -63,6 +63,12 @@ export async function POST(
       // runGenerateScriptsStep skips already-completed sources
       clearLLMCalls(id);
       const srcList = (sources ?? []) as FoundSource[];
+
+      // A source cancelled while returning to the source-selection step is
+      // eligible to run again when the user explicitly starts generation.
+      for (const source of srcList) {
+        abortedSourceKeys.delete(`${id}:${source.url}`);
+      }
 
       runningSteps.add(key);
       runGenerateScriptsStep(id, srcList, sub.criteria ?? undefined, session.userId)

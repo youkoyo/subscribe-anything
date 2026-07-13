@@ -66,6 +66,13 @@ function parseJsonList(value: string | null | undefined): string[] {
   }
 }
 
+function normalizeIndustryToken(value: string) {
+  return value
+    .replace(/中国国内|国内|中国/g, '')
+    .replace(/产业信息|行业动态|动态监测|相关信息|相关/g, '')
+    .trim();
+}
+
 export function summarizeCriteriaTokens(criteria: string): string[] {
   const text = criteria.trim();
   const matches = DOMAIN_TERMS
@@ -87,7 +94,7 @@ export function summarizeCriteriaTokens(criteria: string): string[] {
   if (result.length > 0) return result;
   return text
     .split(/[\s,，、;；。]+/)
-    .map((item) => item.trim())
+    .map((item) => normalizeIndustryToken(item))
     .filter((item) => item.length >= 2)
     .slice(0, 8);
 }
@@ -101,7 +108,11 @@ function scoreProfile(criteriaTokens: string[], profile: ProfileLike): number {
     ...parseJsonList(profile.targetEntitiesJson),
   ]);
   if (criteriaTokens.length === 0 || profileTokens.size === 0) return 0;
-  const overlap = criteriaTokens.filter((token) => profileTokens.has(token)).length;
+  const overlap = criteriaTokens.filter((token) =>
+    Array.from(profileTokens).some((profileToken) =>
+      profileToken.includes(token) || token.includes(profileToken)
+    )
+  ).length;
   const union = new Set([...criteriaTokens, ...profileTokens]).size;
   return overlap / union;
 }

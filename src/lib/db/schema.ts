@@ -93,6 +93,18 @@ export const searchProviderConfig = pgTable('search_provider_config', {
     .notNull(),
 });
 
+export const sourcePreferences = pgTable('source_preferences', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  name: text('name').notNull(),
+  url: text('url').notNull().unique(),
+  sourceType: text('source_type').notNull().default('general_news'),
+  priority: text('priority').notNull().default('preferred'),
+  isEnabled: boolean('is_enabled').notNull().default(true),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).$defaultFn(() => new Date()).notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).$defaultFn(() => new Date()).notNull(),
+});
+
 // ─── industry_configs ────────────────────────────────────────────────────────
 export const industryConfigs = pgTable('industry_configs', {
   id: text('id').primaryKey().$defaultFn(() => createId()),

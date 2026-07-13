@@ -38,7 +38,7 @@ export function renderIndustryDeliveryEmail(input: RenderIndustryDeliveryEmailIn
       ? `本次为你筛选出 ${input.items.length} 条与「${escapeHtml(input.customCriteria)}」相关的产业信息。`
       : deliveryMode === 'previous'
         ? `本周期暂无高相关新增信息。以下为已报送过的持续关注信息，供你复核。`
-        : `本周期暂无高相关新增信息，订阅仍在运行。当前没有可重复展示的信息。`;
+        : `当前没有匹配「${escapeHtml(input.customCriteria)}」条件的新闻资讯。请修改订阅条件或联系管理员。`;
   const rows = input.items
     .map((item, index) => `
       <tr>
@@ -89,7 +89,7 @@ export function renderIndustryDeliveryEmail(input: RenderIndustryDeliveryEmailIn
       ? `本次为你筛选出 ${input.items.length} 条与「${input.customCriteria}」相关的产业信息。`
       : deliveryMode === 'previous'
         ? '本周期暂无高相关新增信息。以下为已报送过的持续关注信息，供你复核。'
-        : '本周期暂无高相关新增信息，订阅仍在运行。当前没有可重复展示的信息。',
+        : `当前没有匹配「${input.customCriteria}」条件的新闻资讯。请修改订阅条件或联系管理员。`,
     ...input.items.map((item, index) =>
       `${index + 1}. ${item.title}\n来源：${item.sourceName}\n权威性：${item.authorityLabel}，相关性：${item.relevanceLabel}\n概要：${item.summary}\n原因：${item.reason}\n链接：${item.url}`
     ),
@@ -121,7 +121,7 @@ export interface IndustryDigestExcelAttachment {
 function modeLabel(value: DeliveryDigestSection['deliveryMode']) {
   if (value === 'new') return '新增';
   if (value === 'previous') return '已报送继续关注';
-  return '暂无可展示信息';
+  return '暂无匹配资讯';
 }
 
 function renderDigestRows(items: DeliveryEmailItem[]) {
@@ -201,7 +201,7 @@ export function renderIndustryDigestEmail(input: RenderIndustryDigestEmailInput)
       const tableOrStatus =
         visibleItems.length > 0
           ? renderDigestRows(visibleItems)
-          : '<p style="margin:8px 0 0;color:#64748b;">本周期暂无可展示信息，订阅仍在运行。</p>';
+          : `<p style="margin:8px 0 0;color:#64748b;">当前没有匹配「${escapeHtml(section.customCriteria)}」条件的新闻资讯。请修改订阅条件或联系管理员。</p>`;
       return `
         <section style="margin-top:24px;">
           <h3 style="margin:0 0 6px;font-size:18px;line-height:1.4;color:#0f172a;">${index + 1}. ${escapeHtml(section.industryName)}产业信息</h3>

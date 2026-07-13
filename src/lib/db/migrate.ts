@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { getDb } from './index';
 import * as schema from './schema';
+import { DEFAULT_SOURCE_PREFERENCES } from '@/lib/ai/agents/sourcePreferences';
 
 const MIGRATIONS_DIR = 'drizzle-pg';
 
@@ -200,6 +201,15 @@ export async function runMigrations() {
   await seedPromptTemplates(db);
   await seedSearchProvider(db);
   await seedRssInstance(db);
+  await seedSourcePreferences(db);
+}
+
+async function seedSourcePreferences(db: ReturnType<typeof getDb>) {
+  const now = new Date();
+  for (const source of DEFAULT_SOURCE_PREFERENCES) {
+    await db.insert(schema.sourcePreferences).values({ ...source, createdAt: now, updatedAt: now })
+      .onConflictDoNothing({ target: schema.sourcePreferences.url });
+  }
 }
 
 async function seedPromptTemplates(db: ReturnType<typeof getDb>) {

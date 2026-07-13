@@ -173,7 +173,8 @@ test('renderIndustryDeliveryEmail can send a running status when no items exist 
   });
 
   assert.match(email.subject, /状态/);
-  assert.match(email.html, /订阅仍在运行/);
+  assert.match(email.html, /当前没有匹配「事故 公司 企业」条件的新闻资讯/);
+  assert.match(email.html, /请修改订阅条件或联系管理员/);
   assert.doesNotMatch(email.html, /<table/);
-  assert.match(email.text, /当前没有可重复展示的信息/);
+  assert.match(email.text, /请修改订阅条件或联系管理员/);
 });
