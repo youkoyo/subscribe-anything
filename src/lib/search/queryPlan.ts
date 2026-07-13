@@ -103,6 +103,18 @@ function explicitFreshnessDays(text: string) {
     const days = Number(numeric[1]);
     if (days > 0) return days;
   }
+  const numericWeeks = text.match(/(?:最近|近|过去|前)\s*(\d{1,3})\s*(?:周|星期)/u)
+    ?? text.match(/(\d{1,3})\s*(?:周|星期)\s*内/u);
+  if (numericWeeks) {
+    const weeks = Number(numericWeeks[1]);
+    if (weeks > 0) return weeks * 7;
+  }
+  const numericMonths = text.match(/(?:最近|近|过去|前)\s*(\d{1,3})\s*(?:个)?月/u)
+    ?? text.match(/(\d{1,3})\s*(?:个)?月\s*内/u);
+  if (numericMonths) {
+    const months = Number(numericMonths[1]);
+    if (months > 0) return months * 30;
+  }
   if (/(?:最近|近|过去|前)\s*(?:1|一|一个)?\s*(?:周|星期)|(?:1|一|一个)\s*(?:周|星期)\s*内/u.test(text)) return 7;
   if (/(?:最近|近|过去|前)\s*(?:1|一|一个)?\s*月|(?:1|一|一个)\s*月\s*内/u.test(text)) return 30;
   return DEFAULT_FRESHNESS_DAYS;
@@ -156,14 +168,16 @@ export function buildSearchQueryPlan(intent: MonitoringIntent, preferences: Sour
   const entityQueries = intent.entities.map((entity) => cappedQuery([entity, signal]));
   const regionQueries = intent.regions.map((region) => cappedQuery([region, industry, signal]));
 
-  if (eventQueries[0]) add('event', eventQueries[0]);
-  if (businessQueries[0]) add('business', businessQueries[0]);
+  const openEventQuery = eventQueries[0] ?? cappedQuery([industry, '事件']);
+  add('event', openEventQuery);
 
-  const siteSeed = eventQueries[0] ?? businessQueries[0] ?? cappedQuery([industry]);
-  for (const domain of getRequiredSourceDomains(preferences)) {
+  const siteSeed = openEventQuery || businessQueries[0] || cappedQuery([industry]);
+  for (const domain of getRequiredSourceDomains(preferences, preferences.length)) {
+    if (queries.length >= MAX_ENABLED_QUERIES) break;
     add('required_source', cappedQuery([siteSeed], `site:${domain}`));
   }
 
+  if (businessQueries[0]) add('business', businessQueries[0]);
   if (entityQueries[0]) add('entity', entityQueries[0]);
   if (regionQueries[0]) add('region', regionQueries[0]);
 

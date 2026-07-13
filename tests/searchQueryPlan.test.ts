@@ -72,6 +72,18 @@ test('monitoring intent defaults to fourteen days when no window is supplied', (
   assert.equal(intent.requirePublishedAt, true);
 });
 
+test('monitoring intent converts an explicit three-week window to twenty-one days', () => {
+  const intent = buildMonitoringIntent('鞋业动态', '关注鞋厂事故与企业经营，最近3周');
+
+  assert.equal(intent.freshnessDays, 21);
+});
+
+test('monitoring intent converts an explicit two-month window to sixty days', () => {
+  const intent = buildMonitoringIntent('鞋业动态', '关注鞋厂事故与企业经营，过去2个月');
+
+  assert.equal(intent.freshnessDays, 60);
+});
+
 test('every enabled query respects the eighty-character cap for long administrator domains', () => {
   const preferences: SourcePreference[] = [{
     name: '长域名来源',
@@ -127,4 +139,71 @@ test('the sixteen-query budget retains every populated intent dimension', () => 
     [...categories].sort(),
     ['business', 'entity', 'event', 'region', 'required_source'].sort(),
   );
+});
+
+test('query planning retains a fifth required administrator domain when budget permits', () => {
+  const preferences: SourcePreference[] = Array.from({ length: 5 }, (_, index) => ({
+    name: `管理员来源 ${index + 1}`,
+    url: `https://source-${index + 1}.example.com`,
+    sourceType: 'general_news',
+    priority: 'required',
+    isEnabled: true,
+  }));
+  const plan = buildSearchQueryPlan(
+    buildMonitoringIntent('鞋业动态', '关注鞋厂事故'),
+    preferences,
+  );
+
+  assert.ok(plan.queries.some((item) => item.query.includes('site:source-5.example.com')));
+});
+
+test('required administrator domains take the budget after one open event query', () => {
+  const preferences: SourcePreference[] = Array.from({ length: 20 }, (_, index) => ({
+    name: `管理员来源 ${index + 1}`,
+    url: `https://source-${String(index + 1).padStart(2, '0')}.example.com`,
+    sourceType: 'general_news',
+    priority: 'required',
+    isEnabled: true,
+  }));
+  const plan = buildSearchQueryPlan(
+    buildMonitoringIntent('鞋业动态', '关注企业经营'),
+    preferences,
+  );
+  const requiredQueries = plan.queries.filter((item) => item.category === 'required_source');
+
+  assert.equal(plan.queries.length, 16);
+  assert.equal(requiredQueries.length, 15);
+  assert.deepEqual(
+    requiredQueries.map((item) => item.query.match(/site:([^\s]+)/)?.[1]),
+    Array.from({ length: 15 }, (_, index) => `source-${String(index + 1).padStart(2, '0')}.example.com`),
+  );
+  assert.ok(plan.queries.some((item) => item.category === 'event' && !item.query.includes('site:')));
+});
+
+test('an unusable required domain does not consume an enabled-query budget slot', () => {
+  const preferences: SourcePreference[] = [
+    {
+      name: '超长域名来源',
+      url: `https://${'administrator-managed-source-domain-segment'.repeat(2)}.example.com`,
+      sourceType: 'general_news',
+      priority: 'required',
+      isEnabled: true,
+    },
+    ...Array.from({ length: 16 }, (_, index) => ({
+      name: `管理员来源 ${index + 1}`,
+      url: `https://source-${String(index + 1).padStart(2, '0')}.example.com`,
+      sourceType: 'general_news' as const,
+      priority: 'required' as const,
+      isEnabled: true,
+    })),
+  ];
+  const plan = buildSearchQueryPlan(
+    buildMonitoringIntent('鞋业动态', '关注鞋厂事故'),
+    preferences,
+  );
+  const requiredQueries = plan.queries.filter((item) => item.category === 'required_source');
+
+  assert.equal(plan.queries.length, 16);
+  assert.equal(requiredQueries.length, 15);
+  assert.ok(requiredQueries.some((item) => item.query.includes('site:source-15.example.com')));
 });
