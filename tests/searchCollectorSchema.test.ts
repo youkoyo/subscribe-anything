@@ -148,6 +148,23 @@ test('migration backfills stable legacy keys before creating the subscription-sc
   assert.ok(migration.indexOf(backfill![0]) < migration.indexOf(index![0]));
 });
 
+test('migration bounds transactional lock waits before maintenance-window schema changes', () => {
+  const migration = readSearchCollectorMigration();
+  const firstAlterIndex = migration.search(/ALTER TABLE/i);
+  assert.ok(firstAlterIndex > 0, 'migration must have a prelude before its first ALTER TABLE');
+  const prelude = migration.slice(0, firstAlterIndex);
+
+  assert.match(prelude, /--[^\r\n]*maintenance window[^\r\n]*/i);
+  assert.match(
+    prelude,
+    /SET LOCAL\s+lock_timeout\s*=\s*'5s'\s*;\s*--> statement-breakpoint/i,
+  );
+  assert.match(
+    prelude,
+    /SET LOCAL\s+statement_timeout\s*=\s*'10min'\s*;\s*--> statement-breakpoint/i,
+  );
+});
+
 test('migration journal registers only the expected next search collector migration', () => {
   assert.ok(migrationFiles.includes('0002_search_collectors.sql'));
   assert.equal(
@@ -184,6 +201,98 @@ test('migration journal registers only the expected next search collector migrat
     breakpoints: true,
   });
   assert.ok(entry && entry.when > journal.entries[1].when);
+});
+
+test('latest migration journal entry has a coherent current-schema snapshot', () => {
+  const journal = JSON.parse(
+    readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+  ) as {
+    entries: Array<{ idx: number; version: string; tag: string }>;
+  };
+  const latest = journal.entries.at(-1);
+  assert.ok(latest);
+  assert.equal(latest.idx, 2);
+
+  const snapshotPath = path.join(
+    migrationsDir,
+    'meta',
+    `${String(latest.idx).padStart(4, '0')}_snapshot.json`,
+  );
+  assert.ok(existsSync(snapshotPath), `missing snapshot for ${latest.tag}`);
+
+  const previousSnapshot = JSON.parse(
+    readFileSync(path.join(migrationsDir, 'meta/0000_snapshot.json'), 'utf8'),
+  ) as { id: string };
+  const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8')) as {
+    id: string;
+    prevId: string;
+    version: string;
+    dialect: string;
+    tables: Record<string, {
+      columns: Record<string, { type: string; notNull: boolean; default?: unknown }>;
+      indexes: Record<string, {
+        isUnique: boolean;
+        columns: Array<string | { expression: string }>;
+      }>;
+    }>;
+  };
+
+  assert.equal(snapshot.version, '7');
+  assert.equal(snapshot.dialect, 'postgresql');
+  assert.equal(snapshot.prevId, previousSnapshot.id);
+  assert.notEqual(snapshot.id, snapshot.prevId);
+  assert.ok(snapshot.tables['public.source_preferences']);
+
+  const sources = snapshot.tables['public.sources'];
+  assert.ok(sources);
+  assert.deepEqual(
+    {
+      collectorType: sources.columns.collector_type,
+      collectorConfig: sources.columns.collector_config_json,
+    },
+    {
+      collectorType: {
+        name: 'collector_type',
+        type: 'text',
+        primaryKey: false,
+        notNull: true,
+        default: "'feed_script'",
+      },
+      collectorConfig: {
+        name: 'collector_config_json',
+        type: 'text',
+        primaryKey: false,
+        notNull: true,
+        default: "'{}'",
+      },
+    },
+  );
+
+  const cards = snapshot.tables['public.message_cards'];
+  assert.ok(cards);
+  for (const [column, type] of [
+    ['dedupe_key', 'text'],
+    ['canonical_url', 'text'],
+    ['publisher_name', 'text'],
+    ['collection_method', 'text'],
+    ['evidence_level', 'text'],
+    ['relevance_score', 'real'],
+    ['authority_score', 'real'],
+    ['match_reason', 'text'],
+  ] as const) {
+    assert.equal(cards.columns[column]?.type, type);
+    assert.equal(cards.columns[column]?.notNull, false);
+  }
+
+  const uniqueIndex = cards.indexes.message_cards_subscription_dedupe_key_unique;
+  assert.ok(uniqueIndex);
+  assert.equal(uniqueIndex.isUnique, true);
+  assert.deepEqual(
+    uniqueIndex.columns.map((column) =>
+      typeof column === 'string' ? column : column.expression
+    ),
+    ['subscription_id', 'dedupe_key'],
+  );
 });
 
 test('wizard source types carry optional typed collection plans without breaking callers', () => {

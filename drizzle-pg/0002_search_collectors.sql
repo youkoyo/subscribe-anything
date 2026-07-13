@@ -1,3 +1,8 @@
+-- Maintenance window required: ALTER, backfill, and index locks are held until transaction commit.
+SET LOCAL lock_timeout = '5s';
+--> statement-breakpoint
+SET LOCAL statement_timeout = '10min';
+--> statement-breakpoint
 ALTER TABLE "sources" ADD COLUMN "collector_type" text DEFAULT 'feed_script' NOT NULL;
 --> statement-breakpoint
 ALTER TABLE "sources" ADD COLUMN "collector_config_json" text DEFAULT '{}' NOT NULL;
