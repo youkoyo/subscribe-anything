@@ -125,7 +125,15 @@ function queryEvidence(candidate: SearchCandidate): ArticleQueryEvidence[] {
 
 /** Shared by discovery and runtime so search evidence is interpreted identically. */
 export function searchCandidateToArticleCandidate(candidate: SearchCandidate): ArticleCandidate {
-  const datedPrimary = candidate.evidence.find((item) => {
+  const completeDatedPrimary = candidate.evidence.find((item) => {
+    const publishedAt = nonBlank(item.publishedAt);
+    return publishedAt !== undefined
+      && parseStrictPublicationDate(publishedAt) !== undefined
+      && nonBlank(item.title) !== undefined
+      && nonBlank(item.snippet) !== undefined
+      && nonBlank(item.publisherName) !== undefined;
+  });
+  const datedPrimary = completeDatedPrimary ?? candidate.evidence.find((item) => {
     const publishedAt = nonBlank(item.publishedAt);
     return publishedAt !== undefined
       && parseStrictPublicationDate(publishedAt) !== undefined;

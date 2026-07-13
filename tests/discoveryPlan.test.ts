@@ -80,8 +80,9 @@ test('turns current search result articles directly into the single search colle
   const audit = result.auditRecords.find((record) => record.collectionMode === 'search');
   assert.equal(audit?.validationOutcome, 'accepted');
   assert.ok(audit?.evidence[0]?.query);
-  assert.equal(audit?.evidence[0]?.publishedAt, '2026-07-12T08:00:00Z');
-  assert.equal(audit?.evidence[0]?.validationOutcome, 'accepted');
+  const canonicalEvidence = audit?.evidence.find((evidence) => !evidence.query);
+  assert.equal(canonicalEvidence?.publishedAt, '2026-07-12T08:00:00Z');
+  assert.equal(canonicalEvidence?.validationOutcome, 'accepted');
 });
 
 test('does not admit a stable source merely because a same-domain article exists from 2023', async () => {
@@ -143,7 +144,11 @@ test('rejects product and about URLs returned as search article candidates', asy
   assert.equal(searchAudit.collectionMode, 'search');
   assert.equal(searchAudit.validationOutcome, 'rejected');
   assert.ok(searchAudit.evidence.length >= 2);
-  assert.ok(searchAudit.evidence.every((evidence) => evidence.rejectionCode === 'page_type'));
+  const rejectedValidations = searchAudit.evidence.filter((evidence) => (
+    evidence.validationOutcome === 'rejected'
+  ));
+  assert.equal(rejectedValidations.length, 2);
+  assert.ok(rejectedValidations.every((evidence) => evidence.rejectionCode === 'page_type'));
 });
 
 test('classifies dynamic search pages as search and never as feed_script', async () => {
@@ -178,6 +183,8 @@ for (const url of [
   'https://search.cctv.com/search.php?qtext=%E9%9E%8B%E4%B8%9A',
   'https://news.example.cn/searchResult?id=shoe',
   'https://news.example.cn/search.aspx?key=%E9%9E%8B%E4%B8%9A',
+  'https://news.example.cn/search.jsp?term=shoe',
+  'https://news.example.cn/searchPage?text=shoe',
 ] as const) {
   test(`classifies common dynamic search URL ${url} as search`, () => {
     assert.equal(classifyDiscoveryCollectionMode(stableSource({
@@ -205,6 +212,8 @@ for (const url of [
   'https://industry.example.cn/about.html',
   'https://industry.example.cn/aboutus',
   'https://industry.example.cn/product.aspx',
+  'https://industry.example.cn/about.jsp',
+  'https://industry.example.cn/product.shtml',
 ] as const) {
   test(`rejects common non-article stable page ${url}`, async () => {
     let sampleCalls = 0;
@@ -380,8 +389,11 @@ test('requires complete provider evidence when the original article cannot be fe
 
   assert.equal(result.sources.length, 0);
   assert.equal(result.auditRecords[0].validationOutcome, 'rejected');
-  assert.equal(result.auditRecords[0].evidence[0].rejectionCode, 'incomplete_search_evidence');
-  assert.match(result.auditRecords[0].evidence[0].exclusionReason ?? '', /发布者/);
+  const rejectedEvidence = result.auditRecords[0].evidence.find((evidence) => (
+    evidence.validationOutcome === 'rejected'
+  ));
+  assert.equal(rejectedEvidence?.rejectionCode, 'incomplete_search_evidence');
+  assert.match(rejectedEvidence?.exclusionReason ?? '', /发布者/);
 });
 
 test('prefers fetched original article metadata over incomplete search-provider evidence', async () => {
@@ -410,6 +422,33 @@ test('prefers fetched original article metadata over incomplete search-provider 
   assert.equal(result.sources[0].collectionMode, 'search');
   assert.equal(result.sources[0].initialItems?.[0].evidenceLevel, 'original');
   assert.equal(result.sources[0].initialItems?.[0].publisherName, '福建新闻社');
+});
+
+test('uses the complete dated query evidence as the provider fallback sample', async () => {
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async (query) => [currentSearchResult({
+      publishedAt: query.includes('事故') ? undefined : '2026-07-12T08:00:00Z',
+      publisherName: query.includes('事故') ? undefined : '福建新闻社',
+    })],
+    enrichSearchCandidate: async () => {
+      throw new Error('original blocked');
+    },
+  });
+
+  assert.equal(result.sources[0].collectionMode, 'search');
+  assert.equal(result.sources[0].initialItems?.[0].publisherName, '福建新闻社');
+  assert.equal(result.sources[0].initialItems?.[0].evidenceLevel, 'search');
+
+  const queryRows = result.auditRecords[0].evidence.filter((evidence) => evidence.query);
+  const incompleteQuery = queryRows.find((evidence) => evidence.query?.includes('事故'));
+  assert.equal(incompleteQuery?.publishedAt, undefined);
+  assert.equal(incompleteQuery?.publisherName, undefined);
+  assert.equal(incompleteQuery?.validationOutcome, undefined);
+
+  const canonicalValidation = result.auditRecords[0].evidence.find((evidence) => !evidence.query);
+  assert.equal(canonicalValidation?.validationOutcome, 'accepted');
+  assert.equal(canonicalValidation?.publisherName, '福建新闻社');
 });
 
 test('keeps deterministic search usable when optional LLM stable-source discovery fails', async () => {
@@ -461,5 +500,6 @@ test('persists every query execution alongside article audit evidence', async ()
   assert.ok(executions.some((execution) => (
     execution.status === 'error' && execution.error === 'one query failed'
   )));
-  assert.ok(result.auditRecords[0].evidence.every((evidence) => evidence.query));
+  assert.ok(result.auditRecords[0].evidence.some((evidence) => evidence.query));
+  assert.ok(result.auditRecords[0].evidence.some((evidence) => !evidence.query));
 });

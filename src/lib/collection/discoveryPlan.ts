@@ -44,6 +44,7 @@ const SEARCH_PATH_SEGMENTS = new Set([
   'query',
   'results',
   'search',
+  'searchpage',
   'searchresult',
   'searchresults',
   'so',
@@ -59,6 +60,8 @@ const SEARCH_QUERY_PARAMETERS = new Set([
   'search',
   'searchtext',
   'searchword',
+  'term',
+  'text',
   'wd',
   'word',
 ]);
@@ -167,7 +170,7 @@ function pathSegments(url: URL) {
 
 function pageToken(segment: string) {
   return segment
-    .replace(/\.(?:html?|aspx?|php)$/i, '')
+    .replace(/\.(?:s?html?|aspx?|jspx?|php\d?|cgi|do|action)$/i, '')
     .replace(/[-_]/g, '')
     .toLowerCase();
 }
@@ -230,12 +233,18 @@ function stablePageExclusion(source: FoundSource, mode: CollectionMode) {
 }
 
 function hasCompleteProviderEvidence(candidate: ArticleCandidate) {
+  const title = normalizedText(candidate.title);
+  const summary = normalizedText(candidate.summary);
+  const publisherName = normalizedText(candidate.publisherName);
+  const publishedAt = normalizedText(candidate.publishedAt);
+  if (!title || !summary || !publisherName || !publishedAt) return false;
+  if (!parseStrictPublicationDate(publishedAt)) return false;
+
   return candidate.queryEvidence?.some((evidence) => (
-    !!normalizedText(evidence.title)
-    && !!normalizedText(evidence.snippet)
-    && !!normalizedText(evidence.publisherName)
-    && !!normalizedText(evidence.publishedAt)
-    && parseStrictPublicationDate(evidence.publishedAt as string) !== undefined
+    normalizedText(evidence.title) === title
+    && normalizedText(evidence.snippet) === summary
+    && normalizedText(evidence.publisherName) === publisherName
+    && normalizedText(evidence.publishedAt) === publishedAt
   )) ?? false;
 }
 
@@ -335,51 +344,40 @@ function toAuditEvidence(
   candidate: ArticleCandidate,
   validation: ArticleValidationResult,
 ): SourceEvidence[] {
-  const queryEvidence = candidate.queryEvidence?.length
-    ? candidate.queryEvidence
-    : [undefined];
+  const queryRows: SourceEvidence[] = (candidate.queryEvidence ?? []).map((query) => ({
+    url: query.url,
+    title: query.title,
+    ...(normalizedText(query.snippet) ? { snippet: query.snippet.trim() } : {}),
+    queryId: query.queryId,
+    query: query.query,
+    ...(normalizedText(query.publishedAt) ? { publishedAt: query.publishedAt?.trim() } : {}),
+    ...(normalizedText(query.publisherName) ? { publisherName: query.publisherName?.trim() } : {}),
+    evidenceLevel: 'search',
+  }));
 
-  return queryEvidence.map((query) => {
-    if (validation.accepted) {
-      return {
-        url: query?.url ?? validation.canonicalUrl,
-        title: normalizedText(query?.title) ?? validation.title,
-        ...(normalizedText(query?.snippet) ?? validation.summary
-          ? { snippet: normalizedText(query?.snippet) ?? validation.summary }
-          : {}),
-        ...(query ? { queryId: query.queryId, query: query.query } : {}),
-        ...(normalizedText(query?.publishedAt) ?? validation.publishedAt
-          ? { publishedAt: normalizedText(query?.publishedAt) ?? validation.publishedAt }
-          : {}),
-        ...(normalizedText(query?.publisherName) ?? validation.publisherName
-          ? { publisherName: normalizedText(query?.publisherName) ?? validation.publisherName }
-          : {}),
+  const finalValidation: SourceEvidence = validation.accepted
+    ? {
+        url: validation.canonicalUrl,
+        title: validation.title,
+        ...(validation.summary ? { snippet: validation.summary } : {}),
+        publishedAt: validation.publishedAt,
+        ...(validation.publisherName ? { publisherName: validation.publisherName } : {}),
         evidenceLevel: validation.evidenceLevel,
         matchReason: validation.matchReason,
-        validationOutcome: 'accepted' as const,
+        validationOutcome: 'accepted',
+      }
+    : {
+        url: candidate.url,
+        ...(normalizedText(candidate.title) ? { title: candidate.title.trim() } : {}),
+        ...(normalizedText(candidate.summary) ? { snippet: candidate.summary?.trim() } : {}),
+        ...(normalizedText(candidate.publishedAt) ? { publishedAt: candidate.publishedAt?.trim() } : {}),
+        ...(normalizedText(candidate.publisherName) ? { publisherName: candidate.publisherName?.trim() } : {}),
+        validationOutcome: 'rejected',
+        rejectionCode: validation.reason,
+        exclusionReason: validation.message,
       };
-    }
 
-    return {
-      url: query?.url ?? candidate.url,
-      ...(normalizedText(query?.title) ?? normalizedText(candidate.title)
-        ? { title: normalizedText(query?.title) ?? normalizedText(candidate.title) }
-        : {}),
-      ...(normalizedText(query?.snippet) ?? normalizedText(candidate.summary)
-        ? { snippet: normalizedText(query?.snippet) ?? normalizedText(candidate.summary) }
-        : {}),
-      ...(query ? { queryId: query.queryId, query: query.query } : {}),
-      ...(normalizedText(query?.publishedAt) ?? normalizedText(candidate.publishedAt)
-        ? { publishedAt: normalizedText(query?.publishedAt) ?? normalizedText(candidate.publishedAt) }
-        : {}),
-      ...(normalizedText(query?.publisherName) ?? normalizedText(candidate.publisherName)
-        ? { publisherName: normalizedText(query?.publisherName) ?? normalizedText(candidate.publisherName) }
-        : {}),
-      validationOutcome: 'rejected' as const,
-      rejectionCode: validation.reason,
-      exclusionReason: validation.message,
-    };
-  });
+  return [...queryRows, finalValidation];
 }
 
 function uniqueReasons(validations: ArticleValidationResult[]) {

@@ -2,6 +2,7 @@ import type { ArticleCandidate } from './articleTypes';
 import { fetchCollectorText } from './collectors/httpCollectorFetch';
 
 const MAX_ARTICLE_LINKS = 8;
+const MIN_ARTICLE_LINKS = 2;
 const FETCH_CONCURRENCY = 3;
 const MAX_HTML_BYTES = 1024 * 1024;
 const NON_ARTICLE_SEGMENTS = new Set([
@@ -60,7 +61,7 @@ function plainText(value: string) {
 
 function pageToken(segment: string) {
   return segment
-    .replace(/\.(?:html?|aspx?|php)$/i, '')
+    .replace(/\.(?:s?html?|aspx?|jspx?|php\d?|cgi|do|action)$/i, '')
     .replace(/[-_]/g, '')
     .toLowerCase();
 }
@@ -87,6 +88,30 @@ function articleLikeUrl(value: string, baseUrl: string) {
   if (segments.some((segment) => NON_ARTICLE_SEGMENTS.has(pageToken(segment)))) return undefined;
   url.hash = '';
   return url.toString();
+}
+
+function normalizedHostname(value: string) {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function sameListHostname(value: string, listUrl: string) {
+  const hostname = normalizedHostname(value);
+  return !!hostname && hostname === normalizedHostname(listUrl);
+}
+
+function isArticleDocument(html: string) {
+  return /["']@type["']\s*:\s*["'](?:NewsArticle|Article|ReportageNewsArticle)["']/i.test(html)
+    || /article:published_time/i.test(html)
+    || /(?:property|name)\s*=\s*["']og:type["'][^>]*content\s*=\s*["']article["']/i.test(html)
+    || /content\s*=\s*["']article["'][^>]*(?:property|name)\s*=\s*["']og:type["']/i.test(html);
+}
+
+function isExplicitListDocument(html: string) {
+  return /["']@type["']\s*:\s*["'](?:ItemList|CollectionPage)["']/i.test(html);
 }
 
 export function extractStaticArticleLinks(html: string, baseUrl: string): ArticleLink[] {
@@ -123,7 +148,9 @@ export async function sampleStaticArticleList(
 ): Promise<ArticleCandidate[]> {
   const fetchText = dependencies.fetchText ?? defaultFetchText;
   const list = await fetchText(listUrl);
+  if (isArticleDocument(list.text)) return [];
   const links = extractStaticArticleLinks(list.text, list.finalUrl);
+  if (links.length < MIN_ARTICLE_LINKS && !isExplicitListDocument(list.text)) return [];
   const candidates = new Array<ArticleCandidate | undefined>(links.length);
   let nextIndex = 0;
 
@@ -134,6 +161,7 @@ export async function sampleStaticArticleList(
       const link = links[index];
       try {
         const article = await fetchText(link.url);
+        if (!sameListHostname(article.finalUrl, list.finalUrl)) continue;
         candidates[index] = {
           origin: 'feed',
           url: article.finalUrl,
