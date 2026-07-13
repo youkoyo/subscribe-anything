@@ -14,7 +14,7 @@ import {
 
 interface SchedulerDependencies {
   db: unknown;
-  runScript: () => Promise<unknown>;
+  collectCandidates: () => Promise<IngestArticlesInput['candidates']>;
   ingestArticles: (input: IngestArticlesInput) => ReturnType<typeof ingestArticles>;
   setLastResult: (sourceId: string, result: CollectResultInfo) => void;
 }
@@ -219,16 +219,14 @@ test('scheduler turns an ingestion store rejection into retry state and a failed
   try {
     const result = await collectWithDependencies(sourceId, {
       db,
-      async runScript() {
-        return {
-          success: true,
-          items: [{
+      async collectCandidates() {
+        return [{
+          origin: 'feed',
             title: '福建晋江一鞋厂发生火灾，当地正在处置',
             url: 'https://example.com/news/jinjiang-fire',
             summary: '事故发生在制鞋产业集聚区。',
             publishedAt: new Date().toISOString(),
-          }],
-        };
+        }];
       },
       ingestArticles: rejectAtArticleStore(failure),
       setLastResult(recordedSourceId, resultInfo) {

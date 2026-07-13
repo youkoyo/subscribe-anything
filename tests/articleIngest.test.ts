@@ -309,17 +309,24 @@ test('scheduler and subscription creation route every item through unified inges
     new URL('../src/lib/scheduler/collector.ts', import.meta.url),
     'utf8',
   );
+  const scriptCollector = readFileSync(
+    new URL('../src/lib/collection/collectors/scriptSourceCollector.ts', import.meta.url),
+    'utf8',
+  );
   const creator = readFileSync(
     new URL('../src/lib/subscriptionCreator.ts', import.meta.url),
     'utf8',
   );
 
   assert.match(scheduler, /ingestArticles\s*\(/);
-  assert.match(scheduler, /items\.map\s*\(/);
+  assert.match(scheduler, /collectCandidates\s*\(/);
   assert.match(scheduler, /rejected\s*\+\s*ingestResult\.duplicates/);
   assert.doesNotMatch(scheduler, /db\.insert\(messageCards\)/);
   assert.doesNotMatch(scheduler, /itemsCollected\s*:/);
   assert.doesNotMatch(scheduler, /publishedAt\s*:.*\bnow\b/);
+  assert.match(scriptCollector, /items\.map\s*\(/);
+  assert.match(scriptCollector, /articleCandidateFromCollectedItem\s*\(/);
+  assert.doesNotMatch(scriptCollector, /publishedAt\s*:.*\bnow\b/);
 
   assert.match(creator, /\.select\(\)\.from\(subscriptions\)/);
   assert.match(creator, /collectorType:\s*srcInput\.collectionMode\s*\?\?\s*'feed_script'/);

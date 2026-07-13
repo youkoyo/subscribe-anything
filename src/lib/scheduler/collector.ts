@@ -1,19 +1,20 @@
 // src/lib/scheduler/collector.ts
 // Full collection pipeline:
-//   1. Run script in isolated-vm sandbox
-//   2. Strictly validate and subscription-deduplicate every returned item
+//   1. Dispatch to the persisted search/RSS/JSON/feed-script collector
+//   2. Strictly validate and subscription-deduplicate every candidate article
 //   3. Atomically persist accepted cards and their source/subscription counts
 //   4. Update source run stats
-//   5. On script failure: mark source.status='failed', write source_failed notification
+//   5. On collector failure: mark source.status='failed', write source_failed notification
 
 import { eq, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { sources, subscriptions } from '@/lib/db/schema';
+import { ingestArticles } from '@/lib/collection/ingestArticles';
 import {
-  articleCandidateFromCollectedItem,
-  ingestArticles,
-} from '@/lib/collection/ingestArticles';
-import { runScript } from '@/lib/sandbox/runner';
+  collectCandidatesForSource,
+  type CollectCandidates,
+  type CollectorSource,
+} from '@/lib/collection/collectors';
 import { nextCronDate } from '@/lib/utils/cron';
 import { createNotification } from '@/lib/notifications';
 import { scheduleRetry, clearRetry, markCollecting, clearCollecting, setLastResult } from './retryManager';
@@ -27,7 +28,7 @@ export interface CollectResult {
 export async function collect(sourceId: string): Promise<CollectResult> {
   return collectWithDependencies(sourceId, {
     db: getDb(),
-    runScript,
+    collectCandidates: collectCandidatesForSource,
     ingestArticles,
     setLastResult,
   });
@@ -35,7 +36,7 @@ export async function collect(sourceId: string): Promise<CollectResult> {
 
 export interface CollectorDependencies {
   db: ReturnType<typeof getDb>;
-  runScript: typeof runScript;
+  collectCandidates: CollectCandidates;
   ingestArticles: typeof ingestArticles;
   setLastResult: typeof setLastResult;
 }
@@ -78,7 +79,7 @@ async function _doCollect(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   source: any,
   sourceId: string,
-  dependencies: Pick<CollectorDependencies, 'runScript' | 'ingestArticles'>,
+  dependencies: Pick<CollectorDependencies, 'collectCandidates' | 'ingestArticles'>,
 ): Promise<CollectResult> {
   const subscription = (await db
     .select()
@@ -92,33 +93,15 @@ async function _doCollect(
     return { newItems: 0, skipped: 0, error: errorMsg };
   }
 
-  // ── Run script ───────────────────────────────────────────────────────────────
-  let runResult: Awaited<ReturnType<typeof runScript>>;
+  // ── Dispatch persisted collector ─────────────────────────────────────────────
+  let candidates: Awaited<ReturnType<CollectCandidates>>;
   try {
-    runResult = await dependencies.runScript(source.script);
+    candidates = await dependencies.collectCandidates(source as CollectorSource);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     await _handleFailure(db, source, subscription, errorMsg, now);
     return { newItems: 0, skipped: 0, error: errorMsg };
   }
-
-  if (!runResult.success) {
-    const errorMsg = runResult.error ?? 'Script error';
-    await _handleFailure(db, source, subscription, errorMsg, now);
-    return { newItems: 0, skipped: 0, error: runResult.error };
-  }
-
-  const items = runResult.items ?? [];
-
-  // ── Zero items = script broken (returns nothing useful) ─────────────────────
-  if (items.length === 0) {
-    const errorMsg = '脚本执行成功但未返回任何数据，请检查脚本逻辑或目标页面是否变更';
-    await _handleFailure(db, source, subscription, errorMsg, now);
-    return { newItems: 0, skipped: 0, error: errorMsg };
-  }
-
-  const origin = source.collectorType === 'search' ? 'search' : 'feed';
-  const candidates = items.map((item) => articleCandidateFromCollectedItem(item, origin));
   let ingestResult: Awaited<ReturnType<typeof ingestArticles>>;
   try {
     ingestResult = await dependencies.ingestArticles({
