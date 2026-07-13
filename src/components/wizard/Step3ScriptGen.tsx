@@ -80,7 +80,11 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
             script: preGen.script,
           };
         }
-        if (!preGen.isEnabled && !preGen.script) {
+        if (
+          !preGen.isEnabled
+          && !preGen.script
+          && (preGen.collectionMode ?? 'feed_script') === 'feed_script'
+        ) {
           // Disabled with no script — treat as pending/skipped
           return selectedSet.has(i) ? { status: 'pending' as const } : { status: 'skipped' as const };
         }
@@ -186,14 +190,20 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
                   }
                   return prev;
                 });
-              } else if (logEvent.level === 'success' && logEvent.payload?.script) {
+              } else if (
+                logEvent.level === 'success'
+                && (
+                  !!logEvent.payload?.script
+                  || (allSources[globalIdx].collectionMode ?? 'feed_script') !== 'feed_script'
+                )
+              ) {
                 const p = logEvent.payload;
                 updateStatus(globalIdx, {
                   status: 'success',
-                  script: p.script!,
-                  cronExpression: p.cronExpression ?? '0 * * * *',
-                  items: p.initialItems ?? [],
-                  unverified: p.unverified,
+                  script: p?.script ?? '',
+                  cronExpression: p?.cronExpression ?? '0 * * * *',
+                  items: p?.initialItems ?? [],
+                  unverified: p?.unverified,
                 });
               } else if (logEvent.level === 'error') {
                 setSourceStatuses((prev) => {
@@ -254,6 +264,10 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         cronExpression: s.cronExpression,
         initialItems: s.items,
         isEnabled: true,
+        collectionMode: source.collectionMode,
+        searchPlan: source.searchPlan,
+        collectorConfigJson: source.collectorConfigJson,
+        discoveryVersion: source.discoveryVersion,
       });
     }
     return acc;
@@ -271,6 +285,10 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         cronExpression: s.cronExpression,
         initialItems: s.items,
         isEnabled: true,
+        collectionMode: source.collectionMode,
+        searchPlan: source.searchPlan,
+        collectorConfigJson: source.collectorConfigJson,
+        discoveryVersion: source.discoveryVersion,
       });
     } else if (s?.status === 'failed') {
       acc.push({
@@ -282,6 +300,10 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         initialItems: [],
         isEnabled: false,
         failedReason: s.error,
+        collectionMode: source.collectionMode,
+        searchPlan: source.searchPlan,
+        collectorConfigJson: source.collectorConfigJson,
+        discoveryVersion: source.discoveryVersion,
       });
     } else if (s?.status === 'skipped') {
       acc.push({
@@ -293,6 +315,10 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         initialItems: [],
         isEnabled: false,
         failedReason: '未生成',
+        collectionMode: source.collectionMode,
+        searchPlan: source.searchPlan,
+        collectorConfigJson: source.collectorConfigJson,
+        discoveryVersion: source.discoveryVersion,
       });
     }
     return acc;
@@ -303,6 +329,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
   const handleRetrySource = async (globalIdx: number) => {
     const source = allSources[globalIdx];
     if (!source || !state.subscriptionId) return;
+    if ((source.collectionMode ?? 'feed_script') !== 'feed_script') return;
 
     // Remove from aborted set so SSE events are no longer blocked
     abortedIndicesRef.current.delete(globalIdx);
@@ -330,6 +357,15 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
   const handleStartGeneration = async (globalIdx: number) => {
     const source = allSources[globalIdx];
     if (!source || !state.subscriptionId) return;
+    if ((source.collectionMode ?? 'feed_script') !== 'feed_script') {
+      updateStatus(globalIdx, {
+        status: 'success',
+        script: '',
+        cronExpression: '0 * * * *',
+        items: source.initialItems ?? [],
+      });
+      return;
+    }
 
     abortedIndicesRef.current.delete(globalIdx);
     updateStatus(globalIdx, { status: 'pending' });

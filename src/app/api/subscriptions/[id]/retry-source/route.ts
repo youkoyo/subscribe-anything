@@ -4,6 +4,7 @@ import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
 import { deleteSourceLogs, retryGenerateSourceStep } from '@/lib/managed/pipeline';
 import { clearSourceLLMCalls } from '@/lib/managed/llmCallStore';
+import { requiresScriptGeneration } from '@/lib/collection/hybridGeneration';
 import type { FoundSource } from '@/types/wizard';
 
 // In-memory set to prevent duplicate concurrent retries per source
@@ -41,16 +42,33 @@ export async function POST(
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
+    let canonicalSource: FoundSource | undefined;
+    if (sub.wizardStateJson) {
+      try {
+        const wizardState = JSON.parse(sub.wizardStateJson) as { foundSources?: FoundSource[] };
+        canonicalSource = wizardState.foundSources?.find((source) => source.url === sourceUrl);
+      } catch {
+        // A malformed historical wizard state cannot authorize a built-in retry bypass.
+      }
+    }
+
+    if (canonicalSource && !requiresScriptGeneration(canonicalSource)) {
+      return Response.json(
+        { error: 'Built-in collectors do not generate or retry JavaScript' },
+        { status: 409 },
+      );
+    }
+
     const key = `${id}:${sourceUrl}`;
     if (retryingSource.has(key)) {
       return Response.json({ running: true });
     }
 
     // Clear old logs and LLM calls for this source
-    deleteSourceLogs(id, sourceUrl);
+    await deleteSourceLogs(id, sourceUrl);
     clearSourceLLMCalls(id, sourceUrl);
 
-    const source: FoundSource = {
+    const source: FoundSource = canonicalSource ?? {
       title: sourceTitle,
       url: sourceUrl,
       description: sourceDescription ?? '',

@@ -15,9 +15,17 @@ import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
 import { createId } from '@paralleldrive/cuid2';
 import pLimit from 'p-limit';
 import { upsertLLMCall, clearLLMCalls } from './llmCallStore';
-import { isReusableGeneratedSample } from '@/lib/ai/agents/sourceSampleQuality';
 import { articleCandidateFromCollectedItem } from '@/lib/collection/ingestArticles';
 import { validateArticleCandidate } from '@/lib/collection/articleValidator';
+import {
+  generationLogFromOutcome,
+  isReusableGeneratedSource,
+  requiresScriptGeneration,
+  restoreGeneratedSourceFromSuccessPayload,
+  runHybridGeneration,
+  type GenerationSuccessPayload,
+  type HybridGenerationOutcome,
+} from '@/lib/collection/hybridGeneration';
 import { buildMonitoringIntent } from '@/lib/search/queryPlan';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
@@ -211,6 +219,22 @@ async function discoverSourcesForSubscription(
   }
 }
 
+async function writeGenerationOutcome(
+  subscriptionId: string,
+  outcome: HybridGenerationOutcome,
+) {
+  const log = generationLogFromOutcome(outcome);
+  const { source, generatedSource } = outcome;
+  const message = outcome.status === 'failed'
+    ? `"${source.title}" 生成失败：${outcome.error ?? '未知错误'}`
+    : outcome.generatedBy === 'collector'
+      ? `"${source.title}" 采集方案验证通过，已有 ${generatedSource.initialItems.length} 条样本`
+      : outcome.status === 'unverified'
+        ? `"${source.title}" 脚本已生成（未验证）`
+        : `"${source.title}" 脚本生成成功，采集到 ${generatedSource.initialItems.length} 条数据`;
+  await writeLog(subscriptionId, 'generate_script', log.level, message, log.payload);
+}
+
 /**
  * Run the find_sources step for a subscription.
  * Writes logs to DB; runs to completion unless subscription is deleted.
@@ -259,15 +283,25 @@ export async function runGenerateScriptsStep(
 
   // Reuse only successful logs whose saved sample still meets the current
   // freshness and relevance gate. Old "non-empty" successes must be rerun.
-  const completedUrls = await getCompletedSourceUrls(subscriptionId, criteria);
-
-  const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
+  const completedUrls = await getCompletedSourceUrls(subscriptionId, sources, criteria);
   const limit = pLimit(5);
 
   const tasks = sources
     .filter((source) => !completedUrls.has(source.url))
     .map((source) =>
       limit(async () => {
+        if (!requiresScriptGeneration(source)) {
+          const [outcome] = await runHybridGeneration(
+            [source],
+            criteria,
+            async () => {
+              throw new Error('Built-in collectors must not invoke script generation');
+            },
+          );
+          await writeGenerationOutcome(subscriptionId, outcome);
+          return;
+        }
+
         const abortKey = `${subscriptionId}:${source.url}`;
         if (abortedSourceKeys.has(abortKey)) return;
 
@@ -276,6 +310,7 @@ export async function runGenerateScriptsStep(
         writeLog(subscriptionId, 'generate_script', 'info', `正在为 "${source.title}" 生成脚本...`, { sourceUrl: source.url });
 
         try {
+          const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
           const result = await generateScriptAgent(
             {
               title: source.title,
@@ -352,6 +387,9 @@ export async function retryGenerateSourceStep(
   userId: string,
   userPrompt?: string
 ): Promise<void> {
+  if (!requiresScriptGeneration(source)) {
+    throw new Error('Built-in collectors do not generate or retry JavaScript');
+  }
   const signal = registerSourceAbort(subscriptionId, source.url);
 
   writeLog(subscriptionId, 'generate_script', 'info', `正在为 "${source.title}" 重新生成脚本...`, { sourceUrl: source.url });
@@ -452,39 +490,45 @@ export async function deleteSourceLogs(subscriptionId: string, sourceUrl: string
   }
 }
 
-async function getCompletedSourceUrls(subscriptionId: string, criteria: string | undefined): Promise<Set<string>> {
+async function getCompletedSourceUrls(
+  subscriptionId: string,
+  sourcesToCheck: FoundSource[],
+  criteria: string | undefined,
+): Promise<Set<string>> {
   try {
     const db = getDb();
     const logs = (await db
-      .select({ payload: managedBuildLogs.payload })
+      .select({ level: managedBuildLogs.level, payload: managedBuildLogs.payload })
       .from(managedBuildLogs)
       .where(
         and(
           eq(managedBuildLogs.subscriptionId, subscriptionId),
-          eq(managedBuildLogs.step, 'generate_script'),
-          eq(managedBuildLogs.level, 'success')
+          eq(managedBuildLogs.step, 'generate_script')
         )
-      ));
+      )
+      .orderBy(desc(managedBuildLogs.createdAt)));
 
-    return new Set(
-      logs
-        .map((l) => {
-          if (!l.payload) return null;
-          try {
-            const p = JSON.parse(l.payload) as {
-              sourceUrl?: string;
-              initialItems?: GeneratedSource['initialItems'];
-              unverified?: boolean;
-            };
-            return p.sourceUrl && !p.unverified && isReusableGeneratedSample(p.initialItems, criteria)
-              ? p.sourceUrl
-              : null;
-          } catch {
-            return null;
-          }
-        })
-        .filter((u): u is string => u !== null)
-    );
+    const sourceByUrl = new Map(sourcesToCheck.map((source) => [source.url, source]));
+    const seenTerminalUrls = new Set<string>();
+    const completedUrls = new Set<string>();
+    for (const log of logs) {
+      if ((log.level !== 'success' && log.level !== 'error') || !log.payload) continue;
+      try {
+        const payload = JSON.parse(log.payload) as GenerationSuccessPayload;
+        const source = payload.sourceUrl ? sourceByUrl.get(payload.sourceUrl) : undefined;
+        if (!source || seenTerminalUrls.has(source.url)) continue;
+        seenTerminalUrls.add(source.url);
+        if (
+          log.level === 'success'
+          && restoreGeneratedSourceFromSuccessPayload(source, payload, criteria)
+        ) {
+          completedUrls.add(source.url);
+        }
+      } catch {
+        // Malformed logs are never reusable.
+      }
+    }
+    return completedUrls;
   } catch {
     return new Set();
   }
@@ -657,27 +701,18 @@ async function getSourceResultFromLogs(
           eq(managedBuildLogs.subscriptionId, subscriptionId),
           eq(managedBuildLogs.step, 'generate_script'),
         )
-      ));
+      )
+      .orderBy(desc(managedBuildLogs.createdAt)));
 
     // Find the latest success or error log for this source
-    for (let i = logs.length - 1; i >= 0; i--) {
-      const log = logs[i];
+    for (const log of logs) {
       if (!log.payload) continue;
       try {
-        const p = JSON.parse(log.payload) as { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: unknown[]; unverified?: boolean };
+        const p = JSON.parse(log.payload) as GenerationSuccessPayload;
         if (p.sourceUrl !== source.url) continue;
 
-        const initialItems = (p.initialItems as GeneratedSource['initialItems']) ?? [];
-        if (log.level === 'success' && p.script && !p.unverified && isReusableGeneratedSample(initialItems, criteria)) {
-          return {
-            title: source.title,
-            url: source.url,
-            description: source.description,
-            script: p.script,
-            cronExpression: p.cronExpression ?? '0 * * * *',
-            initialItems,
-            isEnabled: true,
-          };
+        if (log.level === 'success') {
+          return restoreGeneratedSourceFromSuccessPayload(source, p, criteria);
         } else if (log.level === 'error') {
           return {
             title: source.title,
@@ -688,6 +723,10 @@ async function getSourceResultFromLogs(
             initialItems: [],
             isEnabled: false,
             failedReason: '生成失败',
+            collectionMode: source.collectionMode,
+            searchPlan: source.searchPlan,
+            collectorConfigJson: source.collectorConfigJson,
+            discoveryVersion: source.discoveryVersion,
           };
         }
       } catch { /* ignore parse errors */ }
@@ -734,7 +773,7 @@ export async function runManagedPipeline(
       ? []
       : initialAllFoundSources ?? initialFoundSources ?? [];
     const reusableInitialGeneratedSources = (initialGeneratedSources ?? []).filter((source) =>
-      isReusableGeneratedSample(source.initialItems, criteria)
+      isReusableGeneratedSource(source, criteria)
     );
     let generatedSources: GeneratedSource[] = reusableInitialGeneratedSources;
 
@@ -902,7 +941,6 @@ export async function runManagedPipeline(
           writeLog(subscriptionId, 'generate_script', 'info', `开始为 ${pendingSources.length} 个数据源生成脚本...`);
         }
 
-        const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
         const limit = pLimit(5);
 
         const pipelineTasks = sourcesToProcess
@@ -912,14 +950,14 @@ export async function runManagedPipeline(
               if (await isCancelled(subscriptionId)) return;
 
               const key = `${subscriptionId}:${source.url}`;
+              const needsScript = requiresScriptGeneration(source);
 
               // Check if a task is already running for this source (from manual step)
-              if (sourceAbortControllers.has(key)) {
-                writeLog(subscriptionId, 'generate_script', 'info', `等待 "${source.title}" 已有任务完成...`, { sourceUrl: source.url });
+              if (needsScript && sourceAbortControllers.has(key)) {
+                await writeLog(subscriptionId, 'generate_script', 'info', `等待 "${source.title}" 已有任务完成...`, { sourceUrl: source.url });
                 const result = await waitForSourceResult(subscriptionId, source, criteria);
                 if (result) {
                   generatedSources.push(result);
-                  updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
                 }
                 return;
               }
@@ -928,113 +966,61 @@ export async function runManagedPipeline(
               const existingResult = await getSourceResultFromLogs(subscriptionId, source, criteria);
               if (existingResult) {
                 generatedSources.push(existingResult);
-                updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
                 return;
               }
 
-              const signal = registerSourceAbort(subscriptionId, source.url);
+              const signal = needsScript
+                ? registerSourceAbort(subscriptionId, source.url)
+                : undefined;
+              await writeLog(
+                subscriptionId,
+                'generate_script',
+                'info',
+                needsScript
+                  ? `正在为 "${source.title}" 生成脚本...`
+                  : `正在确认 "${source.title}" 的内置采集方案...`,
+                { sourceUrl: source.url },
+              );
 
-              writeLog(subscriptionId, 'generate_script', 'info', `正在为 "${source.title}" 生成脚本...`, { sourceUrl: source.url });
-
-              try {
-                const result = await generateScriptAgent(
-                  {
-                    title: source.title,
-                    url: source.url,
-                    description: source.description,
-                    criteria,
-                  },
-                  (msg: string) => {
-                    if (abortedSourceKeys.has(`${subscriptionId}:${source.url}`)) return;
-                    writeLog(subscriptionId, 'generate_script', 'progress', `[${source.title}] ${msg}`, { sourceUrl: source.url });
-                  },
-                  (info) => upsertLLMCall(subscriptionId, { ...info, sourceUrl: source.url }),
-                  userId,
-                  signal
-                );
-
-                unregisterSourceAbort(subscriptionId, source.url);
-
-                if (await isCancelled(subscriptionId)) return;
-
-                if (result.success && result.script) {
-                  const genSource: GeneratedSource = {
-                    title: source.title,
-                    url: source.url,
-                    description: source.description,
-                    script: result.script,
-                    cronExpression: result.cronExpression ?? '0 * * * *',
-                    initialItems: result.initialItems ?? [],
-                    isEnabled: true,
-                  };
-                  generatedSources.push(genSource);
-                  // Persist each completed source into wizardStateJson
-                  updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
-                  writeLog(
-                    subscriptionId,
-                    'generate_script',
-                    'success',
-                    `"${source.title}" 脚本生成成功，采集到 ${result.initialItems?.length ?? 0} 条数据`,
-                    { sourceUrl: source.url, script: result.script, cronExpression: result.cronExpression, initialItems: result.initialItems ?? [] }
+              const [outcome] = await runHybridGeneration(
+                [source],
+                criteria,
+                async () => {
+                  const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
+                  return generateScriptAgent(
+                    {
+                      title: source.title,
+                      url: source.url,
+                      description: source.description,
+                      criteria,
+                    },
+                    (msg: string) => {
+                      if (abortedSourceKeys.has(key)) return;
+                      writeLog(subscriptionId, 'generate_script', 'progress', `[${source.title}] ${msg}`, { sourceUrl: source.url });
+                    },
+                    (info) => upsertLLMCall(subscriptionId, { ...info, sourceUrl: source.url }),
+                    userId,
+                    signal,
                   );
-                } else if (result.sandboxUnavailable && result.script) {
-                  const genSource: GeneratedSource = {
-                    title: source.title,
-                    url: source.url,
-                    description: source.description,
-                    script: result.script,
-                    cronExpression: result.cronExpression ?? '0 * * * *',
-                    initialItems: [],
-                    isEnabled: true,
-                  };
-                  generatedSources.push(genSource);
-                  // Persist each completed source into wizardStateJson
-                  updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
-                  writeLog(subscriptionId, 'generate_script', 'success', `"${source.title}" 脚本已生成（未验证）`, {
-                    sourceUrl: source.url,
-                    script: result.script,
-                    cronExpression: result.cronExpression,
-                    initialItems: [],
-                    unverified: true,
-                  });
-                } else {
-                  const failedSource: GeneratedSource = {
-                    title: source.title,
-                    url: source.url,
-                    description: source.description,
-                    script: result.script ?? '',
-                    cronExpression: '0 * * * *',
-                    initialItems: [],
-                    isEnabled: false,
-                    failedReason: result.error ?? '未知错误',
-                  };
-                  generatedSources.push(failedSource);
-                  updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
-                  writeLog(subscriptionId, 'generate_script', 'error', `"${source.title}" 脚本生成失败：${result.error ?? '未知错误'}`, { sourceUrl: source.url, script: result.script });
-                }
-              } catch (err) {
-                unregisterSourceAbort(subscriptionId, source.url);
-                if (await isCancelled(subscriptionId)) return;
-                if (isAbortError(err)) return;
-                const msg = err instanceof Error ? err.message : String(err);
-                const failedSource: GeneratedSource = {
-                  title: source.title,
-                  url: source.url,
-                  description: source.description,
-                  script: '',
-                  cronExpression: '0 * * * *',
-                  initialItems: [],
-                  isEnabled: false,
-                  failedReason: msg,
-                };
-                generatedSources.push(failedSource);
-                updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
-                writeLog(subscriptionId, 'generate_script', 'error', `"${source.title}" 脚本生成出错：${msg}`, { sourceUrl: source.url });
-              }
+                },
+              );
+
+              if (signal) unregisterSourceAbort(subscriptionId, source.url);
+              if (await isCancelled(subscriptionId)) return;
+              if (abortedSourceKeys.has(key) || isAbortError(outcome.cause)) return;
+
+              generatedSources.push(outcome.generatedSource);
+              await writeGenerationOutcome(subscriptionId, outcome);
             })
           );
 
         await Promise.all(pipelineTasks);
+        const sourceOrder = new Map(sourcesToProcess.map((source, index) => [source.url, index]));
+        generatedSources.sort((left, right) => (
+          (sourceOrder.get(left.url) ?? Number.MAX_SAFE_INTEGER)
+          - (sourceOrder.get(right.url) ?? Number.MAX_SAFE_INTEGER)
+        ));
+        await updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
       }
 
       // Add skipped (unselected) sources from allFoundSources
@@ -1050,6 +1036,10 @@ export async function runManagedPipeline(
             initialItems: [],
             isEnabled: false,
             failedReason: '未生成',
+            collectionMode: src.collectionMode,
+            searchPlan: src.searchPlan,
+            collectorConfigJson: src.collectorConfigJson,
+            discoveryVersion: src.discoveryVersion,
           });
         }
       }
@@ -1069,7 +1059,7 @@ export async function runManagedPipeline(
     }
 
     // Persist final state before creating sources
-    updateWizardState(subscriptionId, {
+    await updateWizardState(subscriptionId, {
       step: 4,
       generatedSources: sourcesToCreate,
     });

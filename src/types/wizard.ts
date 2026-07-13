@@ -52,6 +52,8 @@ export interface GeneratedSource {
   failedReason?: string;
   collectionMode?: CollectionMode;
   searchPlan?: SearchPlan;
+  collectorConfigJson?: string;
+  discoveryVersion?: 1;
 }
 
 export interface WizardState {

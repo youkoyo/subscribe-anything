@@ -330,7 +330,10 @@ test('scheduler and subscription creation route every item through unified inges
 
   assert.match(creator, /\.select\(\)\.from\(subscriptions\)/);
   assert.match(creator, /collectorType:\s*srcInput\.collectionMode\s*\?\?\s*'feed_script'/);
-  assert.match(creator, /collectorConfigJson:\s*JSON\.stringify\(srcInput\.searchPlan\s*\?\?\s*\{\}\)/);
+  assert.match(
+    creator,
+    /collectorConfigJson:\s*srcInput\.collectorConfigJson\s*\?\?\s*JSON\.stringify\(srcInput\.searchPlan\s*\?\?\s*\{\}\)/,
+  );
   assert.match(creator, /ingestArticles\s*\(/);
   assert.doesNotMatch(creator, /messageCards/);
   assert.doesNotMatch(creator, /itemsCollected\s*:/);

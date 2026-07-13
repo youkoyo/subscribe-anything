@@ -1,17 +1,15 @@
-import { sseStream } from '@/lib/utils/streamResponse';
-import { generateScriptAgent } from '@/lib/ai/agents/generateScriptAgent';
 import { requireAuth } from '@/lib/auth';
+import { runHybridGeneration } from '@/lib/collection/hybridGeneration';
+import { sseStream } from '@/lib/utils/streamResponse';
+import type { FoundSource } from '@/types/wizard';
 
-export interface SourceToGenerate {
-  title: string;
-  url: string;
-  description: string;
+export interface SourceToGenerate extends FoundSource {
   userPrompt?: string;
 }
 
 // POST /api/wizard/generate-scripts — SSE stream
 // Body: { sources: SourceToGenerate[], criteria?: string }
-// Emits: { type: 'source_progress', sourceIndex, status, script?, items?, error? }
+// Built-in collectors finish from validated discovery data; only feed_script calls the LLM.
 export async function POST(req: Request) {
   try {
     const session = await requireAuth();
@@ -23,63 +21,50 @@ export async function POST(req: Request) {
     }
 
     return sseStream(async (emit) => {
-      // Kick off all sources in parallel; each one streams progress events independently
-      await Promise.all(
-        sources.map(async (source, i) => {
-          emit({ type: 'source_progress', sourceIndex: i, status: 'generating', message: 'AI 正在分析数据源...' });
-
-          try {
-            const result = await generateScriptAgent(
-              {
-                ...source,
-                criteria: criteria?.trim() || undefined,
-                userPrompt: source.userPrompt?.trim() || undefined,
-              },
-              (message) => {
-                emit({ type: 'source_progress', sourceIndex: i, status: 'generating', message });
-              },
-              (info) => {
-                emit({ type: 'source_progress', sourceIndex: i, status: 'llm_call', llmCall: info });
-              },
-              session.userId
-            );
-
-            if (result.success) {
-              emit({
-                type: 'source_progress',
-                sourceIndex: i,
-                status: 'success',
-                script: result.script,
-                cronExpression: result.cronExpression,
-                items: result.initialItems,
-              });
-            } else if (result.sandboxUnavailable) {
-              emit({
-                type: 'source_progress',
-                sourceIndex: i,
-                status: 'unverified',
-                script: result.script,
-                cronExpression: result.cronExpression,
-                items: [],
-              });
-            } else {
-              emit({
-                type: 'source_progress',
-                sourceIndex: i,
-                status: 'failed',
-                script: result.script,
-                error: result.error,
-              });
-            }
-          } catch (err) {
+      await runHybridGeneration(
+        sources,
+        criteria?.trim() || undefined,
+        async (source, sourceIndex) => {
+          const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
+          emit({
+            type: 'source_progress',
+            sourceIndex,
+            status: 'generating',
+            message: 'AI 正在分析数据源...',
+          });
+          return generateScriptAgent(
+            {
+              ...source,
+              criteria: criteria?.trim() || undefined,
+              userPrompt: sources[sourceIndex].userPrompt?.trim() || undefined,
+            },
+            (message) => {
+              emit({ type: 'source_progress', sourceIndex, status: 'generating', message });
+            },
+            (info) => {
+              emit({ type: 'source_progress', sourceIndex, status: 'llm_call', llmCall: info });
+            },
+            session.userId,
+          );
+        },
+        {
+          onOutcome: (outcome) => {
+            const generated = outcome.generatedSource;
             emit({
               type: 'source_progress',
-              sourceIndex: i,
-              status: 'failed',
-              error: err instanceof Error ? err.message : String(err),
+              sourceIndex: outcome.sourceIndex,
+              status: outcome.status,
+              ...(generated.script ? { script: generated.script } : {}),
+              cronExpression: generated.cronExpression,
+              items: generated.initialItems,
+              collectionMode: generated.collectionMode,
+              searchPlan: generated.searchPlan,
+              collectorConfigJson: generated.collectorConfigJson,
+              discoveryVersion: generated.discoveryVersion,
+              ...(outcome.error ? { error: outcome.error } : {}),
             });
-          }
-        })
+          },
+        },
       );
 
       emit({ type: 'done' });

@@ -29,6 +29,8 @@ export interface SourceInput {
   initialItems?: CollectedItem[];
   collectionMode?: CollectionMode;
   searchPlan?: SearchPlan;
+  collectorConfigJson?: string;
+  discoveryVersion?: 1;
   /** If set, the source failed script generation — stored as lastError, status='failed' */
   failedReason?: string;
 }
@@ -85,7 +87,7 @@ export async function createSourcesForSubscriptionWithDependencies(
         url: srcInput.url,
         script: srcInput.script,
         collectorType: srcInput.collectionMode ?? 'feed_script',
-        collectorConfigJson: JSON.stringify(srcInput.searchPlan ?? {}),
+        collectorConfigJson: srcInput.collectorConfigJson ?? JSON.stringify(srcInput.searchPlan ?? {}),
         cronExpression: srcInput.cronExpression ?? '0 * * * *',
         isEnabled: isFailed ? false : srcInput.isEnabled !== false,
         status: isFailed ? 'failed' : 'active',
