@@ -24,7 +24,6 @@ import {
   requiresScriptGeneration,
   restoreGeneratedSourceFromSuccessPayload,
   runHybridGeneration,
-  type GenerationSuccessPayload,
   type HybridGenerationOutcome,
 } from '@/lib/collection/hybridGeneration';
 import { buildMonitoringIntent } from '@/lib/search/queryPlan';
