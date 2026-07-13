@@ -168,6 +168,22 @@ test('invalid or stale built-in collectors fail closed and never fall back to sc
   assert.equal(scriptCalls, 0);
   assert.equal(outcome.status, 'failed');
 
+  const malformedConfig = {
+    ...searchSource('malformed-config'),
+    collectorConfigJson: '{}',
+  };
+  const [malformedOutcome] = await runHybridGeneration(
+    [malformedConfig],
+    undefined,
+    async () => {
+      scriptCalls += 1;
+      return { success: true, script: 'should not run' };
+    },
+    { now: NOW },
+  );
+  assert.equal(scriptCalls, 0);
+  assert.equal(malformedOutcome.status, 'failed');
+
   const validSearch = searchSource('stale');
   const staleItems = validSearch.initialItems!.map((item) => ({
     ...item,

@@ -1,4 +1,6 @@
 import { isReusableGeneratedSample } from '@/lib/ai/agents/sourceSampleQuality';
+import { parseJsonCollectorConfig } from '@/lib/collection/collectors/jsonSourceCollector';
+import { parseSearchPlanConfig } from '@/lib/collection/collectors/searchSourceCollector';
 import type { CollectedItem } from '@/lib/sandbox/contract';
 import type {
   CollectionMode,
@@ -56,10 +58,11 @@ function collectorConfigFor(source: FoundSource) {
   return JSON.stringify(source.searchPlan ?? {});
 }
 
-function validJsonCollectorConfig(value: string) {
+function hasValidCollectorConfig(source: FoundSource, configJson: string) {
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return !!parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+    if (source.collectionMode === 'search') parseSearchPlanConfig(configJson);
+    if (source.collectionMode === 'json') parseJsonCollectorConfig(configJson, source.url);
+    return true;
   } catch {
     return false;
   }
@@ -77,7 +80,7 @@ export function createValidatedCollectorGeneratedSource(
   if (source.collectionMode === 'search' && !source.searchPlan?.queries?.length) return null;
 
   const collectorConfigJson = collectorConfigFor(source);
-  if (source.collectionMode === 'json' && !validJsonCollectorConfig(collectorConfigJson)) return null;
+  if (!hasValidCollectorConfig(source, collectorConfigJson)) return null;
 
   return {
     title: source.title,
