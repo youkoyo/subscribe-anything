@@ -81,7 +81,7 @@ function articleLikeUrl(value: string, baseUrl: string) {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
 
   const base = new URL(baseUrl);
-  if (url.hostname.toLowerCase() !== base.hostname.toLowerCase()) return undefined;
+  if (url.origin !== base.origin) return undefined;
   if (ASSET_EXTENSION.test(url.pathname)) return undefined;
   const segments = url.pathname.split('/').filter(Boolean);
   if (segments.length === 0) return undefined;
@@ -90,17 +90,17 @@ function articleLikeUrl(value: string, baseUrl: string) {
   return url.toString();
 }
 
-function normalizedHostname(value: string) {
+function normalizedOrigin(value: string) {
   try {
-    return new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+    return new URL(value).origin;
   } catch {
     return '';
   }
 }
 
-function sameListHostname(value: string, listUrl: string) {
-  const hostname = normalizedHostname(value);
-  return !!hostname && hostname === normalizedHostname(listUrl);
+function sameListOrigin(value: string, listUrl: string) {
+  const origin = normalizedOrigin(value);
+  return !!origin && origin === normalizedOrigin(listUrl);
 }
 
 function isArticleDocument(html: string) {
@@ -112,6 +112,41 @@ function isArticleDocument(html: string) {
 
 function isExplicitListDocument(html: string) {
   return /["']@type["']\s*:\s*["'](?:ItemList|CollectionPage)["']/i.test(html);
+}
+
+function classFromAttributes(attributes: string) {
+  const match = attributes.match(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? '';
+}
+
+function hasRepeatedListStructure(html: string, baseUrl: string) {
+  const content = html.replace(/<(?:aside|nav|footer)\b[^>]*>[\s\S]*?<\/(?:aside|nav|footer)\s*>/gi, ' ');
+
+  const articleBlocks = Array.from(content.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article\s*>/gi));
+  if (articleBlocks.filter((match) => extractStaticArticleLinks(match[1], baseUrl).length > 0).length >= MIN_ARTICLE_LINKS) {
+    return true;
+  }
+
+  for (const match of content.matchAll(/<(?:ul|ol)\b[^>]*>([\s\S]*?)<\/(?:ul|ol)\s*>/gi)) {
+    if (extractStaticArticleLinks(match[1], baseUrl).length >= MIN_ARTICLE_LINKS) return true;
+  }
+
+  const repeatedClasses = new Map<string, number>();
+  for (const match of content.matchAll(/<(div|section)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi)) {
+    if (extractStaticArticleLinks(match[3], baseUrl).length === 0) continue;
+    const semanticClasses = classFromAttributes(match[2])
+      .split(/\s+/)
+      .filter((name) => /(?:^|[-_])(?:article|card|entry|item|news|post|result)(?:$|[-_])/i.test(name))
+      .map((name) => name.toLowerCase())
+      .sort();
+    if (semanticClasses.length === 0) continue;
+    const key = `${match[1].toLowerCase()}:${semanticClasses.join('.')}`;
+    const count = (repeatedClasses.get(key) ?? 0) + 1;
+    if (count >= MIN_ARTICLE_LINKS) return true;
+    repeatedClasses.set(key, count);
+  }
+
+  return false;
 }
 
 export function extractStaticArticleLinks(html: string, baseUrl: string): ArticleLink[] {
@@ -150,7 +185,7 @@ export async function sampleStaticArticleList(
   const list = await fetchText(listUrl);
   if (isArticleDocument(list.text)) return [];
   const links = extractStaticArticleLinks(list.text, list.finalUrl);
-  if (links.length < MIN_ARTICLE_LINKS && !isExplicitListDocument(list.text)) return [];
+  if (!isExplicitListDocument(list.text) && !hasRepeatedListStructure(list.text, list.finalUrl)) return [];
   const candidates = new Array<ArticleCandidate | undefined>(links.length);
   let nextIndex = 0;
 
@@ -161,7 +196,7 @@ export async function sampleStaticArticleList(
       const link = links[index];
       try {
         const article = await fetchText(link.url);
-        if (!sameListHostname(article.finalUrl, list.finalUrl)) continue;
+        if (!sameListOrigin(article.finalUrl, list.finalUrl)) continue;
         candidates[index] = {
           origin: 'feed',
           url: article.finalUrl,
