@@ -78,6 +78,18 @@ test('monitoring intent converts an explicit three-week window to twenty-one day
   assert.equal(intent.freshnessDays, 21);
 });
 
+test('monitoring intent accepts a quantified week after a relative-window prefix', () => {
+  const intent = buildMonitoringIntent('鞋业动态', '关注鞋厂事故与企业经营，最近3个星期');
+
+  assert.equal(intent.freshnessDays, 21);
+});
+
+test('monitoring intent accepts a quantified week before an inner-window suffix', () => {
+  const intent = buildMonitoringIntent('鞋业动态', '关注鞋厂事故与企业经营，3个星期内');
+
+  assert.equal(intent.freshnessDays, 21);
+});
+
 test('monitoring intent converts an explicit two-month window to sixty days', () => {
   const intent = buildMonitoringIntent('鞋业动态', '关注鞋厂事故与企业经营，过去2个月');
 

@@ -43,3 +43,11 @@ Result: 17 passed, 0 failed.
 - Confirmed the existing stability, deduplication, 80-character cap, JSON serialization, dimension coverage, and no-regional-default tests remain green.
 - Confirmed `src/lib/ai/agents/sourcePreferences.ts` required no change and the unrelated untracked plan file was not edited or staged.
 - `git diff --check` completed successfully; only line-ending conversion warnings were emitted by later read-only diff commands.
+
+## Quality review follow-up: quantified week windows
+
+Quality review found that the numeric week patterns did not accept the common `个` quantifier, so `最近3个星期` and `3个星期内` fell through to the 14-day default.
+
+The regression tests were added before production changes. Running the focused command produced the expected RED result: 17 passed and 2 failed, with both new cases returning 14 instead of 21 days.
+
+The minimal production change added an optional `个` before `周|星期` in both numeric week patterns. The same focused command then produced GREEN: 19 passed and 0 failed. No Chinese-number parsing, performance changes, or source-preference changes were included.

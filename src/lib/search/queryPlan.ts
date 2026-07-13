@@ -103,8 +103,8 @@ function explicitFreshnessDays(text: string) {
     const days = Number(numeric[1]);
     if (days > 0) return days;
   }
-  const numericWeeks = text.match(/(?:最近|近|过去|前)\s*(\d{1,3})\s*(?:周|星期)/u)
-    ?? text.match(/(\d{1,3})\s*(?:周|星期)\s*内/u);
+  const numericWeeks = text.match(/(?:最近|近|过去|前)\s*(\d{1,3})\s*(?:个)?(?:周|星期)/u)
+    ?? text.match(/(\d{1,3})\s*(?:个)?(?:周|星期)\s*内/u);
   if (numericWeeks) {
     const weeks = Number(numericWeeks[1]);
     if (weeks > 0) return weeks * 7;
