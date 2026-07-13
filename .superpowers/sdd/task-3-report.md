@@ -55,3 +55,44 @@ The production-only scan for `publishedAt`/`createdAt` assignments from `now`, `
 - `.superpowers/sdd/task-3-report.md`
 
 No database, scheduler, Task 2, criteria matcher, or later-task implementation was changed. The unrelated untracked `docs/superpowers/plans/2026-07-13-local-development-setup.md` was not touched or staged.
+
+## Spec review follow-up
+
+### RED evidence
+
+Before changing production code, only `tests/articleValidator.test.ts` was modified and the following command was run:
+
+`node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+
+Result: exit 1; 27 passed and 7 failed. The failures independently reproduced:
+
+- non-ISO `Feb 30, 2026` being normalized and reported as `stale` instead of `invalid_date`;
+- `/search.html` and `/list.html` being accepted;
+- fields after the first partial JSON-LD article node being lost, including an original stale date;
+- a search-page candidate and a non-HTTP candidate bypassing validation through a valid HTML canonical URL.
+
+The positive RFC 2822 feed-date case already passed during RED, protecting that supported format while date parsing was tightened.
+
+### Follow-up decisions
+
+- JSON-LD extraction now accumulates the first usable value for each metadata field across every valid article node. It still reads only `datePublished`, never `dateModified`.
+- The candidate URL must independently pass HTTP(S) and article-page checks before HTML metadata is considered. A supplied metadata canonical URL is then independently canonicalized and checked again.
+- Page classification removes only the known `.htm`, `.html`, `.aspx`, and `.php` suffixes before exact token matching, preserving legitimate substrings such as `research` and `contactless`.
+- Publication parsing now accepts only calendar-valid ISO dates/date-times with explicit time-zone offsets and common RFC 2822 feed dates. Other year-containing strings are rejected rather than delegated to permissive JavaScript parsing.
+
+### Follow-up GREEN evidence
+
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+  - exit 0; 34 passed, 0 failed.
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts tests/searchCollector.test.ts tests/searchQueryPlan.test.ts`
+  - exit 0; 55 passed, 0 failed.
+- `node --import tsx --test tests/enterpriseCriteriaMatcher.test.ts tests/enterpriseDeliveryScoring.test.ts`
+  - exit 0; 9 passed, 0 failed.
+- `git diff --check`
+  - exit 0.
+- Production no-fallback scan
+  - `NO_PRODUCTION_FALLBACK_MATCHES`.
+
+`npx tsc --noEmit` continues to report only the two pre-existing `tests/dbConfig.test.ts` fixtures that omit `ProcessEnv.NODE_ENV`; no follow-up file appears in its output.
+
+Follow-up scope is limited to `tests/articleValidator.test.ts`, `src/lib/collection/articleMetadata.ts`, `src/lib/collection/articleValidator.ts`, and this report.

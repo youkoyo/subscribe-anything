@@ -12,6 +12,10 @@ import type {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TRACKING_PARAMETER = /^(?:utm_.*|gclid|fbclid)$/i;
+const PAGE_EXTENSION = /\.(?:html?|aspx|php)$/i;
+const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2}))?$/i;
+const RFC_2822_DATE = /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s*)?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+(GMT|UT|[+-]\d{4})$/i;
+const RFC_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const NON_ARTICLE_SEGMENTS = new Set([
   'about', 'about-us', 'archive', 'archives', 'catalog', 'categories', 'category',
   'contact', 'contact-us', 'default.aspx', 'default.html', 'find', 'home', 'homepage',
@@ -60,36 +64,81 @@ function safePathSegments(canonicalUrl: string) {
 
 function isNonArticlePage(canonicalUrl: string) {
   const segments = safePathSegments(canonicalUrl);
-  return segments.length === 0 || segments.some((segment) => NON_ARTICLE_SEGMENTS.has(segment));
+  return segments.length === 0 || segments.some((segment) => (
+    NON_ARTICLE_SEGMENTS.has(segment)
+    || NON_ARTICLE_SEGMENTS.has(segment.replace(PAGE_EXTENSION, ''))
+  ));
+}
+
+function hasValidCalendarDate(year: number, month: number, day: number) {
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  return calendarDate.getUTCFullYear() === year
+    && calendarDate.getUTCMonth() === month - 1
+    && calendarDate.getUTCDate() === day;
+}
+
+function hasValidClock(hour: number, minute: number, second: number) {
+  return hour >= 0 && hour <= 23
+    && minute >= 0 && minute <= 59
+    && second >= 0 && second <= 59;
+}
+
+function hasValidOffset(value: string) {
+  if (value === 'Z' || value.toUpperCase() === 'GMT' || value.toUpperCase() === 'UT') return true;
+  const compact = value.includes(':') ? value.slice(1).split(':') : [value.slice(1, 3), value.slice(3, 5)];
+  return Number(compact[0]) <= 23 && Number(compact[1]) <= 59;
 }
 
 function parsePublishedAt(value: string) {
-  if (!/\b\d{4}\b/.test(value)) return undefined;
-  const isoDate = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
-  if (isoDate) {
-    const year = Number(isoDate[1]);
-    const month = Number(isoDate[2]);
-    const day = Number(isoDate[3]);
-    const calendarDate = new Date(Date.UTC(year, month - 1, day));
-    if (
-      calendarDate.getUTCFullYear() !== year
-      || calendarDate.getUTCMonth() !== month - 1
-      || calendarDate.getUTCDate() !== day
-    ) {
-      return undefined;
-    }
+  const iso = value.match(ISO_DATE_TIME);
+  if (iso) {
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText, offset] = iso;
+    const calendarIsValid = hasValidCalendarDate(
+      Number(yearText),
+      Number(monthText),
+      Number(dayText),
+    );
+    const clockIsValid = hourText === undefined || hasValidClock(
+      Number(hourText),
+      Number(minuteText),
+      Number(secondText ?? 0),
+    );
+    if (!calendarIsValid || !clockIsValid || (offset && !hasValidOffset(offset))) return undefined;
+
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed : undefined;
   }
+
+  const rfc = value.match(RFC_2822_DATE);
+  if (!rfc) return undefined;
+  const [, dayText, monthText, yearText, hourText, minuteText, secondText, offset] = rfc;
+  const month = RFC_MONTHS.indexOf(monthText.toLowerCase()) + 1;
+  if (
+    !hasValidCalendarDate(Number(yearText), month, Number(dayText))
+    || !hasValidClock(Number(hourText), Number(minuteText), Number(secondText ?? 0))
+    || !hasValidOffset(offset)
+  ) {
+    return undefined;
+  }
+
   const parsed = new Date(value);
   return Number.isFinite(parsed.getTime()) ? parsed : undefined;
 }
 
 function validate(candidate: ArticleCandidate, intent: MonitoringIntent, now: Date): ArticleValidationResult {
+  const candidateUrl = canonicalizeArticleUrl(candidate.url);
+  if (!candidateUrl) return rejection('invalid_url', '文章 URL 必须是有效的 HTTP(S) 地址');
+  if (isNonArticlePage(candidateUrl)) {
+    return rejection('page_type', 'URL 指向首页、搜索页、产品页或列表页，而不是文章页');
+  }
+
   const metadata = candidate.rawHtml
     ? extractArticleMetadata(candidate.rawHtml, candidate.url)
     : {};
-  const candidateUrl = canonicalizeArticleUrl(candidate.url);
-  const canonicalUrl = canonicalizeArticleUrl(metadata.canonicalUrl) ?? candidateUrl;
-  if (!canonicalUrl) return rejection('invalid_url', '文章 URL 必须是有效的 HTTP(S) 地址');
+  const canonicalUrl = metadata.canonicalUrl
+    ? canonicalizeArticleUrl(metadata.canonicalUrl)
+    : candidateUrl;
+  if (!canonicalUrl) return rejection('invalid_url', '文章 canonical URL 必须是有效的 HTTP(S) 地址');
   if (isNonArticlePage(canonicalUrl)) {
     return rejection('page_type', 'URL 指向首页、搜索页、产品页或列表页，而不是文章页');
   }

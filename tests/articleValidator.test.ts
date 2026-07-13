@@ -105,6 +105,24 @@ test('returns a typed rejection for an invalid publication date', () => {
     validateArticleCandidate(candidate({ publishedAt: '2026-02-30T08:00:00Z' }), intent(), now),
     'invalid_date',
   );
+  assertRejected(
+    validateArticleCandidate(candidate({ publishedAt: 'Feb 30, 2026' }), intent(), now),
+    'invalid_date',
+  );
+});
+
+test('accepts a valid RFC 2822 feed publication date', () => {
+  const result = validateArticleCandidate(
+    candidate({
+      origin: 'feed',
+      publishedAt: 'Tue, 11 Mar 2025 17:00:00 GMT',
+    }),
+    intent(),
+    new Date('2025-03-12T12:00:00Z'),
+  );
+
+  assert.equal(result.accepted, true);
+  if (result.accepted) assert.equal(result.evidenceLevel, 'feed');
 });
 
 test('rejects a publication date more than 24 hours in the future', () => {
@@ -121,6 +139,8 @@ for (const [label, url] of [
   ['about page', 'https://example.com/about'],
   ['contact page', 'https://example.com/contact-us'],
   ['listing page', 'https://example.com/category/industry-news'],
+  ['search page with an HTML extension', 'https://example.com/search.html?q=鞋厂'],
+  ['listing page with an HTML extension', 'https://example.com/list.html'],
 ] as const) {
   test(`rejects a clear ${label} URL`, () => {
     assertRejected(validateArticleCandidate(candidate({ url }), intent(), now), 'page_type');
@@ -165,6 +185,68 @@ test('original HTML publication date wins over a conflicting current search date
   assertRejected(
     validateArticleCandidate(candidate({ rawHtml }), intent(), now),
     'stale',
+  );
+});
+
+test('merges usable fields across multiple JSON-LD article nodes', () => {
+  const rawHtml = `
+    <script type="application/ld+json">
+      {"@type":"NewsArticle","headline":"多节点鞋厂火灾"}
+    </script>
+    <script type="application/ld+json">
+      {"@type":"NewsArticle","datePublished":"2023-07-12T08:00:00Z"}
+    </script>
+    <script type="application/ld+json">
+      {"@type":"NewsArticle","publisher":{"name":"多节点新闻社"}}
+    </script>
+    <script type="application/ld+json">
+      {"@type":"NewsArticle","url":"/news/multi-node-fire"}
+    </script>
+  `;
+
+  assert.deepEqual(
+    extractArticleMetadata(rawHtml, 'https://example.com/source/story'),
+    {
+      canonicalUrl: 'https://example.com/news/multi-node-fire',
+      title: '多节点鞋厂火灾',
+      publisherName: '多节点新闻社',
+      publishedAt: '2023-07-12T08:00:00Z',
+    },
+  );
+});
+
+test('merged original JSON-LD date outranks a current search date', () => {
+  const rawHtml = `
+    <script type="application/ld+json">
+      {"@type":"NewsArticle","headline":"多节点鞋厂火灾"}
+    </script>
+    <script type="application/ld+json">
+      {"@type":"NewsArticle","datePublished":"2023-07-12T08:00:00Z"}
+    </script>
+  `;
+
+  assertRejected(validateArticleCandidate(candidate({ rawHtml }), intent(), now), 'stale');
+});
+
+test('rejects a candidate search URL even when HTML supplies an article canonical URL', () => {
+  const rawHtml = '<link rel="canonical" href="https://example.com/news/canonical-fire">';
+
+  assertRejected(
+    validateArticleCandidate(
+      candidate({ url: 'https://example.com/search?q=fire', rawHtml }),
+      intent(),
+      now,
+    ),
+    'page_type',
+  );
+});
+
+test('rejects a non-HTTP candidate even when HTML supplies an HTTP canonical URL', () => {
+  const rawHtml = '<link rel="canonical" href="https://example.com/news/canonical-fire">';
+
+  assertRejected(
+    validateArticleCandidate(candidate({ url: 'javascript:alert(1)', rawHtml }), intent(), now),
+    'invalid_url',
   );
 });
 

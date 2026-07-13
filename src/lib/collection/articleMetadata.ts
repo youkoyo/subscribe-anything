@@ -170,25 +170,27 @@ function extractJsonLd(html: string, pageUrl: string): ArticleMetadata {
     }
   }
 
-  for (const record of nodes) {
-    const title = nonBlankString(record.headline) ?? nonBlankString(record.name);
-    const description = nonBlankString(record.description);
-    const publisherName = extractPublisher(record.publisher);
-    const publishedAt = nonBlankString(record.datePublished);
-    const canonicalUrl = extractJsonLdUrl(record, pageUrl);
+  let canonicalUrl: string | undefined;
+  let title: string | undefined;
+  let description: string | undefined;
+  let publisherName: string | undefined;
+  let publishedAt: string | undefined;
 
-    if (title || description || publisherName || publishedAt || canonicalUrl) {
-      return {
-        ...(canonicalUrl ? { canonicalUrl } : {}),
-        ...(title ? { title } : {}),
-        ...(description ? { description } : {}),
-        ...(publisherName ? { publisherName } : {}),
-        ...(publishedAt ? { publishedAt } : {}),
-      };
-    }
+  for (const record of nodes) {
+    canonicalUrl ??= extractJsonLdUrl(record, pageUrl);
+    title ??= nonBlankString(record.headline) ?? nonBlankString(record.name);
+    description ??= nonBlankString(record.description);
+    publisherName ??= extractPublisher(record.publisher);
+    publishedAt ??= nonBlankString(record.datePublished);
   }
 
-  return {};
+  return {
+    ...(canonicalUrl ? { canonicalUrl } : {}),
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+    ...(publisherName ? { publisherName } : {}),
+    ...(publishedAt ? { publishedAt } : {}),
+  };
 }
 
 function extractTitleTag(html: string) {
