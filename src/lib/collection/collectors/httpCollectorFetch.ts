@@ -253,6 +253,7 @@ function pinnedNodeFetch(
     method: init.method ?? 'GET',
     headers,
     signal: init.signal ?? undefined,
+    agent: false as const,
     lookup: pinnedLookup(validatedAddresses),
   };
 

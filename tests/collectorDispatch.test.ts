@@ -716,6 +716,7 @@ test('non-script collectors have no static sandbox, LLM, or publication-time fal
   );
   assert.match(httpBoundary, /dependencies\.fetchFn\s*\?\?\s*pinnedNodeFetch/);
   assert.match(httpBoundary, /lookup:\s*pinnedLookup\(validatedAddresses\)/);
+  assert.match(httpBoundary, /agent:\s*false/);
   assert.match(httpBoundary, /servername:\s*isIP\(tlsServername\)\s*\?\s*undefined\s*:\s*tlsServername/);
 });
 

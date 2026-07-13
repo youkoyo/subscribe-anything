@@ -28,7 +28,7 @@ After implementing the four adapters and dispatcher, the first ten adapter tests
 - `json` supports a deliberately small configuration: `endpoint?`, `itemsPath?`, and simple point-path mappings under `fields`. `title`, `url`, and `publishedAt` mappings are required. Invalid JSON, unsafe paths, non-array items, and HTTP failures fail explicitly; an empty array is healthy.
 - `feed_script` is the only adapter that dynamically loads and invokes the sandbox runner. Thrown errors, `success: false`, and empty output all fail so the existing retry behavior remains active.
 - Unknown collector types fail explicitly and never fall back to JavaScript.
-- RSS and JSON share a guarded HTTP boundary: one 15-second deadline across DNS/connect/body, manual revalidation of every redirect, DNS and literal-address rejection for credentials/private/loopback/link-local targets, and streaming response reads that cancel immediately above 5 MB. The Node HTTP/HTTPS connection lookup is pinned to the exact validated address set while retaining the original Host and TLS SNI, closing the DNS-check/connection rebinding gap.
+- RSS and JSON share a guarded HTTP boundary: one 15-second deadline across DNS/connect/body, manual revalidation of every redirect, DNS and literal-address rejection for credentials/private/loopback/link-local targets, and streaming response reads that cancel immediately above 5 MB. The Node HTTP/HTTPS connection lookup is pinned to the exact validated address set while retaining the original Host and TLS SNI. Collector requests disable the global keep-alive agent so an existing pooled socket cannot bypass that lookup.
 
 ## Scheduler Wiring
 
@@ -50,6 +50,8 @@ Initial result: 103 tests passed, 0 failed.
 Independent specification and quality review then identified strict-date evidence selection, runtime query-budget validation, Atom `updated` misuse, Atom href entity decoding, bounded streaming, URL safety, missing-date regression coverage, endpoint override coverage, and explicit optional-config typing. Review RED added eight subtests: the focused suite returned 13 passing and 7 failing. After those fixes, the collector suite passed 20/20 and the complete focused regression passed 111/111.
 
 Targeted quality re-review found that validation and the global `fetch` connection still performed separate DNS lookups, and that DNS waiting was outside the request deadline. Two additional RED tests failed as expected. The final connection uses a pinned Node lookup with Host/SNI preservation, and DNS resolution is raced against the same abort deadline with late rejection handlers attached. The collector suite then passed 22/22 and the complete focused regression passed 113/113. A direct pinned HTTPS probe also completed successfully.
+
+The final narrow review identified Node's default keep-alive agent as another possible bypass because a pooled same-origin socket can skip a new lookup. A source-boundary RED test failed, then passed after collector requests set `agent: false`, forcing every request and redirect to create a fresh connection through the validated lookup.
 
 - `npm run build` passed, including the Next.js production build and server TypeScript/alias build.
 - `npx tsc --noEmit --pretty false --incremental false` reports only the two known pre-existing `tests/dbConfig.test.ts` missing-`NODE_ENV` errors at lines 6 and 20; it reports no Task 6 diagnostics.
