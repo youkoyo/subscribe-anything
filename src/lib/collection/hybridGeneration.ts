@@ -53,6 +53,21 @@ export function requiresScriptGeneration(source: Pick<FoundSource, 'collectionMo
   return (source.collectionMode ?? 'feed_script') === 'feed_script';
 }
 
+export function canRetrySourceGeneration(
+  sourceUrl: string,
+  canonicalSource: FoundSource | undefined,
+  hasWizardState: boolean,
+) {
+  if (canonicalSource) return requiresScriptGeneration(canonicalSource);
+  try {
+    const protocol = new URL(sourceUrl).protocol;
+    if (protocol !== 'http:' && protocol !== 'https:') return false;
+  } catch {
+    return false;
+  }
+  return !hasWizardState;
+}
+
 function collectorConfigFor(source: FoundSource) {
   if (source.collectorConfigJson?.trim()) return source.collectorConfigJson;
   return JSON.stringify(source.searchPlan ?? {});

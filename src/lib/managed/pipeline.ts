@@ -4,7 +4,7 @@
  * Runs asynchronously (fire-and-forget) after creating a placeholder subscription.
  * Phases:
  *   1. find_sources  — call findSourcesAgent (only if startStep === 'find_sources')
- *   2. generate_script — call generateScriptAgent for each selected source
+ *   2. generate_script — materialize built-in collectors and generate only feed scripts
  *   3. complete      — call createSourcesForSubscription, mark subscription active
  */
 
@@ -265,7 +265,7 @@ export async function runFindSourcesStep(
 /**
  * Run the generate_scripts step for a subscription.
  * Skips sources that already have a success log.
- * Runs all sources in parallel (up to 5 concurrent).
+ * Materializes validated built-in collectors and runs feed scripts in parallel (up to 5 concurrent).
  * Writes logs to DB; runs to completion unless subscription is deleted or source is aborted.
  */
 export async function runGenerateScriptsStep(

@@ -111,6 +111,10 @@ export default function Step4Confirm({
       isEnabled: s.isEnabled,
       initialItems: s.failedReason ? [] : s.initialItems,
       failedReason: s.failedReason,
+      collectionMode: s.collectionMode,
+      searchPlan: s.searchPlan,
+      collectorConfigJson: s.collectorConfigJson,
+      discoveryVersion: s.discoveryVersion,
     }));
 
     try {

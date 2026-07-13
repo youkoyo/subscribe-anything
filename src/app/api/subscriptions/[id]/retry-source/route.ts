@@ -4,7 +4,7 @@ import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
 import { deleteSourceLogs, retryGenerateSourceStep } from '@/lib/managed/pipeline';
 import { clearSourceLLMCalls } from '@/lib/managed/llmCallStore';
-import { requiresScriptGeneration } from '@/lib/collection/hybridGeneration';
+import { canRetrySourceGeneration } from '@/lib/collection/hybridGeneration';
 import type { FoundSource } from '@/types/wizard';
 
 // In-memory set to prevent duplicate concurrent retries per source
@@ -52,9 +52,9 @@ export async function POST(
       }
     }
 
-    if (canonicalSource && !requiresScriptGeneration(canonicalSource)) {
+    if (!canRetrySourceGeneration(sourceUrl, canonicalSource, !!sub.wizardStateJson)) {
       return Response.json(
-        { error: 'Built-in collectors do not generate or retry JavaScript' },
+        { error: 'Only a validated feed_script source can retry JavaScript generation' },
         { status: 409 },
       );
     }

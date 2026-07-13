@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
+  canRetrySourceGeneration,
   generationLogFromOutcome,
   isReusableGeneratedSource,
   restoreGeneratedSourceFromSuccessPayload,
@@ -226,24 +227,37 @@ test('a legacy source with no collection mode remains a feed_script source', asy
   assert.ok(outcome.generatedSource.script);
 });
 
+test('retry authorization rejects built-in and unknown wizard sources without breaking legacy feeds', () => {
+  const search = searchSource('retry');
+  assert.equal(canRetrySourceGeneration(search.url, search, true), false);
+  assert.equal(canRetrySourceGeneration(search.url, undefined, false), false);
+  assert.equal(canRetrySourceGeneration('https://unknown.example.com/feed', undefined, true), false);
+  assert.equal(canRetrySourceGeneration('https://legacy.example.com/feed', undefined, false), true);
+});
+
 test('manual, managed, retry, and persistence paths are wired to mode-aware generation', async () => {
-  const [manualRoute, pipeline, retryRoute, creator, step3] = await Promise.all([
+  const [manualRoute, pipeline, retryRoute, creator, step3, step4] = await Promise.all([
     readFile('src/app/api/wizard/generate-scripts/route.ts', 'utf8'),
     readFile('src/lib/managed/pipeline.ts', 'utf8'),
     readFile('src/app/api/subscriptions/[id]/retry-source/route.ts', 'utf8'),
     readFile('src/lib/subscriptionCreator.ts', 'utf8'),
     readFile('src/components/wizard/Step3ScriptGen.tsx', 'utf8'),
+    readFile('src/components/wizard/Step4Confirm.tsx', 'utf8'),
   ]);
 
   assert.match(manualRoute, /runHybridGeneration\s*\(/);
   assert.ok((pipeline.match(/runHybridGeneration\s*\(/g) ?? []).length >= 2);
   assert.match(pipeline, /restoreGeneratedSourceFromSuccessPayload\s*\(/);
-  assert.match(retryRoute, /requiresScriptGeneration\s*\(/);
+  assert.match(retryRoute, /canRetrySourceGeneration\s*\(/);
   assert.ok(
-    retryRoute.indexOf('requiresScriptGeneration(canonicalSource)')
+    retryRoute.indexOf('canRetrySourceGeneration(sourceUrl, canonicalSource')
     < retryRoute.indexOf('await deleteSourceLogs'),
   );
   assert.match(creator, /collectorConfigJson:\s*srcInput\.collectorConfigJson\s*\?\?/);
   assert.match(step3, /collectorConfigJson:\s*source\.collectorConfigJson/);
   assert.match(step3, /source\.collectionMode\s*\?\?\s*'feed_script'/);
+  assert.match(step4, /collectionMode:\s*s\.collectionMode/);
+  assert.match(step4, /searchPlan:\s*s\.searchPlan/);
+  assert.match(step4, /collectorConfigJson:\s*s\.collectorConfigJson/);
+  assert.match(step4, /discoveryVersion:\s*s\.discoveryVersion/);
 });
