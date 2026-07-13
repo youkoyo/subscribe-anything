@@ -96,3 +96,32 @@ The positive RFC 2822 feed-date case already passed during RED, protecting that 
 `npx tsc --noEmit` continues to report only the two pre-existing `tests/dbConfig.test.ts` fixtures that omit `ProcessEnv.NODE_ENV`; no follow-up file appears in its output.
 
 Follow-up scope is limited to `tests/articleValidator.test.ts`, `src/lib/collection/articleMetadata.ts`, `src/lib/collection/articleValidator.ts`, and this report.
+
+## RFC weekday follow-up
+
+### RED evidence
+
+Only `tests/articleValidator.test.ts` was changed before running:
+
+`node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+
+Result: exit 1; 34 passed and 1 failed. The new test proved that `Mon, 11 Mar 2025 17:00:00 GMT` was accepted even though 11 March 2025 was Tuesday. The existing valid `Tue, 11 Mar 2025 17:00:00 GMT` case continued to pass.
+
+### Decision
+
+The optional RFC 2822 weekday is now captured. When present, it is compared against the `Sun` through `Sat` weekday calculated from `Date.UTC(year, month - 1, day)`, avoiding host-time-zone effects. RFC dates without a weekday remain allowed.
+
+### GREEN evidence
+
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+  - exit 0; 35 passed, 0 failed.
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts tests/searchCollector.test.ts tests/searchQueryPlan.test.ts`
+  - exit 0; 56 passed, 0 failed.
+- `node --import tsx --test tests/enterpriseCriteriaMatcher.test.ts tests/enterpriseDeliveryScoring.test.ts`
+  - exit 0; 9 passed, 0 failed.
+- `git diff --check`
+  - exit 0.
+
+`npx tsc --noEmit` still reports only the two pre-existing `tests/dbConfig.test.ts` fixtures that omit `ProcessEnv.NODE_ENV`; neither RFC weekday follow-up file appears in its output.
+
+This follow-up changes only `src/lib/collection/articleValidator.ts`, `tests/articleValidator.test.ts`, and this report.

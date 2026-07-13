@@ -125,6 +125,20 @@ test('accepts a valid RFC 2822 feed publication date', () => {
   if (result.accepted) assert.equal(result.evidenceLevel, 'feed');
 });
 
+test('rejects an RFC 2822 date whose weekday disagrees with its calendar date', () => {
+  assertRejected(
+    validateArticleCandidate(
+      candidate({
+        origin: 'feed',
+        publishedAt: 'Mon, 11 Mar 2025 17:00:00 GMT',
+      }),
+      intent(),
+      new Date('2025-03-12T12:00:00Z'),
+    ),
+    'invalid_date',
+  );
+});
+
 test('rejects a publication date more than 24 hours in the future', () => {
   assertRejected(
     validateArticleCandidate(candidate({ publishedAt: '2026-07-14T12:00:01Z' }), intent(), now),

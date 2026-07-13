@@ -14,8 +14,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TRACKING_PARAMETER = /^(?:utm_.*|gclid|fbclid)$/i;
 const PAGE_EXTENSION = /\.(?:html?|aspx|php)$/i;
 const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2}))?$/i;
-const RFC_2822_DATE = /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s*)?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+(GMT|UT|[+-]\d{4})$/i;
+const RFC_2822_DATE = /^(?:(Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s*)?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+(GMT|UT|[+-]\d{4})$/i;
 const RFC_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const RFC_WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const NON_ARTICLE_SEGMENTS = new Set([
   'about', 'about-us', 'archive', 'archives', 'catalog', 'categories', 'category',
   'contact', 'contact-us', 'default.aspx', 'default.html', 'find', 'home', 'homepage',
@@ -83,6 +84,12 @@ function hasValidClock(hour: number, minute: number, second: number) {
     && second >= 0 && second <= 59;
 }
 
+function hasMatchingWeekday(value: string | undefined, year: number, month: number, day: number) {
+  if (!value) return true;
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return RFC_WEEKDAYS[weekday] === value.toLowerCase();
+}
+
 function hasValidOffset(value: string) {
   if (value === 'Z' || value.toUpperCase() === 'GMT' || value.toUpperCase() === 'UT') return true;
   const compact = value.includes(':') ? value.slice(1).split(':') : [value.slice(1, 3), value.slice(3, 5)];
@@ -111,10 +118,11 @@ function parsePublishedAt(value: string) {
 
   const rfc = value.match(RFC_2822_DATE);
   if (!rfc) return undefined;
-  const [, dayText, monthText, yearText, hourText, minuteText, secondText, offset] = rfc;
+  const [, weekday, dayText, monthText, yearText, hourText, minuteText, secondText, offset] = rfc;
   const month = RFC_MONTHS.indexOf(monthText.toLowerCase()) + 1;
   if (
     !hasValidCalendarDate(Number(yearText), month, Number(dayText))
+    || !hasMatchingWeekday(weekday, Number(yearText), month, Number(dayText))
     || !hasValidClock(Number(hourText), Number(minuteText), Number(secondText ?? 0))
     || !hasValidOffset(offset)
   ) {
