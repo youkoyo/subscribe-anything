@@ -23,10 +23,12 @@ After implementing the four adapters and dispatcher, the first ten adapter tests
 
 - `search` accepts the bare version-1 `SearchPlan` currently persisted by `subscriptionCreator`, executes it with the Task 2 resilient search executor, and never calls the script adapter. A partial query failure keeps successful results; an entirely failed plan fails the run; a successful zero-result plan returns an empty candidate list.
 - Search candidates retain ordered query evidence and choose explicit dated provider evidence without inventing dates or publisher names.
-- `rss` fetches and parses RSS 2.0 or Atom in-process with no LLM, active-RSS-instance database lookup, or sandbox dependency. It handles CDATA, common XML entities, RSS and Atom link/date forms, feed publisher names, a 15-second timeout, and a 5 MB response limit. Structurally valid empty feeds are healthy.
+- Search configuration is revalidated at runtime against the 16-query, 80-character, and unique-query-ID boundaries before any paid provider call. When duplicate URL evidence contains relative and absolute dates, only a date accepted by the shared strict publication-date parser can become `publishedAt`; all evidence remains attached.
+- `rss` fetches and parses RSS 2.0 or Atom in-process with no LLM, active-RSS-instance database lookup, or sandbox dependency. It handles CDATA, common XML entities (including Atom link attributes), RSS and Atom link/date forms, feed publisher names, and structurally valid empty feeds. Atom `updated` is never substituted for a missing `published` value.
 - `json` supports a deliberately small configuration: `endpoint?`, `itemsPath?`, and simple point-path mappings under `fields`. `title`, `url`, and `publishedAt` mappings are required. Invalid JSON, unsafe paths, non-array items, and HTTP failures fail explicitly; an empty array is healthy.
 - `feed_script` is the only adapter that dynamically loads and invokes the sandbox runner. Thrown errors, `success: false`, and empty output all fail so the existing retry behavior remains active.
 - Unknown collector types fail explicitly and never fall back to JavaScript.
+- RSS and JSON share a guarded HTTP boundary: a 15-second timeout, manual revalidation of every redirect, DNS and literal-address rejection for credentials/private/loopback/link-local targets, and streaming response reads that cancel immediately above 5 MB.
 
 ## Scheduler Wiring
 
@@ -43,7 +45,9 @@ Focused regression command:
 node --import tsx --test tests/collectorDispatch.test.ts tests/searchCollector.test.ts tests/searchQueryPlan.test.ts tests/articleValidator.test.ts tests/articleIngest.test.ts tests/articleIngestBoundaries.test.ts tests/searchCollectorSchema.test.ts tests/validateScriptContract.test.ts tests/scriptGenerationGuard.test.ts tests/rssRadar.test.ts tests/sourceSampleQuality.test.ts
 ```
 
-Result: 103 tests passed, 0 failed.
+Initial result: 103 tests passed, 0 failed.
+
+Independent specification and quality review then identified strict-date evidence selection, runtime query-budget validation, Atom `updated` misuse, Atom href entity decoding, bounded streaming, URL safety, missing-date regression coverage, endpoint override coverage, and explicit optional-config typing. Review RED added eight subtests: the focused suite returned 13 passing and 7 failing. After the minimal fixes, the collector suite passed 20/20 and the complete focused regression passed 111/111.
 
 - `npm run build` passed, including the Next.js production build and server TypeScript/alias build.
 - `npx tsc --noEmit --pretty false --incremental false` reports only the two known pre-existing `tests/dbConfig.test.ts` missing-`NODE_ENV` errors at lines 6 and 20; it reports no Task 6 diagnostics.
@@ -55,4 +59,5 @@ Result: 103 tests passed, 0 failed.
 - Runtime JSON authentication, pagination, transformations, and JSONPath expressions are outside Task 6.
 - Discovery and creation of validated RSS/JSON configs remain Task 7/8 work.
 - The RSS/Atom parser is intentionally bounded to common feed forms and does not attempt general XML processing.
+- The URL guard is collector-local defense in depth; unifying every historical network tool behind one process-wide egress policy remains separate hardening work.
 - The unrelated untracked local-development plan was not edited or staged.

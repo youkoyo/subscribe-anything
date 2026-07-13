@@ -1,8 +1,9 @@
 import type { ArticleCandidate, JsonValue } from '../articleTypes';
-import type { CollectorFetch } from './rssSourceCollector';
+import {
+  fetchCollectorText,
+  type CollectorHttpDependencies,
+} from './httpCollectorFetch';
 import type { CollectorSource, SourceCollector } from './types';
-
-const FETCH_TIMEOUT_MS = 15_000;
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 interface JsonFieldMappings {
@@ -19,9 +20,7 @@ interface JsonCollectorConfig {
   fields: JsonFieldMappings;
 }
 
-export interface JsonSourceCollectorDependencies {
-  fetchFn?: CollectorFetch;
-}
+export type JsonSourceCollectorDependencies = CollectorHttpDependencies;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -32,10 +31,11 @@ function nonBlankString(value: unknown) {
 }
 
 function validatePath(value: unknown, label: string, required: boolean) {
+  if (value === undefined && !required) return undefined;
   const path = nonBlankString(value);
   if (!path) {
     if (required) throw new Error(`JSON collector config requires fields.${label}`);
-    return undefined;
+    throw new Error(`JSON collector config ${label} must be a non-empty string`);
   }
   const segments = path.split('.');
   if (segments.some((segment) => !segment || UNSAFE_SEGMENTS.has(segment))) {
@@ -71,7 +71,14 @@ export function parseJsonCollectorConfig(
     throw new Error('JSON collector config requires a fields mapping');
   }
 
-  const endpoint = endpointUrl(nonBlankString(value.endpoint) ?? sourceUrl);
+  let configuredEndpoint: string | undefined;
+  if (value.endpoint !== undefined) {
+    configuredEndpoint = nonBlankString(value.endpoint);
+    if (!configuredEndpoint || typeof value.endpoint !== 'string') {
+      throw new Error('JSON collector endpoint must be a non-empty string');
+    }
+  }
+  const endpoint = endpointUrl(configuredEndpoint ?? sourceUrl);
   const itemsPath = value.itemsPath === undefined
     ? undefined
     : validatePath(value.itemsPath, 'itemsPath', false);
@@ -132,32 +139,25 @@ function candidate(item: unknown, fields: JsonFieldMappings): ArticleCandidate {
   };
 }
 
-async function fetchJson(fetchFn: CollectorFetch, endpoint: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const result = await fetchFn(endpoint, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'SubscribeAnything/1.0; runtime JSON collector',
-      },
-    });
-    if (!result.ok) throw new Error(`JSON fetch failed (${result.status} ${result.statusText})`);
-    return await result.json() as unknown;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export function createJsonSourceCollector(
   dependencies: JsonSourceCollectorDependencies = {},
 ): SourceCollector {
-  const fetchFn = dependencies.fetchFn ?? fetch;
   return {
     async collectCandidates(source: CollectorSource) {
       const config = parseJsonCollectorConfig(source.collectorConfigJson, source.url);
-      const document = await fetchJson(fetchFn, config.endpoint);
+      const response = await fetchCollectorText(config.endpoint, dependencies, {
+        label: 'JSON',
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'SubscribeAnything/1.0; runtime JSON collector',
+        },
+      });
+      let document: unknown;
+      try {
+        document = JSON.parse(response.text);
+      } catch {
+        throw new Error('JSON collector response must contain valid JSON');
+      }
       const items = getPath(document, config.itemsPath);
       if (!Array.isArray(items)) {
         throw new Error('JSON collector itemsPath must resolve to an array');

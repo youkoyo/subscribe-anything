@@ -1,17 +1,11 @@
 import type { ArticleCandidate, JsonValue } from '../articleTypes';
+import {
+  fetchCollectorText,
+  type CollectorHttpDependencies,
+} from './httpCollectorFetch';
 import type { CollectorSource, SourceCollector } from './types';
 
-const MAX_FEED_BYTES = 5 * 1024 * 1024;
-const FETCH_TIMEOUT_MS = 15_000;
-
-export type CollectorFetch = (
-  input: string,
-  init?: RequestInit,
-) => Promise<Response>;
-
-export interface RssSourceCollectorDependencies {
-  fetchFn?: CollectorFetch;
-}
+export type RssSourceCollectorDependencies = CollectorHttpDependencies;
 
 interface ParsedFeedItem {
   title: string;
@@ -78,9 +72,12 @@ function atomLink(entry: string, baseUrl: string) {
     }
     const href = attributes.get('href');
     if (!href) continue;
-    fallback ??= href;
+    const decodedHref = decodeXmlEntities(href);
+    fallback ??= decodedHref;
     const rel = attributes.get('rel');
-    if (!rel || rel.toLowerCase() === 'alternate') return resolveUrl(href, baseUrl);
+    if (!rel || rel.toLowerCase() === 'alternate') {
+      return resolveUrl(decodedHref, baseUrl);
+    }
   }
   return resolveUrl(fallback ?? extractTag(entry, ['id']), baseUrl);
 }
@@ -136,8 +133,8 @@ function parseAtom(xml: string, feedUrl: string) {
     ...(extractTag(entryXml, ['summary', 'content'])
       ? { summary: extractTag(entryXml, ['summary', 'content']) }
       : {}),
-    ...(extractTag(entryXml, ['published', 'updated'])
-      ? { publishedAt: extractTag(entryXml, ['published', 'updated']) }
+    ...(extractTag(entryXml, ['published'])
+      ? { publishedAt: extractTag(entryXml, ['published']) }
       : {}),
     ...(publisherName ? { publisherName } : {}),
   }));
@@ -149,38 +146,19 @@ export function parseFeedXml(xml: string, feedUrl: string): ArticleCandidate[] {
   throw new Error('Response is not a valid RSS 2.0 or Atom 1.0 feed');
 }
 
-async function fetchFeed(fetchFn: CollectorFetch, url: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const result = await fetchFn(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
-        'User-Agent': 'SubscribeAnything/1.0; runtime feed collector',
-      },
-    });
-    if (!result.ok) throw new Error(`RSS fetch failed (${result.status} ${result.statusText})`);
-    const contentLength = Number(result.headers.get('content-length') ?? 0);
-    if (contentLength > MAX_FEED_BYTES) throw new Error('RSS response exceeds 5 MB');
-    const xml = await result.text();
-    if (Buffer.byteLength(xml, 'utf8') > MAX_FEED_BYTES) {
-      throw new Error('RSS response exceeds 5 MB');
-    }
-    return xml;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export function createRssSourceCollector(
   dependencies: RssSourceCollectorDependencies = {},
 ): SourceCollector {
-  const fetchFn = dependencies.fetchFn ?? fetch;
   return {
     async collectCandidates(source: CollectorSource) {
-      const xml = await fetchFeed(fetchFn, source.url);
-      return parseFeedXml(xml, source.url);
+      const response = await fetchCollectorText(source.url, dependencies, {
+        label: 'RSS',
+        headers: {
+          Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+          'User-Agent': 'SubscribeAnything/1.0; runtime feed collector',
+        },
+      });
+      return parseFeedXml(response.text, response.finalUrl);
     },
   };
 }

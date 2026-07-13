@@ -1,5 +1,6 @@
 import { webSearch } from '@/lib/ai/tools/webSearch';
 import type { ArticleCandidate, ArticleQueryEvidence } from '../articleTypes';
+import { parseStrictPublicationDate } from '../articleValidator';
 import {
   executeSearchPlan,
   type SearchCandidate,
@@ -19,6 +20,8 @@ const QUERY_CATEGORIES = new Set<SearchPlanQueryCategory>([
   'region',
   'required_source',
 ]);
+const MAX_ENABLED_QUERIES = 16;
+const MAX_QUERY_LENGTH = 80;
 
 export interface SearchSourceCollectorDependencies {
   searchFn?: SearchFunction;
@@ -44,9 +47,14 @@ function parseQuery(value: unknown, index: number): SearchPlanQuery {
     throw new Error(`Search collector query ${index + 1} is invalid`);
   }
 
+  const query = value.query.trim();
+  if (query.length > MAX_QUERY_LENGTH) {
+    throw new Error(`Search collector query ${index + 1} may not exceed 80 characters`);
+  }
+
   return {
     id: value.id.trim(),
-    query: value.query.trim(),
+    query,
     category: value.category as SearchPlanQueryCategory,
     enabled: true,
   };
@@ -72,9 +80,19 @@ export function parseSearchPlanConfig(configJson: string): SearchPlan {
     throw new Error('Search collector config must contain a valid version 1 SearchPlan');
   }
 
+  if (value.queries.length > MAX_ENABLED_QUERIES) {
+    throw new Error('Search collector supports at most 16 enabled queries');
+  }
   const queries = value.queries.map(parseQuery);
   if (queries.length === 0) {
     throw new Error('Search collector requires at least one enabled search query');
+  }
+  const queryIds = new Set<string>();
+  for (const query of queries) {
+    if (queryIds.has(query.id)) {
+      throw new Error(`Search collector contains duplicate query ID: ${query.id}`);
+    }
+    queryIds.add(query.id);
   }
 
   return {
@@ -106,15 +124,22 @@ function queryEvidence(candidate: SearchCandidate): ArticleQueryEvidence[] {
 }
 
 function toArticleCandidate(candidate: SearchCandidate): ArticleCandidate {
-  const primary = candidate.evidence.find((item) => nonBlank(item.publishedAt))
-    ?? candidate.evidence[0];
+  const datedPrimary = candidate.evidence.find((item) => {
+    const publishedAt = nonBlank(item.publishedAt);
+    return publishedAt !== undefined
+      && parseStrictPublicationDate(publishedAt) !== undefined;
+  });
+  const primary = datedPrimary ?? candidate.evidence[0];
+  const publishedAt = datedPrimary
+    ? nonBlank(datedPrimary.publishedAt)
+    : undefined;
 
   return {
     origin: 'search',
     url: candidate.url,
     title: primary?.title ?? '',
     ...(nonBlank(primary?.snippet) ? { summary: primary?.snippet } : {}),
-    ...(nonBlank(primary?.publishedAt) ? { publishedAt: primary?.publishedAt } : {}),
+    ...(publishedAt ? { publishedAt } : {}),
     ...(nonBlank(primary?.publisherName)
       ? { publisherName: primary?.publisherName }
       : {}),
