@@ -66,3 +66,68 @@ test('does not reuse a legacy success log whose initial items are irrelevant', (
     false
   );
 });
+
+test('uses an explicit 30-day criteria window for filtering and its reason', () => {
+  const result = assessInitialItemsQuality(
+    [
+      {
+        title: '晋江鞋厂火灾事故后续通报',
+        url: 'https://example.com/twenty-day-old-fire',
+        summary: '制鞋企业已完成整改和应急处置。',
+        publishedAt: '2026-06-22T08:00:00Z',
+      },
+    ],
+    '关注最近30天鞋业安全事故',
+    now
+  );
+
+  assert.equal(result.valid, true);
+  assert.equal(result.recentMatchingCount, 1);
+  assert.match(result.reason, /30天/);
+});
+
+test('rejects a missing publication date without using collection time', () => {
+  const result = assessInitialItemsQuality(
+    [
+      {
+        title: '晋江鞋厂火灾事故后续通报',
+        url: 'https://example.com/missing-date',
+        summary: '制鞋企业已完成整改和应急处置。',
+      },
+    ],
+    '关注最近30天鞋业安全事故',
+    now
+  );
+
+  assert.equal(result.valid, false);
+  assert.equal(result.recentMatchingCount, 0);
+  assert.match(result.reason, /30天/);
+});
+
+test('allows at most 24 hours of future clock skew in source samples', () => {
+  const withinTolerance = assessInitialItemsQuality(
+    [
+      {
+        title: '晋江鞋厂火灾事故通报',
+        url: 'https://example.com/future-within-tolerance',
+        publishedAt: '2026-07-13T07:59:59Z',
+      },
+    ],
+    '关注最近30天鞋业安全事故',
+    now
+  );
+  const beyondTolerance = assessInitialItemsQuality(
+    [
+      {
+        title: '晋江鞋厂火灾事故通报',
+        url: 'https://example.com/future-beyond-tolerance',
+        publishedAt: '2026-07-13T08:00:01Z',
+      },
+    ],
+    '关注最近30天鞋业安全事故',
+    now
+  );
+
+  assert.equal(withinTolerance.valid, true);
+  assert.equal(beyondTolerance.valid, false);
+});

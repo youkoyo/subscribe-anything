@@ -11,13 +11,13 @@ export interface SourceSampleQualityResult {
   recentMatchingCount: number;
 }
 
-function isRecentPublication(value: string | undefined, now: Date) {
+function isRecentPublication(value: string | undefined, now: Date, timeWindowDays: number) {
   if (!value) return false;
   const publishedAt = new Date(value);
   if (!Number.isFinite(publishedAt.getTime())) return false;
 
   const ageMs = now.getTime() - publishedAt.getTime();
-  const maxAgeMs = DEFAULT_DELIVERY_TIME_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const maxAgeMs = timeWindowDays * 24 * 60 * 60 * 1000;
   return ageMs >= -24 * 60 * 60 * 1000 && ageMs <= maxAgeMs;
 }
 
@@ -30,42 +30,54 @@ export function assessInitialItemsQuality(
   criteria: string | undefined,
   now = new Date()
 ): SourceSampleQualityResult {
-  const recentItems = items.filter((item) => isRecentPublication(item.publishedAt, now));
   const normalizedCriteria = criteria?.trim() ?? '';
+  const parsedCriteria = normalizedCriteria ? parseDeliveryCriteria(normalizedCriteria) : null;
+  const timeWindowDays = parsedCriteria?.timeWindowDays ?? DEFAULT_DELIVERY_TIME_WINDOW_DAYS;
+  const recentItems = items.filter((item) =>
+    isRecentPublication(item.publishedAt, now, timeWindowDays)
+  );
 
   if (!normalizedCriteria) {
     return recentItems.length > 0
-      ? { valid: true, reason: '样本中包含近期内容', recentMatchingCount: recentItems.length }
+      ? {
+          valid: true,
+          reason: `样本中包含近${timeWindowDays}天内容`,
+          recentMatchingCount: recentItems.length,
+        }
       : {
           valid: false,
-          reason: `样本中没有可证明为近${DEFAULT_DELIVERY_TIME_WINDOW_DAYS}天发布的内容`,
+          reason: `样本中没有可证明为近${timeWindowDays}天发布的内容`,
           recentMatchingCount: 0,
         };
   }
 
-  const parsedCriteria = parseDeliveryCriteria(normalizedCriteria);
-  const recentMatchingCount = recentItems.filter((item) =>
-    scoreCardAgainstCriteria(
+  const recentMatchingCount = recentItems.filter((item) => {
+    if (!item.publishedAt || !parsedCriteria) return false;
+    return scoreCardAgainstCriteria(
       {
         id: item.url,
         title: item.title,
         summary: item.summary ?? null,
         sourceName: null,
         publishedAt: item.publishedAt ?? null,
-        createdAt: item.publishedAt ?? now,
+        createdAt: item.publishedAt,
       },
       parsedCriteria,
       now
-    ).matched
-  ).length;
+    ).matched;
+  }).length;
 
   if (recentMatchingCount > 0) {
-    return { valid: true, reason: '样本中包含近期且匹配订阅条件的内容', recentMatchingCount };
+    return {
+      valid: true,
+      reason: `样本中包含近${timeWindowDays}天且匹配订阅条件的内容`,
+      recentMatchingCount,
+    };
   }
 
   return {
     valid: false,
-    reason: `样本中没有近${DEFAULT_DELIVERY_TIME_WINDOW_DAYS}天且匹配「${normalizedCriteria}」的内容`,
+    reason: `样本中没有近${timeWindowDays}天且匹配「${normalizedCriteria}」的内容`,
     recentMatchingCount: 0,
   };
 }
