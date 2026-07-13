@@ -42,7 +42,26 @@ export async function createSourcesForSubscription(
   sourcesInput: SourceInput[],
   criteria?: string
 ): Promise<void> {
-  const db = getDb();
+  return createSourcesForSubscriptionWithDependencies(
+    subscriptionId,
+    sourcesInput,
+    criteria,
+    { db: getDb(), ingestArticles },
+  );
+}
+
+export interface SubscriptionCreatorDependencies {
+  db: ReturnType<typeof getDb>;
+  ingestArticles: typeof ingestArticles;
+}
+
+export async function createSourcesForSubscriptionWithDependencies(
+  subscriptionId: string,
+  sourcesInput: SourceInput[],
+  criteria: string | undefined,
+  dependencies: SubscriptionCreatorDependencies,
+): Promise<void> {
+  const { db } = dependencies;
   const now = new Date();
   const subscription = (await db.select().from(subscriptions)
     .where(eq(subscriptions.id, subscriptionId)))[0];
@@ -97,13 +116,27 @@ export async function createSourcesForSubscription(
 
     const items = srcInput.initialItems ?? [];
     const origin = source.collectorType === 'search' ? 'search' : 'feed';
-    const ingestResult = await ingestArticles({
-      db,
-      source,
-      subscription: ingestionSubscription,
-      candidates: items.map((item) => articleCandidateFromCollectedItem(item, origin)),
-      now,
-    });
+    let ingestResult: Awaited<ReturnType<typeof ingestArticles>>;
+    try {
+      ingestResult = await dependencies.ingestArticles({
+        db,
+        source,
+        subscription: ingestionSubscription,
+        candidates: items.map((item) => articleCandidateFromCollectedItem(item, origin)),
+        now,
+      });
+    } catch (error) {
+      try {
+        await db.delete(sources).where(eq(sources.id, source.id));
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `Initial article ingestion and cleanup failed for source ${source.id}`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
     const newCards = ingestResult.inserted;
 
     // Update source stats to reflect the initial validation run

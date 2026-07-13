@@ -25,7 +25,26 @@ export interface CollectResult {
 }
 
 export async function collect(sourceId: string): Promise<CollectResult> {
-  const db = getDb();
+  return collectWithDependencies(sourceId, {
+    db: getDb(),
+    runScript,
+    ingestArticles,
+    setLastResult,
+  });
+}
+
+export interface CollectorDependencies {
+  db: ReturnType<typeof getDb>;
+  runScript: typeof runScript;
+  ingestArticles: typeof ingestArticles;
+  setLastResult: typeof setLastResult;
+}
+
+export async function collectWithDependencies(
+  sourceId: string,
+  dependencies: CollectorDependencies,
+): Promise<CollectResult> {
+  const { db } = dependencies;
 
   // Load source + subscription
   const source = (await db.select().from(sources).where(eq(sources.id, sourceId)))[0];
@@ -37,13 +56,13 @@ export async function collect(sourceId: string): Promise<CollectResult> {
 
   let result: CollectResult;
   try {
-    result = await _doCollect(db, source, sourceId);
+    result = await _doCollect(db, source, sourceId, dependencies);
   } finally {
     clearCollecting(sourceId);
   }
 
   // Store result for frontend to pick up via polling
-  setLastResult(sourceId, {
+  dependencies.setLastResult(sourceId, {
     newItems: result.newItems,
     skipped: result.skipped,
     error: result.error,
@@ -59,6 +78,7 @@ async function _doCollect(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   source: any,
   sourceId: string,
+  dependencies: Pick<CollectorDependencies, 'runScript' | 'ingestArticles'>,
 ): Promise<CollectResult> {
   const subscription = (await db
     .select()
@@ -75,7 +95,7 @@ async function _doCollect(
   // ── Run script ───────────────────────────────────────────────────────────────
   let runResult: Awaited<ReturnType<typeof runScript>>;
   try {
-    runResult = await runScript(source.script);
+    runResult = await dependencies.runScript(source.script);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     await _handleFailure(db, source, subscription, errorMsg, now);
@@ -99,13 +119,20 @@ async function _doCollect(
 
   const origin = source.collectorType === 'search' ? 'search' : 'feed';
   const candidates = items.map((item) => articleCandidateFromCollectedItem(item, origin));
-  const ingestResult = await ingestArticles({
-    db,
-    source,
-    subscription,
-    candidates,
-    now,
-  });
+  let ingestResult: Awaited<ReturnType<typeof ingestArticles>>;
+  try {
+    ingestResult = await dependencies.ingestArticles({
+      db,
+      source,
+      subscription,
+      candidates,
+      now,
+    });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await _handleFailure(db, source, subscription, errorMsg, now);
+    return { newItems: 0, skipped: 0, error: errorMsg };
+  }
   const newItems = ingestResult.inserted;
   const skipped = ingestResult.rejected + ingestResult.duplicates;
 

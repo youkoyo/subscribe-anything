@@ -25,7 +25,22 @@ Final requested GREEN command:
 node --import tsx --test tests/articleIngest.test.ts tests/articleValidator.test.ts tests/searchCollectorSchema.test.ts tests/searchCollector.test.ts tests/searchQueryPlan.test.ts tests/enterpriseCriteriaMatcher.test.ts
 ```
 
-Result: 79 tests passed, 0 failed.
+Initial Task 5 result: 79 tests passed, 0 failed.
+
+## Quality Re-review Fixes
+
+- Scheduler RED: the new executable boundary test failed because `collectWithDependencies` did not exist. After adding the minimal dependency seam and ingestion error boundary, the test proved that a real `ArticleStore` rejection reaches `_handleFailure`, creates retry state, updates the source as retrying, clears collecting state, returns `{ newItems: 0, skipped: 0, error }`, and reaches `setLastResult` as a failure.
+- Creator RED: with the scheduler test still green, two creator tests failed because `createSourcesForSubscriptionWithDependencies` did not exist. The compensation implementation now deletes the just-created source and rethrows the original ingestion error unchanged. If deletion also fails, an `AggregateError` exposes both the ingestion and cleanup errors and keeps the ingestion error as `cause`.
+- The tests run the real `ingestArticles` validation/mapping pipeline with an injected rejecting `ArticleStore`; they do not merely throw from a mocked scheduler/creator call or rely on source-text assertions.
+- The original zero-item scheduler failure remains before ingestion and was not changed into Task 6 search behavior.
+
+Final quality-fix regression command:
+
+```text
+node --import tsx --test tests/articleIngestBoundaries.test.ts tests/articleIngest.test.ts tests/articleValidator.test.ts tests/searchCollectorSchema.test.ts tests/searchCollector.test.ts tests/searchQueryPlan.test.ts tests/enterpriseCriteriaMatcher.test.ts
+```
+
+Result: 82 tests passed, 0 failed.
 
 ## Validation and Mapping
 
@@ -58,3 +73,7 @@ Result: 79 tests passed, 0 failed.
 - `git diff --check` passed.
 - `npx tsc --noEmit --pretty false` reports only the known pre-existing `tests/dbConfig.test.ts` `ProcessEnv.NODE_ENV` errors at lines 6 and 20; it reports no Task 5 errors.
 - The unrelated untracked `docs/superpowers/plans/2026-07-13-local-development-setup.md` was not edited or staged.
+
+## Remaining Minor
+
+- No live-PostgreSQL rollback/conflict test was added because the focused boundary suite can exercise the real ingestion pipeline and both business error boundaries deterministically without mutating the configured database. Production transaction/conflict behavior remains covered by the Task 5 store contract and its existing transaction/returning assertions.
