@@ -29,6 +29,27 @@ export interface GenerationSuccessPayload {
   unverified?: boolean;
 }
 
+export interface StoredGenerationLog {
+  level: string;
+  payload: string | null;
+}
+
+export function latestGenerationLogForSource(
+  newestFirstLogs: StoredGenerationLog[],
+  sourceUrl: string,
+) {
+  for (const log of newestFirstLogs) {
+    if (!log.payload) continue;
+    try {
+      const payload = JSON.parse(log.payload) as GenerationSuccessPayload;
+      if (payload.sourceUrl === sourceUrl) return { level: log.level, payload };
+    } catch {
+      // Malformed historical log payloads cannot identify a source attempt.
+    }
+  }
+  return null;
+}
+
 export interface HybridGenerationOutcome {
   sourceIndex: number;
   source: FoundSource;
@@ -89,6 +110,11 @@ export function createValidatedCollectorGeneratedSource(
   now = new Date(),
 ): GeneratedSource | null {
   if (requiresScriptGeneration(source)) return null;
+  if (
+    source.collectionMode !== 'search'
+    && source.collectionMode !== 'rss'
+    && source.collectionMode !== 'json'
+  ) return null;
   if (source.discoveryVersion !== 1 || !isReusableGeneratedSample(source.initialItems, criteria, now)) {
     return null;
   }
@@ -273,9 +299,6 @@ export function restoreGeneratedSourceFromSuccessPayload(
     return createValidatedCollectorGeneratedSource({
       ...source,
       collectionMode: sourceMode,
-      searchPlan: payload.searchPlan ?? source.searchPlan,
-      collectorConfigJson: payload.collectorConfigJson ?? source.collectorConfigJson,
-      discoveryVersion: payload.discoveryVersion ?? source.discoveryVersion,
       initialItems: payload.initialItems as FoundSource['initialItems'],
     }, criteria, now);
   }

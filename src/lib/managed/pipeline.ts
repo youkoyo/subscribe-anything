@@ -20,6 +20,7 @@ import { validateArticleCandidate } from '@/lib/collection/articleValidator';
 import {
   generationLogFromOutcome,
   isReusableGeneratedSource,
+  latestGenerationLogForSource,
   requiresScriptGeneration,
   restoreGeneratedSourceFromSuccessPayload,
   runHybridGeneration,
@@ -508,24 +509,14 @@ async function getCompletedSourceUrls(
       )
       .orderBy(desc(managedBuildLogs.createdAt)));
 
-    const sourceByUrl = new Map(sourcesToCheck.map((source) => [source.url, source]));
-    const seenTerminalUrls = new Set<string>();
     const completedUrls = new Set<string>();
-    for (const log of logs) {
-      if ((log.level !== 'success' && log.level !== 'error') || !log.payload) continue;
-      try {
-        const payload = JSON.parse(log.payload) as GenerationSuccessPayload;
-        const source = payload.sourceUrl ? sourceByUrl.get(payload.sourceUrl) : undefined;
-        if (!source || seenTerminalUrls.has(source.url)) continue;
-        seenTerminalUrls.add(source.url);
-        if (
-          log.level === 'success'
-          && restoreGeneratedSourceFromSuccessPayload(source, payload, criteria)
-        ) {
-          completedUrls.add(source.url);
-        }
-      } catch {
-        // Malformed logs are never reusable.
+    for (const source of sourcesToCheck) {
+      const latest = latestGenerationLogForSource(logs, source.url);
+      if (
+        latest?.level === 'success'
+        && restoreGeneratedSourceFromSuccessPayload(source, latest.payload, criteria)
+      ) {
+        completedUrls.add(source.url);
       }
     }
     return completedUrls;
@@ -704,34 +695,25 @@ async function getSourceResultFromLogs(
       )
       .orderBy(desc(managedBuildLogs.createdAt)));
 
-    // Find the latest success or error log for this source
-    for (const log of logs) {
-      if (!log.payload) continue;
-      try {
-        const p = JSON.parse(log.payload) as GenerationSuccessPayload;
-        if (p.sourceUrl !== source.url) continue;
-
-        if (log.level === 'success') {
-          return restoreGeneratedSourceFromSuccessPayload(source, p, criteria);
-        } else if (log.level === 'error') {
-          return {
-            title: source.title,
-            url: source.url,
-            description: source.description,
-            script: p.script ?? '',
-            cronExpression: '0 * * * *',
-            initialItems: [],
-            isEnabled: false,
-            failedReason: '生成失败',
-            collectionMode: source.collectionMode,
-            searchPlan: source.searchPlan,
-            collectorConfigJson: source.collectorConfigJson,
-            discoveryVersion: source.discoveryVersion,
-          };
-        }
-      } catch { /* ignore parse errors */ }
+    const latest = latestGenerationLogForSource(logs, source.url);
+    if (latest?.level === 'success') {
+      return restoreGeneratedSourceFromSuccessPayload(source, latest.payload, criteria);
     }
-    return null;
+    if (latest?.level !== 'error') return null;
+    return {
+      title: source.title,
+      url: source.url,
+      description: source.description,
+      script: latest.payload.script ?? '',
+      cronExpression: '0 * * * *',
+      initialItems: [],
+      isEnabled: false,
+      failedReason: '生成失败',
+      collectionMode: source.collectionMode,
+      searchPlan: source.searchPlan,
+      collectorConfigJson: source.collectorConfigJson,
+      discoveryVersion: source.discoveryVersion,
+    };
   } catch {
     return null;
   }

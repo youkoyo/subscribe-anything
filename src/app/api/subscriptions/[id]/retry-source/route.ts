@@ -63,21 +63,26 @@ export async function POST(
     if (retryingSource.has(key)) {
       return Response.json({ running: true });
     }
-
-    // Clear old logs and LLM calls for this source
-    await deleteSourceLogs(id, sourceUrl);
-    clearSourceLLMCalls(id, sourceUrl);
-
-    const source: FoundSource = canonicalSource ?? {
-      title: sourceTitle,
-      url: sourceUrl,
-      description: sourceDescription ?? '',
-    };
-
     retryingSource.add(key);
-    retryGenerateSourceStep(id, source, sub.criteria ?? undefined, session.userId, userPrompt)
-      .finally(() => retryingSource.delete(key))
-      .catch(() => {});
+
+    try {
+      // Clear old logs and LLM calls only after this request owns the retry lock.
+      await deleteSourceLogs(id, sourceUrl);
+      clearSourceLLMCalls(id, sourceUrl);
+
+      const source: FoundSource = canonicalSource ?? {
+        title: sourceTitle,
+        url: sourceUrl,
+        description: sourceDescription ?? '',
+      };
+
+      retryGenerateSourceStep(id, source, sub.criteria ?? undefined, session.userId, userPrompt)
+        .finally(() => retryingSource.delete(key))
+        .catch(() => {});
+    } catch (error) {
+      retryingSource.delete(key);
+      throw error;
+    }
 
     return Response.json({ started: true }, { status: 202 });
   } catch (err) {

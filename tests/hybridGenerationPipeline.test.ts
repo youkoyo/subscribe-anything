@@ -5,6 +5,7 @@ import {
   canRetrySourceGeneration,
   generationLogFromOutcome,
   isReusableGeneratedSource,
+  latestGenerationLogForSource,
   restoreGeneratedSourceFromSuccessPayload,
   runHybridGeneration,
 } from '../src/lib/collection/hybridGeneration';
@@ -149,6 +150,28 @@ test('resume accepts a validated search success without script but rejects a scr
   assert.equal(restoredFeed, null);
 });
 
+test('resume keeps the current canonical built-in config instead of an older log config', () => {
+  const currentSearch = searchSource('current-config');
+  const oldSearch = searchSource('old-config');
+  const restored = restoreGeneratedSourceFromSuccessPayload(
+    currentSearch,
+    {
+      sourceUrl: currentSearch.url,
+      collectionMode: 'search',
+      searchPlan: oldSearch.searchPlan,
+      collectorConfigJson: oldSearch.collectorConfigJson,
+      discoveryVersion: 1,
+      initialItems: currentSearch.initialItems,
+    },
+    undefined,
+    NOW,
+  );
+
+  assert.ok(restored);
+  assert.deepEqual(restored.searchPlan, currentSearch.searchPlan);
+  assert.equal(restored.collectorConfigJson, currentSearch.collectorConfigJson);
+});
+
 test('invalid or stale built-in collectors fail closed and never fall back to script generation', async () => {
   const invalidSearch = {
     ...searchSource('invalid'),
@@ -184,6 +207,22 @@ test('invalid or stale built-in collectors fail closed and never fall back to sc
   );
   assert.equal(scriptCalls, 0);
   assert.equal(malformedOutcome.status, 'failed');
+
+  const unknownMode = {
+    ...searchSource('unknown-mode'),
+    collectionMode: 'bogus' as FoundSource['collectionMode'],
+  };
+  const [unknownOutcome] = await runHybridGeneration(
+    [unknownMode],
+    undefined,
+    async () => {
+      scriptCalls += 1;
+      return { success: true, script: 'should not run' };
+    },
+    { now: NOW },
+  );
+  assert.equal(scriptCalls, 0);
+  assert.equal(unknownOutcome.status, 'failed');
 
   const validSearch = searchSource('stale');
   const staleItems = validSearch.initialItems!.map((item) => ({
@@ -235,6 +274,23 @@ test('retry authorization rejects built-in and unknown wizard sources without br
   assert.equal(canRetrySourceGeneration('https://legacy.example.com/feed', undefined, false), true);
 });
 
+test('resume treats the newest nonterminal log as the current attempt boundary', () => {
+  const sourceUrl = 'https://feeds.example.com/resume-boundary';
+  const latest = latestGenerationLogForSource([
+    {
+      level: 'info',
+      payload: JSON.stringify({ sourceUrl }),
+    },
+    {
+      level: 'error',
+      payload: JSON.stringify({ sourceUrl }),
+    },
+  ], sourceUrl);
+
+  assert.equal(latest?.level, 'info');
+  assert.equal(latest?.payload.sourceUrl, sourceUrl);
+});
+
 test('manual, managed, retry, and persistence paths are wired to mode-aware generation', async () => {
   const [manualRoute, pipeline, retryRoute, creator, step3, step4] = await Promise.all([
     readFile('src/app/api/wizard/generate-scripts/route.ts', 'utf8'),
@@ -251,6 +307,10 @@ test('manual, managed, retry, and persistence paths are wired to mode-aware gene
   assert.match(retryRoute, /canRetrySourceGeneration\s*\(/);
   assert.ok(
     retryRoute.indexOf('canRetrySourceGeneration(sourceUrl, canonicalSource')
+    < retryRoute.indexOf('await deleteSourceLogs'),
+  );
+  assert.ok(
+    retryRoute.indexOf('retryingSource.add(key)')
     < retryRoute.indexOf('await deleteSourceLogs'),
   );
   assert.match(creator, /collectorConfigJson:\s*srcInput\.collectorConfigJson\s*\?\?/);
