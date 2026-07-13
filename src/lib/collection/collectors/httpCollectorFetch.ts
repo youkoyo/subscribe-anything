@@ -1,5 +1,11 @@
 import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import {
+  request as httpRequest,
+  type IncomingMessage,
+} from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { isIP, type LookupFunction } from 'node:net';
+import { Readable } from 'node:stream';
 import { decodeHttpText } from '@/lib/utils/httpTextDecoder';
 
 const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -10,14 +16,19 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 export type CollectorFetch = (
   input: string,
   init?: RequestInit,
+  validatedAddresses?: string[],
 ) => Promise<Response>;
 
-export type ResolveHostname = (hostname: string) => Promise<string[]>;
+export type ResolveHostname = (
+  hostname: string,
+  signal?: AbortSignal,
+) => Promise<string[]>;
 
 export interface CollectorHttpDependencies {
   fetchFn?: CollectorFetch;
   resolveHostnameFn?: ResolveHostname;
   maxResponseBytes?: number;
+  timeoutMs?: number;
 }
 
 export interface FetchCollectorTextOptions {
@@ -34,6 +45,36 @@ export interface CollectorTextResponse {
 async function defaultResolveHostname(hostname: string) {
   const addresses = await lookup(hostname, { all: true, verbatim: true });
   return addresses.map((entry) => entry.address);
+}
+
+function abortError(signal: AbortSignal) {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error('Collector request timed out');
+}
+
+function waitForResolution(
+  resolution: Promise<string[]>,
+  signal: AbortSignal,
+) {
+  if (signal.aborted) return Promise.reject(abortError(signal));
+  return new Promise<string[]>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(abortError(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    resolution.then(
+      (addresses) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(addresses);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function unsafeIpv4(address: string) {
@@ -129,7 +170,9 @@ function unsafeIpAddress(address: string) {
 async function assertSafeCollectorUrl(
   input: string,
   resolveHostnameFn: ResolveHostname,
+  signal: AbortSignal,
 ) {
+  if (signal.aborted) throw abortError(signal);
   let url: URL;
   try {
     url = new URL(input);
@@ -155,11 +198,93 @@ async function assertSafeCollectorUrl(
   }
 
   const version = isIP(hostname);
-  const addresses = version ? [hostname] : await resolveHostnameFn(hostname);
+  const addresses = version
+    ? [hostname]
+    : await waitForResolution(resolveHostnameFn(hostname, signal), signal);
   if (addresses.length === 0 || addresses.some(unsafeIpAddress)) {
     throw new Error('Unsafe collector URL: private, loopback, or link-local targets are not allowed');
   }
-  return url;
+  return { url, addresses };
+}
+
+function pinnedLookup(validatedAddresses: string[]): LookupFunction {
+  const entries = validatedAddresses.map((address) => ({
+    address,
+    family: isIP(address),
+  }));
+  const preferred = entries.find((entry) => entry.family === 4) ?? entries[0];
+
+  return (_hostname, options, callback) => {
+    if (options.all) {
+      callback(null, entries);
+      return;
+    }
+    callback(null, preferred.address, preferred.family);
+  };
+}
+
+function responseHeaders(message: IncomingMessage) {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(message.headers)) {
+    if (Array.isArray(value)) {
+      for (const item of value) headers.append(name, item);
+    } else if (value !== undefined) {
+      headers.set(name, value);
+    }
+  }
+  return headers;
+}
+
+function pinnedNodeFetch(
+  input: string,
+  init: RequestInit = {},
+  validatedAddresses: string[] = [],
+) {
+  if (validatedAddresses.length === 0) {
+    return Promise.reject(new Error('Collector request has no validated network address'));
+  }
+  const url = new URL(input);
+  const tlsServername = url.hostname.replace(/^\[|\]$/g, '');
+  const headers: Record<string, string> = {};
+  new Headers(init.headers).forEach((value, name) => {
+    headers[name] = value;
+  });
+  const requestOptions = {
+    method: init.method ?? 'GET',
+    headers,
+    signal: init.signal ?? undefined,
+    lookup: pinnedLookup(validatedAddresses),
+  };
+
+  return new Promise<Response>((resolve, reject) => {
+    const onResponse = (message: IncomingMessage) => {
+      const status = message.statusCode ?? 500;
+      const signal = init.signal ?? undefined;
+      const onAbort = () => message.destroy(signal ? abortError(signal) : undefined);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      message.once('close', () => signal?.removeEventListener('abort', onAbort));
+
+      const bodyIsForbidden = status === 204 || status === 205 || status === 304;
+      const body = bodyIsForbidden
+        ? null
+        : Readable.toWeb(message) as ReadableStream<Uint8Array>;
+      if (bodyIsForbidden) message.resume();
+      resolve(new Response(body, {
+        status,
+        statusText: message.statusMessage,
+        headers: responseHeaders(message),
+      }));
+    };
+
+    const request = url.protocol === 'https:'
+      ? httpsRequest(url, {
+        ...requestOptions,
+        servername: isIP(tlsServername) ? undefined : tlsServername,
+      }, onResponse)
+      : httpRequest(url, requestOptions, onResponse);
+    request.once('error', reject);
+    request.end();
+  });
 }
 
 async function readBoundedText(
@@ -206,24 +331,30 @@ export async function fetchCollectorText(
   dependencies: CollectorHttpDependencies,
   options: FetchCollectorTextOptions,
 ): Promise<CollectorTextResponse> {
-  const fetchFn = dependencies.fetchFn ?? fetch;
+  const fetchFn = dependencies.fetchFn ?? pinnedNodeFetch;
   const resolveHostnameFn = dependencies.resolveHostnameFn ?? defaultResolveHostname;
   const maxResponseBytes = dependencies.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  );
+  const timeoutMs = dependencies.timeoutMs
+    ?? options.timeoutMs
+    ?? DEFAULT_TIMEOUT_MS;
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`Collector request timed out after ${timeoutMs} ms`));
+  }, timeoutMs);
 
   try {
     let currentUrl = input;
     for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-      const safeUrl = await assertSafeCollectorUrl(currentUrl, resolveHostnameFn);
-      const response = await fetchFn(safeUrl.toString(), {
+      const safeTarget = await assertSafeCollectorUrl(
+        currentUrl,
+        resolveHostnameFn,
+        controller.signal,
+      );
+      const response = await fetchFn(safeTarget.url.toString(), {
         signal: controller.signal,
         headers: options.headers,
         redirect: 'manual',
-      });
+      }, safeTarget.addresses);
 
       if (REDIRECT_STATUSES.has(response.status)) {
         await response.body?.cancel();
@@ -232,7 +363,7 @@ export async function fetchCollectorText(
         }
         const location = response.headers.get('location');
         if (!location) throw new Error(`${options.label} redirect is missing a Location header`);
-        currentUrl = new URL(location, safeUrl).toString();
+        currentUrl = new URL(location, safeTarget.url).toString();
         continue;
       }
       if (!response.ok) {
@@ -242,7 +373,7 @@ export async function fetchCollectorText(
 
       return {
         text: await readBoundedText(response, options.label, maxResponseBytes),
-        finalUrl: safeUrl.toString(),
+        finalUrl: safeTarget.url.toString(),
       };
     }
     throw new Error(`${options.label} fetch exceeded ${MAX_REDIRECTS} redirects`);

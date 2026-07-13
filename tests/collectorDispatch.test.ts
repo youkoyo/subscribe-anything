@@ -644,6 +644,58 @@ test('RSS and JSON collectors reject private targets and validate every redirect
   assert.equal(dnsFetchCalls, 0);
 });
 
+test('collector HTTP requests pin the exact address set that passed DNS validation', async () => {
+  let pinnedAddresses: string[] | undefined;
+  const collector = createJsonSourceCollector({
+    async resolveHostnameFn() {
+      return ['93.184.216.34'];
+    },
+    async fetchFn(_input, _init, validatedAddresses) {
+      pinnedAddresses = validatedAddresses;
+      return new Response('[]', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  await collector.collectCandidates(source('json', {
+    url: 'https://api.example.com/news',
+    collectorConfigJson: JSON.stringify({
+      fields: { title: 'title', url: 'url', publishedAt: 'publishedAt' },
+    }),
+  }));
+
+  assert.deepEqual(pinnedAddresses, ['93.184.216.34']);
+});
+
+test('collector deadline also bounds DNS resolution without leaking a late rejection', async () => {
+  let fetchCalls = 0;
+  const collector = createJsonSourceCollector({
+    timeoutMs: 10,
+    async resolveHostnameFn() {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      throw new Error('late DNS failure after collector timeout');
+    },
+    async fetchFn() {
+      fetchCalls += 1;
+      return new Response('[]');
+    },
+  });
+
+  await assert.rejects(
+    collector.collectCandidates(source('json', {
+      url: 'https://slow-dns.example.com/news',
+      collectorConfigJson: JSON.stringify({
+        fields: { title: 'title', url: 'url', publishedAt: 'publishedAt' },
+      }),
+    })),
+    /timed out/i,
+  );
+  assert.equal(fetchCalls, 0);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+});
+
 test('non-script collectors have no static sandbox, LLM, or publication-time fallback imports', () => {
   for (const filename of [
     'searchSourceCollector.ts',
@@ -657,6 +709,14 @@ test('non-script collectors have no static sandbox, LLM, or publication-time fal
     assert.doesNotMatch(sourceText, /sandbox\/runner|generateScript|ai\/agents/);
     assert.doesNotMatch(sourceText, /publishedAt\s*:.*(?:new Date|\bnow\b)/);
   }
+
+  const httpBoundary = readFileSync(
+    new URL('../src/lib/collection/collectors/httpCollectorFetch.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(httpBoundary, /dependencies\.fetchFn\s*\?\?\s*pinnedNodeFetch/);
+  assert.match(httpBoundary, /lookup:\s*pinnedLookup\(validatedAddresses\)/);
+  assert.match(httpBoundary, /servername:\s*isIP\(tlsServername\)\s*\?\s*undefined\s*:\s*tlsServername/);
 });
 
 test('dispatcher rejects an unknown collector type without falling back to script', async () => {
