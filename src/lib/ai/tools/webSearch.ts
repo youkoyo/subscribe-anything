@@ -17,6 +17,60 @@ export interface SearchResult {
   title: string;
   url: string;
   snippet: string;
+  publishedAt?: string;
+  publisherName?: string;
+}
+
+interface TavilyResult {
+  title: string;
+  url: string;
+  content?: string;
+  published_date?: string;
+  publishedDate?: string;
+  publisher?: string;
+  source?: string;
+}
+
+interface SerperResult {
+  title: string;
+  link: string;
+  snippet?: string;
+  date?: string;
+  publisher?: string;
+  source?: string;
+}
+
+function explicitPublisher(result: { publisher?: string; source?: string }) {
+  if (typeof result.publisher === 'string') return result.publisher;
+  if (typeof result.source === 'string') return result.source;
+  return undefined;
+}
+
+export function mapTavilyResult(result: TavilyResult): SearchResult {
+  const publishedAt = typeof result.published_date === 'string'
+    ? result.published_date
+    : result.publishedDate;
+  const publisherName = explicitPublisher(result);
+
+  return {
+    title: result.title,
+    url: result.url,
+    snippet: (result.content ?? '').slice(0, 200),
+    ...(typeof publishedAt === 'string' ? { publishedAt } : {}),
+    ...(publisherName !== undefined ? { publisherName } : {}),
+  };
+}
+
+export function mapSerperResult(result: SerperResult): SearchResult {
+  const publisherName = explicitPublisher(result);
+
+  return {
+    title: result.title,
+    url: result.link,
+    snippet: (result.snippet ?? '').slice(0, 200),
+    ...(typeof result.date === 'string' ? { publishedAt: result.date } : {}),
+    ...(publisherName !== undefined ? { publisherName } : {}),
+  };
 }
 
 async function searchTavily(query: string, apiKey: string): Promise<SearchResult[]> {
@@ -38,11 +92,7 @@ async function searchTavily(query: string, apiKey: string): Promise<SearchResult
 
   const data = await res.json();
   // Tavily returns { results: [{ title, url, content, ... }] }
-  return (data.results ?? []).map((r: { title: string; url: string; content: string }) => ({
-    title: r.title,
-    url: r.url,
-    snippet: (r.content ?? '').slice(0, 200),
-  }));
+  return (data.results ?? []).map(mapTavilyResult);
 }
 
 async function searchSerper(query: string, apiKey: string): Promise<SearchResult[]> {
@@ -62,11 +112,7 @@ async function searchSerper(query: string, apiKey: string): Promise<SearchResult
 
   const data = await res.json();
   // Serper returns { organic: [{ title, link, snippet, ... }] }
-  return (data.organic ?? []).map((r: { title: string; link: string; snippet: string }) => ({
-    title: r.title,
-    url: r.link,
-    snippet: (r.snippet ?? '').slice(0, 200),
-  }));
+  return (data.organic ?? []).map(mapSerperResult);
 }
 
 /** Runs a web search using the configured provider. Throws if not configured. */
