@@ -90,6 +90,31 @@ test('does not mistake an unmarked single article with multiple related links fo
   assert.deepEqual(fetched, [articleUrl]);
 });
 
+test('does not treat a related-story ul inside an unmarked article as list evidence', async () => {
+  const articleUrl = 'https://industry.example.cn/news/single-article';
+  const fetched: string[] = [];
+  const candidates = await sampleStaticArticleList(articleUrl, {
+    fetchText: async (url) => {
+      fetched.push(url);
+      return {
+        finalUrl: url,
+        text: `
+          <main><h1>Factory incident report</h1><p>Article body without metadata.</p></main>
+          <section class="related">
+            <ul>
+              <li><a href="/news/related-fire-one">Related factory incident one</a></li>
+              <li><a href="/news/related-fire-two">Related factory incident two</a></li>
+            </ul>
+          </section>
+        `,
+      };
+    },
+  });
+
+  assert.deepEqual(candidates, []);
+  assert.deepEqual(fetched, [articleUrl]);
+});
+
 test('drops article links that redirect outside the validated list hostname', async () => {
   const pages = new Map<string, { finalUrl: string; text: string }>([
     ['https://industry.example.cn/news-list', {
@@ -166,4 +191,25 @@ test('accepts one live link when the page explicitly declares an ItemList', asyn
 
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].url, 'https://industry.example.cn/news/only-current-item');
+});
+
+test('accepts repeated links in an explicitly named HTML news list', async () => {
+  const candidates = await sampleStaticArticleList('https://industry.example.cn/latest', {
+    fetchText: async (url) => url.endsWith('/latest')
+      ? {
+          finalUrl: url,
+          text: `
+            <ul class="news-list">
+              <li><a href="/news/current-item-one">Current factory incident one</a></li>
+              <li><a href="/news/current-item-two">Current factory incident two</a></li>
+            </ul>
+          `,
+        }
+      : { finalUrl: url, text: '<html>article</html>' },
+  });
+
+  assert.deepEqual(candidates.map((candidate) => candidate.url), [
+    'https://industry.example.cn/news/current-item-one',
+    'https://industry.example.cn/news/current-item-two',
+  ]);
 });

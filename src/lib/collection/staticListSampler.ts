@@ -114,9 +114,21 @@ function isExplicitListDocument(html: string) {
   return /["']@type["']\s*:\s*["'](?:ItemList|CollectionPage)["']/i.test(html);
 }
 
-function classFromAttributes(attributes: string) {
-  const match = attributes.match(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+function attributeFromAttributes(attributes: string, name: 'class' | 'id') {
+  const match = attributes.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
   return match?.[1] ?? match?.[2] ?? match?.[3] ?? '';
+}
+
+function listIdentifiers(attributes: string) {
+  return `${attributeFromAttributes(attributes, 'class')} ${attributeFromAttributes(attributes, 'id')}`.trim();
+}
+
+function hasPositiveListSemantics(attributes: string) {
+  const identifiers = listIdentifiers(attributes);
+  if (/(?:^|[-_\s])(?:also|more|popular|recommend(?:ed)?|related|similar|suggest(?:ed)?)(?:$|[-_\s])/i.test(identifiers)) {
+    return false;
+  }
+  return /(?:^|[-_\s])(?:articles?|entries|feed|items?|list|news|posts?|results?|updates?)(?:$|[-_\s])/i.test(identifiers);
 }
 
 function hasRepeatedListStructure(html: string, baseUrl: string) {
@@ -127,16 +139,20 @@ function hasRepeatedListStructure(html: string, baseUrl: string) {
     return true;
   }
 
-  for (const match of content.matchAll(/<(?:ul|ol)\b[^>]*>([\s\S]*?)<\/(?:ul|ol)\s*>/gi)) {
-    if (extractStaticArticleLinks(match[1], baseUrl).length >= MIN_ARTICLE_LINKS) return true;
+  for (const match of content.matchAll(/<(?:ul|ol)\b([^>]*)>([\s\S]*?)<\/(?:ul|ol)\s*>/gi)) {
+    if (
+      hasPositiveListSemantics(match[1])
+      && extractStaticArticleLinks(match[2], baseUrl).length >= MIN_ARTICLE_LINKS
+    ) return true;
   }
 
   const repeatedClasses = new Map<string, number>();
-  for (const match of content.matchAll(/<(div|section)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi)) {
+  for (const match of content.matchAll(/<(div|li|section)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi)) {
     if (extractStaticArticleLinks(match[3], baseUrl).length === 0) continue;
-    const semanticClasses = classFromAttributes(match[2])
+    if (!hasPositiveListSemantics(match[2])) continue;
+    const semanticClasses = listIdentifiers(match[2])
       .split(/\s+/)
-      .filter((name) => /(?:^|[-_])(?:article|card|entry|item|news|post|result)(?:$|[-_])/i.test(name))
+      .filter((name) => /(?:^|[-_])(?:article|card|entry|feed|item|list|news|post|result|update)(?:s)?(?:$|[-_])/i.test(name))
       .map((name) => name.toLowerCase())
       .sort();
     if (semanticClasses.length === 0) continue;
