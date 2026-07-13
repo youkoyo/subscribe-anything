@@ -113,10 +113,12 @@ function isJsonRecord(value: unknown): value is JsonRecord {
 
 function isArticleNode(record: JsonRecord) {
   const rawType = record['@type'];
+  if (rawType === undefined) return typeof record.datePublished === 'string';
+
   const types = Array.isArray(rawType) ? rawType : [rawType];
   return types.some((type) => (
     typeof type === 'string' && ARTICLE_TYPES.has(type.toLowerCase())
-  )) || typeof record.datePublished === 'string';
+  ));
 }
 
 function collectArticleNodes(value: unknown, nodes: JsonRecord[]) {
@@ -204,7 +206,8 @@ function selectCompatibleArticleNodes(
     if (record === primary) return true;
 
     const identity = extractJsonLdIdentity(record, pageUrl);
-    if (identity) return Boolean(primaryIdentity && identity === primaryIdentity);
+    if (primaryIdentity) return identity === primaryIdentity;
+    if (identity) return false;
 
     const title = extractJsonLdTitle(record);
     return !title || !primaryTitle || title === primaryTitle;

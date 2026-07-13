@@ -166,3 +166,35 @@ The valid ISO source-sample case, bare `/archives` rejection, unrelated chemical
 `npx tsc --noEmit` still reports only the two pre-existing `tests/dbConfig.test.ts` fixtures that omit `ProcessEnv.NODE_ENV`; no quality follow-up file appears in its output.
 
 This follow-up changes only `src/lib/collection/articleMetadata.ts`, `src/lib/collection/articleValidator.ts`, `src/lib/ai/agents/sourceSampleQuality.ts`, both Task 3 test files, and this report.
+
+## Anonymous JSON-LD evidence follow-up
+
+### RED evidence
+
+Only `tests/articleValidator.test.ts` was modified before running:
+
+`node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+
+Result: exit 1; 44 passed and 2 failed. A stable-identity `NewsArticle` containing an anonymous nested `ImageObject` with a 2020 `datePublished` incorrectly exposed that date as article metadata and caused validation to reject current search evidence as stale.
+
+### Decision
+
+- When JSON-LD has an explicit `@type`, only configured article types are collected as article nodes. The legacy fallback for an untyped object carrying `datePublished` remains supported.
+- When the selected primary article has a stable identity, only nodes with that same identity may supplement its fields. Anonymous fragments remain mergeable only when the primary itself is anonymous and their headlines do not conflict.
+
+This keeps same-identity split metadata working while isolating explicit `ImageObject`, `CreativeWork`, related-entity, and anonymous nested evidence from identified main articles.
+
+### GREEN evidence
+
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+  - exit 0; 46 passed, 0 failed.
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts tests/searchCollector.test.ts tests/searchQueryPlan.test.ts`
+  - exit 0; 67 passed, 0 failed.
+- `node --import tsx --test tests/enterpriseCriteriaMatcher.test.ts tests/enterpriseDeliveryScoring.test.ts`
+  - exit 0; 9 passed, 0 failed.
+- `git diff --check`
+  - exit 0.
+
+`npx tsc --noEmit` still reports only the two pre-existing `tests/dbConfig.test.ts` fixtures that omit `ProcessEnv.NODE_ENV`; neither anonymous-evidence follow-up file appears in its output.
+
+This follow-up changes only `src/lib/collection/articleMetadata.ts`, `tests/articleValidator.test.ts`, and this report.

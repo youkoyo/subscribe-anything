@@ -338,6 +338,65 @@ test('uses current search evidence when only a related JSON-LD article has a sta
   }
 });
 
+test('does not extract a nested ImageObject date as the main article publication date', () => {
+  const rawHtml = `
+    <link rel="canonical" href="https://example.com/news/main-image-story">
+    <script type="application/ld+json">
+      {
+        "@type":"NewsArticle",
+        "@id":"https://example.com/news/main-image-story#article",
+        "url":"https://example.com/news/main-image-story",
+        "headline":"晋江鞋厂火灾现场通报",
+        "image": {
+          "@type":"ImageObject",
+          "datePublished":"2020-01-02T03:04:05Z"
+        }
+      }
+    </script>
+  `;
+
+  assert.deepEqual(
+    extractArticleMetadata(rawHtml, 'https://example.com/news/main-image-story'),
+    {
+      canonicalUrl: 'https://example.com/news/main-image-story',
+      title: '晋江鞋厂火灾现场通报',
+    },
+  );
+});
+
+test('uses current search evidence when a nested ImageObject has a stale date', () => {
+  const rawHtml = `
+    <link rel="canonical" href="https://example.com/news/main-image-story">
+    <script type="application/ld+json">
+      {
+        "@type":"NewsArticle",
+        "@id":"https://example.com/news/main-image-story#article",
+        "url":"https://example.com/news/main-image-story",
+        "headline":"晋江鞋厂火灾现场通报",
+        "image": {
+          "@type":"ImageObject",
+          "datePublished":"2020-01-02T03:04:05Z"
+        }
+      }
+    </script>
+  `;
+  const result = validateArticleCandidate(
+    candidate({
+      url: 'https://example.com/news/main-image-story',
+      rawHtml,
+      publishedAt: '2026-07-12T08:00:00Z',
+    }),
+    intent(),
+    now,
+  );
+
+  assert.equal(result.accepted, true);
+  if (result.accepted) {
+    assert.equal(result.publishedAt, '2026-07-12T08:00:00Z');
+    assert.equal(result.evidenceLevel, 'search');
+  }
+});
+
 test('merged original JSON-LD date outranks a current search date', () => {
   const rawHtml = `
     <script type="application/ld+json">
