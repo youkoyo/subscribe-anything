@@ -10,9 +10,14 @@
 
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { subscriptions, sources, messageCards, notifications } from '@/lib/db/schema';
-import { hash } from '@/lib/utils/hash';
+import { subscriptions, sources, notifications } from '@/lib/db/schema';
+import {
+  articleCandidateFromCollectedItem,
+  ingestArticles,
+} from '@/lib/collection/ingestArticles';
 import type { CollectedItem } from '@/lib/sandbox/contract';
+import type { SearchPlan } from '@/lib/search/queryPlan';
+import type { CollectionMode } from '@/types/wizard';
 
 export interface SourceInput {
   title: string;
@@ -22,6 +27,8 @@ export interface SourceInput {
   cronExpression?: string;
   isEnabled?: boolean;
   initialItems?: CollectedItem[];
+  collectionMode?: CollectionMode;
+  searchPlan?: SearchPlan;
   /** If set, the source failed script generation — stored as lastError, status='failed' */
   failedReason?: string;
 }
@@ -37,7 +44,12 @@ export async function createSourcesForSubscription(
 ): Promise<void> {
   const db = getDb();
   const now = new Date();
-  let totalNewCards = 0;
+  const subscription = (await db.select().from(subscriptions)
+    .where(eq(subscriptions.id, subscriptionId)))[0];
+  if (!subscription) throw new Error(`Subscription ${subscriptionId} not found`);
+  const ingestionSubscription = criteria === undefined
+    ? subscription
+    : { ...subscription, criteria };
 
   for (const srcInput of sourcesInput) {
     if (!srcInput.title || !srcInput.url) continue;
@@ -53,6 +65,8 @@ export async function createSourcesForSubscription(
         description: srcInput.description || null,
         url: srcInput.url,
         script: srcInput.script,
+        collectorType: srcInput.collectionMode ?? 'feed_script',
+        collectorConfigJson: JSON.stringify(srcInput.searchPlan ?? {}),
         cronExpression: srcInput.cronExpression ?? '0 * * * *',
         isEnabled: isFailed ? false : srcInput.isEnabled !== false,
         status: isFailed ? 'failed' : 'active',
@@ -81,53 +95,22 @@ export async function createSourcesForSubscription(
       continue;
     }
 
-    // Write initial message cards from validation step
     const items = srcInput.initialItems ?? [];
-    let newCards = 0;
-
-    for (const item of items) {
-      if (!item.title || !item.url) continue;
-      const contentHash = hash(item.title + item.url);
-
-      // Check criteria match (simple keyword)
-      const criteriaText = criteria?.trim().toLowerCase() ?? '';
-      const itemText = `${item.title} ${item.summary ?? ''}`.toLowerCase();
-      const meetsCriteria = criteriaText
-        ? criteriaText.split(/[\s,，、]+/).filter(Boolean).some((kw) => itemText.includes(kw))
-        : false;
-
-      try {
-        await db.insert(messageCards)
-          .values({
-            subscriptionId,
-            sourceId: source.id,
-            contentHash,
-            title: item.title,
-            summary: item.summary || null,
-            thumbnailUrl: item.thumbnailUrl || null,
-            sourceUrl: item.url,
-            publishedAt: item.publishedAt ? new Date(item.publishedAt) : now,
-            meetsCriteriaFlag: meetsCriteria,
-            readAt: null,
-            rawData: JSON.stringify(item),
-            createdAt: now,
-          })
-          .onConflictDoNothing();
-
-        newCards++;
-      } catch {
-        // Skip on conflict
-      }
-    }
-
-    totalNewCards += newCards;
+    const origin = source.collectorType === 'search' ? 'search' : 'feed';
+    const ingestResult = await ingestArticles({
+      db,
+      source,
+      subscription: ingestionSubscription,
+      candidates: items.map((item) => articleCandidateFromCollectedItem(item, origin)),
+      now,
+    });
+    const newCards = ingestResult.inserted;
 
     // Update source stats to reflect the initial validation run
     await db.update(sources)
       .set({
         totalRuns: 1,
         successRuns: 1,
-        itemsCollected: newCards,
         lastRunAt: now,
         lastRunSuccess: true,
         updatedAt: now,
@@ -156,17 +139,5 @@ export async function createSourcesForSubscription(
     } catch {
       // Scheduler may not be initialised in API-only context
     }
-  }
-
-  // Update subscription counts
-  if (totalNewCards > 0) {
-    await db.update(subscriptions)
-      .set({
-        unreadCount: totalNewCards,
-        totalCount: totalNewCards,
-        lastUpdatedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(subscriptions.id, subscriptionId));
   }
 }

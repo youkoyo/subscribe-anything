@@ -1,17 +1,19 @@
 // src/lib/scheduler/collector.ts
 // Full collection pipeline:
 //   1. Run script in isolated-vm sandbox
-//   2. Dedup each item against message_cards (contentHash + sourceId)
-//   3. Persist new items as message_cards (readAt=null → unread)
-//   4. Check criteria match → meetsCriteriaFlag
-//   5. Update source stats + subscription counts
-//   6. On script failure: mark source.status='failed', write source_failed notification
+//   2. Strictly validate and subscription-deduplicate every returned item
+//   3. Atomically persist accepted cards and their source/subscription counts
+//   4. Update source run stats
+//   5. On script failure: mark source.status='failed', write source_failed notification
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { sources, subscriptions, messageCards } from '@/lib/db/schema';
+import { sources, subscriptions } from '@/lib/db/schema';
+import {
+  articleCandidateFromCollectedItem,
+  ingestArticles,
+} from '@/lib/collection/ingestArticles';
 import { runScript } from '@/lib/sandbox/runner';
-import { hash } from '@/lib/utils/hash';
 import { nextCronDate } from '@/lib/utils/cron';
 import { createNotification } from '@/lib/notifications';
 import { scheduleRetry, clearRetry, markCollecting, clearCollecting, setLastResult } from './retryManager';
@@ -64,6 +66,11 @@ async function _doCollect(
     .where(eq(subscriptions.id, source.subscriptionId)))[0];
 
   const now = new Date();
+  if (!subscription) {
+    const errorMsg = `Subscription ${source.subscriptionId} not found`;
+    await _handleFailure(db, source, undefined, errorMsg, now);
+    return { newItems: 0, skipped: 0, error: errorMsg };
+  }
 
   // ── Run script ───────────────────────────────────────────────────────────────
   let runResult: Awaited<ReturnType<typeof runScript>>;
@@ -90,68 +97,17 @@ async function _doCollect(
     return { newItems: 0, skipped: 0, error: errorMsg };
   }
 
-  // ── Dedup + persist ───────────────────────────────────────────────────────────
-  let newItems = 0;
-  let skipped = 0;
-  const criteriaText = subscription?.criteria?.trim().toLowerCase() ?? '';
-
-  for (const item of items) {
-    if (!item.title || !item.url) continue;
-
-    const contentHash = hash(item.title + item.url);
-
-    // Check existence (UNIQUE index will also protect, but pre-check avoids noise)
-    const existing = (await db
-      .select({ id: messageCards.id })
-      .from(messageCards)
-      .where(
-        and(
-          eq(messageCards.contentHash, contentHash),
-          eq(messageCards.sourceId, sourceId)
-        )
-      ))[0];
-
-    if (existing) {
-      skipped++;
-      continue;
-    }
-
-    // Criteria match — prefer script-provided criteriaResult; fall back to keyword matching
-    let meetsCriteria: boolean;
-    if (item.criteriaResult !== undefined) {
-      meetsCriteria = item.criteriaResult === 'matched';
-    } else if (criteriaText) {
-      const itemText = `${item.title} ${item.summary ?? ''}`.toLowerCase();
-      meetsCriteria = criteriaText.split(/[\s,，、]+/).filter(Boolean).some((kw) => itemText.includes(kw));
-    } else {
-      meetsCriteria = false;
-    }
-
-    try {
-      await db.insert(messageCards)
-        .values({
-          subscriptionId: source.subscriptionId,
-          sourceId,
-          contentHash,
-          title: item.title,
-          summary: item.summary ?? null,
-          thumbnailUrl: item.thumbnailUrl ?? null,
-          sourceUrl: item.url,
-          publishedAt: item.publishedAt ? new Date(item.publishedAt) : now,
-          meetsCriteriaFlag: meetsCriteria,
-          criteriaResult: item.criteriaResult ?? null,
-          metricValue: item.metricValue ?? null,
-          readAt: null,
-          rawData: JSON.stringify(item),
-          createdAt: now,
-        })
-        .onConflictDoNothing();
-
-      newItems++;
-    } catch {
-      skipped++;
-    }
-  }
+  const origin = source.collectorType === 'search' ? 'search' : 'feed';
+  const candidates = items.map((item) => articleCandidateFromCollectedItem(item, origin));
+  const ingestResult = await ingestArticles({
+    db,
+    source,
+    subscription,
+    candidates,
+    now,
+  });
+  const newItems = ingestResult.inserted;
+  const skipped = ingestResult.rejected + ingestResult.duplicates;
 
   // ── Update source stats ───────────────────────────────────────────────────────
   clearRetry(sourceId);
@@ -164,23 +120,12 @@ async function _doCollect(
       nextRunAt: nextRun,
       totalRuns: sql`${sources.totalRuns} + 1`,
       successRuns: sql`${sources.successRuns} + 1`,
-      itemsCollected: sql`${sources.itemsCollected} + ${newItems}`,
       status: 'active', // reset from 'failed' if it was previously broken
       updatedAt: now,
     })
     .where(eq(sources.id, sourceId));
 
-  // ── Update subscription counts ────────────────────────────────────────────────
-  if (newItems > 0 && subscription) {
-    await db.update(subscriptions)
-      .set({
-        unreadCount: sql`${subscriptions.unreadCount} + ${newItems}`,
-        totalCount: sql`${subscriptions.totalCount} + ${newItems}`,
-        lastUpdatedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(subscriptions.id, source.subscriptionId));
-
+  if (newItems > 0) {
     await createNotification(db, {
       type: 'cards_collected',
       title: `新增 ${newItems} 条消息卡片`,
