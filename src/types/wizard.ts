@@ -3,6 +3,9 @@ import type { LLMCallInfo } from '@/lib/ai/client';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { SourceType } from '@/lib/ai/agents/sourceIntentPolicy';
 import type { SourceDecisionRecord } from '@/lib/ai/agents/sourcePortfolioPolicy';
+import type { SearchPlan } from '@/lib/search/queryPlan';
+
+export type CollectionMode = 'search' | 'rss' | 'json' | 'feed_script';
 
 export interface FoundSource {
   title: string;
@@ -13,6 +16,8 @@ export interface FoundSource {
   canProvideCriteria?: boolean;
   /** Category used to explain and prioritize real-time coverage. */
   sourceType?: SourceType;
+  collectionMode?: CollectionMode;
+  searchPlan?: SearchPlan;
 }
 
 export interface GeneratedSource {
@@ -25,6 +30,8 @@ export interface GeneratedSource {
   isEnabled: boolean;
   /** If set, this source failed script generation and cannot be enabled */
   failedReason?: string;
+  collectionMode?: CollectionMode;
+  searchPlan?: SearchPlan;
 }
 
 export interface WizardState {

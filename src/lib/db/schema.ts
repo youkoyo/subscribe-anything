@@ -1,4 +1,4 @@
-import { pgTable, text, integer, real, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, real, boolean, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { APP_NAME } from '@/lib/branding';
@@ -306,6 +306,10 @@ export const sources = pgTable('sources', {
   description: text('description'),
   url: text('url').notNull(),
   script: text('script').notNull().default(''),
+  collectorType: text('collector_type', { enum: ['search', 'rss', 'json', 'feed_script'] })
+    .notNull()
+    .default('feed_script'),
+  collectorConfigJson: text('collector_config_json').notNull().default('{}'),
   cronExpression: text('cron_expression').notNull().default('0 * * * *'),
   isEnabled: boolean('is_enabled').notNull().default(true),
   status: text('status', { enum: ['active', 'failed', 'disabled', 'pending'] })
@@ -358,31 +362,50 @@ export const favorites = pgTable('favorites', {
 });
 
 // ─── message_cards ───────────────────────────────────────────────────────────
-export const messageCards = pgTable('message_cards', {
-  id: text('id').primaryKey().$defaultFn(() => createId()),
-  subscriptionId: text('subscription_id')
-    .notNull()
-    .references(() => subscriptions.id, { onDelete: 'cascade' }),
-  sourceId: text('source_id')
-    .notNull()
-    .references(() => sources.id, { onDelete: 'cascade' }),
-  contentHash: text('content_hash').notNull(), // sha256(title + url)
-  title: text('title').notNull(),
-  summary: text('summary'),
-  thumbnailUrl: text('thumbnail_url'),
-  sourceUrl: text('source_url').notNull(),
-  publishedAt: timestamp('published_at', { mode: 'date' }),
-  meetsCriteriaFlag: boolean('meets_criteria_flag')
-    .notNull()
-    .default(false),
-  criteriaResult: text('criteria_result').$type<'matched' | 'not_matched' | 'invalid'>(),
-  metricValue: text('metric_value'), // raw extracted value, e.g. "¥299"
-  readAt: timestamp('read_at', { mode: 'date' }), // null = unread
-  rawData: text('raw_data'), // JSON string
-  createdAt: timestamp('created_at', { mode: 'date' })
-    .$defaultFn(() => new Date())
-    .notNull(),
-});
+export const messageCards = pgTable(
+  'message_cards',
+  {
+    id: text('id').primaryKey().$defaultFn(() => createId()),
+    subscriptionId: text('subscription_id')
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: 'cascade' }),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => sources.id, { onDelete: 'cascade' }),
+    contentHash: text('content_hash').notNull(), // sha256(title + url)
+    dedupeKey: text('dedupe_key'),
+    title: text('title').notNull(),
+    summary: text('summary'),
+    thumbnailUrl: text('thumbnail_url'),
+    sourceUrl: text('source_url').notNull(),
+    canonicalUrl: text('canonical_url'),
+    publisherName: text('publisher_name'),
+    publishedAt: timestamp('published_at', { mode: 'date' }),
+    collectionMethod: text('collection_method', {
+      enum: ['search', 'rss', 'json', 'feed_script'],
+    }),
+    evidenceLevel: text('evidence_level', { enum: ['original', 'search', 'feed'] }),
+    relevanceScore: real('relevance_score'),
+    authorityScore: real('authority_score'),
+    matchReason: text('match_reason'),
+    meetsCriteriaFlag: boolean('meets_criteria_flag')
+      .notNull()
+      .default(false),
+    criteriaResult: text('criteria_result').$type<'matched' | 'not_matched' | 'invalid'>(),
+    metricValue: text('metric_value'), // raw extracted value, e.g. "¥299"
+    readAt: timestamp('read_at', { mode: 'date' }), // null = unread
+    rawData: text('raw_data'), // JSON string
+    createdAt: timestamp('created_at', { mode: 'date' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('message_cards_subscription_dedupe_key_unique').on(
+      table.subscriptionId,
+      table.dedupeKey,
+    ),
+  ],
+);
 
 // ─── notifications ───────────────────────────────────────────────────────────
 export const notifications = pgTable('notifications', {
