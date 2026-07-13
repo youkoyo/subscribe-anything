@@ -142,10 +142,8 @@ test('rejects product and about URLs returned as search article candidates', asy
   const searchAudit = result.auditRecords[0];
   assert.equal(searchAudit.collectionMode, 'search');
   assert.equal(searchAudit.validationOutcome, 'rejected');
-  assert.deepEqual(
-    searchAudit.evidence.map((evidence) => evidence.rejectionCode),
-    ['page_type', 'page_type'],
-  );
+  assert.ok(searchAudit.evidence.length >= 2);
+  assert.ok(searchAudit.evidence.every((evidence) => evidence.rejectionCode === 'page_type'));
 });
 
 test('classifies dynamic search pages as search and never as feed_script', async () => {
@@ -176,6 +174,56 @@ test('classifies dynamic search pages as search and never as feed_script', async
   assert.match(audit?.exclusionReason ?? '', /统一搜索采集器|动态搜索页/);
 });
 
+for (const url of [
+  'https://search.cctv.com/search.php?qtext=%E9%9E%8B%E4%B8%9A',
+  'https://news.example.cn/searchResult?id=shoe',
+  'https://news.example.cn/search.aspx?key=%E9%9E%8B%E4%B8%9A',
+] as const) {
+  test(`classifies common dynamic search URL ${url} as search`, () => {
+    assert.equal(classifyDiscoveryCollectionMode(stableSource({
+      title: '媒体检索入口',
+      url,
+      description: '媒体内容入口',
+      collectionMode: 'feed_script',
+    })), 'search');
+  });
+}
+
+test('honors explicit built-in RSS and JSON modes even when their endpoints contain search parameters', () => {
+  assert.equal(classifyDiscoveryCollectionMode(stableSource({
+    url: 'https://feeds.example.cn/feed?q=%E9%9E%8B%E4%B8%9A',
+    collectionMode: 'rss',
+  })), 'rss');
+  assert.equal(classifyDiscoveryCollectionMode(stableSource({
+    url: 'https://api.example.cn/api/search?query=%E9%9E%8B%E4%B8%9A',
+    collectionMode: 'json',
+    collectorConfigJson: '{"fields":{"title":"title","url":"url","publishedAt":"publishedAt"}}',
+  })), 'json');
+});
+
+for (const url of [
+  'https://industry.example.cn/about.html',
+  'https://industry.example.cn/aboutus',
+  'https://industry.example.cn/product.aspx',
+] as const) {
+  test(`rejects common non-article stable page ${url}`, async () => {
+    let sampleCalls = 0;
+    const result = await discoverCollectionPlan(input, {
+      now,
+      searchFn: async () => [currentSearchResult()],
+      discoverStableCandidates: async () => [stableSource({ url, collectionMode: 'feed_script' })],
+      sampleStableCandidate: async () => {
+        sampleCalls += 1;
+        return [feedArticle()];
+      },
+    });
+
+    assert.equal(sampleCalls, 0);
+    assert.equal(result.auditRecords[1].validationOutcome, 'rejected');
+    assert.match(result.auditRecords[1].exclusionReason ?? '', /页面类型/);
+  });
+}
+
 test('excludes a feed with no recent match without failing the validated search plan', async () => {
   const candidate = stableSource();
   const result = await discoverCollectionPlan(input, {
@@ -190,6 +238,65 @@ test('excludes a feed with no recent match without failing the validated search 
   const audit = result.auditRecords.find((record) => record.source.url === candidate.url);
   assert.equal(audit?.decision, 'rejected');
   assert.match(audit?.exclusionReason ?? '', /近期匹配样本/);
+});
+
+test('isolates a malformed stable sampler result from the validated search plan', async () => {
+  const candidate = stableSource();
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async () => [currentSearchResult()],
+    discoverStableCandidates: async () => [candidate],
+    sampleStableCandidate: async () => null as unknown as ArticleCandidate[],
+  });
+
+  assert.deepEqual(result.sources.map((source) => source.collectionMode), ['search']);
+  assert.equal(result.auditRecords[1].validationOutcome, 'rejected');
+  assert.match(result.auditRecords[1].exclusionReason ?? '', /文章候选数组/);
+});
+
+test('bounds stable-source fan-out and preserves candidate audit records', async () => {
+  let active = 0;
+  let maximumActive = 0;
+  let calls = 0;
+  const candidates = Array.from({ length: 12 }, (_, index) => stableSource({
+    title: `稳定源 ${index + 1}`,
+    url: `https://industry.example.cn/rss/shoes-${index + 1}.xml`,
+  }));
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async () => [currentSearchResult()],
+    discoverStableCandidates: async () => candidates,
+    sampleStableCandidate: async (source) => {
+      calls += 1;
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return [feedArticle({ url: `${source.url}/article` })];
+    },
+  });
+
+  assert.equal(calls, 10);
+  assert.ok(maximumActive <= 3);
+  assert.equal(result.auditRecords.length, 13);
+  assert.equal(result.auditRecords.filter((record) => /候选上限/.test(record.exclusionReason ?? '')).length, 2);
+});
+
+test('caps retained stable evidence while reporting the full evidence count', async () => {
+  const candidate = stableSource();
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async () => [currentSearchResult()],
+    discoverStableCandidates: async () => [candidate],
+    sampleStableCandidate: async () => Array.from({ length: 70 }, (_, index) => feedArticle({
+      url: `https://industry.example.cn/news/shoe-fire-${index + 1}`,
+    })),
+  });
+
+  const audit = result.auditRecords[1];
+  assert.equal(audit.evidence.length, 50);
+  assert.equal(audit.evidenceCount, 70);
+  assert.equal(audit.omittedEvidenceCount, 20);
 });
 
 test('admits a stable feed only after a live current matching sample passes validation', async () => {
@@ -262,6 +369,49 @@ test('can fall back to a validated stable source when every search query fails',
   assert.equal(result.auditRecords[1].validationOutcome, 'accepted');
 });
 
+test('requires complete provider evidence when the original article cannot be fetched', async () => {
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async () => [currentSearchResult({ publisherName: undefined })],
+    enrichSearchCandidate: async () => {
+      throw new Error('publisher blocks article fetch');
+    },
+  });
+
+  assert.equal(result.sources.length, 0);
+  assert.equal(result.auditRecords[0].validationOutcome, 'rejected');
+  assert.equal(result.auditRecords[0].evidence[0].rejectionCode, 'incomplete_search_evidence');
+  assert.match(result.auditRecords[0].evidence[0].exclusionReason ?? '', /发布者/);
+});
+
+test('prefers fetched original article metadata over incomplete search-provider evidence', async () => {
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async () => [currentSearchResult({
+      publishedAt: undefined,
+      publisherName: undefined,
+    })],
+    enrichSearchCandidate: async (candidate) => ({
+      ...candidate,
+      rawHtml: `
+        <script type="application/ld+json">
+          {
+            "@type":"NewsArticle",
+            "headline":"福建晋江一鞋厂发生火灾，当地正在处置",
+            "description":"事故发生在制鞋产业集聚区，相关部门已开展应急处置。",
+            "datePublished":"2026-07-12T08:00:00Z",
+            "publisher":{"name":"福建新闻社"}
+          }
+        </script>
+      `,
+    }),
+  });
+
+  assert.equal(result.sources[0].collectionMode, 'search');
+  assert.equal(result.sources[0].initialItems?.[0].evidenceLevel, 'original');
+  assert.equal(result.sources[0].initialItems?.[0].publisherName, '福建新闻社');
+});
+
 test('keeps deterministic search usable when optional LLM stable-source discovery fails', async () => {
   const result = await discoverCollectionPlan(input, {
     now,
@@ -278,4 +428,38 @@ test('keeps deterministic search usable when optional LLM stable-source discover
       && record.validationOutcome === 'rejected'
       && /LLM quota exhausted/.test(record.exclusionReason ?? '')
   )));
+});
+
+test('returns validated search promptly when optional stable discovery exceeds its deadline', async () => {
+  const startedAt = Date.now();
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async () => [currentSearchResult()],
+    stableDiscoveryTimeoutMs: 5,
+    discoverStableCandidates: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return [];
+    },
+  });
+
+  assert.ok(Date.now() - startedAt < 50);
+  assert.equal(result.sources[0].collectionMode, 'search');
+  assert.match(result.auditRecords[1].exclusionReason ?? '', /超时/);
+});
+
+test('persists every query execution alongside article audit evidence', async () => {
+  const result = await discoverCollectionPlan(input, {
+    now,
+    searchFn: async (query) => {
+      if (query.includes('事故')) throw new Error('one query failed');
+      return [currentSearchResult()];
+    },
+  });
+
+  const executions = result.auditRecords[0].executions ?? [];
+  assert.ok(executions.some((execution) => execution.status === 'success'));
+  assert.ok(executions.some((execution) => (
+    execution.status === 'error' && execution.error === 'one query failed'
+  )));
+  assert.ok(result.auditRecords[0].evidence.every((evidence) => evidence.query));
 });

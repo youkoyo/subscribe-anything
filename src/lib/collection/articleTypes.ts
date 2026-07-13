@@ -49,6 +49,7 @@ export type ArticleRejectionReason =
   | 'missing_title'
   | 'missing_date'
   | 'invalid_date'
+  | 'incomplete_search_evidence'
   | 'stale'
   | 'future_date'
   | 'irrelevant';

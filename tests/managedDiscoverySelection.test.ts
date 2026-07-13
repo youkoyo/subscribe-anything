@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   autoSelectSources,
   isValidatedDiscoverySource,
+  isReusableDiscoverySource,
   selectRequestedDiscoverySources,
 } from '../src/lib/managed/pipeline';
 import type { FoundSource } from '../src/types/wizard';
@@ -74,4 +75,27 @@ test('legacy same-domain discovery payloads are not considered validated', () =>
   }), false);
   assert.equal(isValidatedDiscoverySource(source(1)), true);
   assert.equal(isValidatedDiscoverySource(null), false);
+});
+
+test('reused discovery sources must still have a current matching sample', () => {
+  const current = source(1);
+  const stale = source(2, {
+    initialItems: [{
+      ...source(2).initialItems![0],
+      publishedAt: '2020-07-12T08:00:00Z',
+    }],
+  });
+
+  assert.equal(isReusableDiscoverySource(
+    current,
+    '鞋业动态资讯',
+    '关注最近30天鞋业安全事故和火灾',
+    new Date('2026-07-13T12:00:00Z'),
+  ), true);
+  assert.equal(isReusableDiscoverySource(
+    stale,
+    '鞋业动态资讯',
+    '关注最近30天鞋业安全事故和火灾',
+    new Date('2026-07-13T12:00:00Z'),
+  ), false);
 });

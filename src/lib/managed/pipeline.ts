@@ -16,6 +16,9 @@ import { createId } from '@paralleldrive/cuid2';
 import pLimit from 'p-limit';
 import { upsertLLMCall, clearLLMCalls } from './llmCallStore';
 import { isReusableGeneratedSample } from '@/lib/ai/agents/sourceSampleQuality';
+import { articleCandidateFromCollectedItem } from '@/lib/collection/ingestArticles';
+import { validateArticleCandidate } from '@/lib/collection/articleValidator';
+import { buildMonitoringIntent } from '@/lib/search/queryPlan';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
 
@@ -521,6 +524,8 @@ async function updateWizardState(
  */
 async function waitForFindSourcesResult(
   subscriptionId: string,
+  topic: string,
+  criteria: string | undefined,
   isCancelledFn: () => boolean | Promise<boolean>,
   maxWaitMs = 5 * 60 * 1000
 ): Promise<FoundSource[] | null> {
@@ -540,7 +545,7 @@ async function waitForFindSourcesResult(
       )
       .orderBy(desc(managedBuildLogs.createdAt))
       .limit(1))[0];
-    const discovered = parseValidatedDiscoveryPayload(successLog?.payload);
+    const discovered = parseValidatedDiscoveryPayload(successLog?.payload, topic, criteria);
     if (discovered) return discovered;
     const errorLog = (await db
       .select({ id: managedBuildLogs.id })
@@ -569,13 +574,37 @@ export function isValidatedDiscoverySource(source: unknown): source is FoundSour
     || !!candidate.searchPlan?.queries?.length;
 }
 
-function parseValidatedDiscoveryPayload(payload: string | null | undefined) {
+export function isReusableDiscoverySource(
+  source: unknown,
+  topic: string,
+  criteria: string | undefined,
+  now = new Date(),
+): source is FoundSource {
+  if (!isValidatedDiscoverySource(source)) return false;
+  const normalizedCriteria = criteria?.trim() === '全部' ? '' : criteria ?? '';
+  const intent = buildMonitoringIntent(topic, normalizedCriteria);
+  const origin = source.collectionMode === 'search' ? 'search' : 'feed';
+  return source.initialItems!.some((item) => (
+    validateArticleCandidate(
+      articleCandidateFromCollectedItem(item, origin),
+      intent,
+      now,
+    ).accepted
+  ));
+}
+
+function parseValidatedDiscoveryPayload(
+  payload: string | null | undefined,
+  topic: string,
+  criteria: string | undefined,
+  now = new Date(),
+) {
   if (!payload) return null;
   try {
     const parsed = JSON.parse(payload) as unknown;
     return Array.isArray(parsed)
       && parsed.length > 0
-      && parsed.every(isValidatedDiscoverySource)
+      && parsed.every((source) => isReusableDiscoverySource(source, topic, criteria, now))
       ? parsed as FoundSource[]
       : null;
   } catch {
@@ -727,7 +756,11 @@ export async function runManagedPipeline(
         )
         .orderBy(desc(managedBuildLogs.createdAt))
         .limit(1))[0];
-      const existingDiscovered = parseValidatedDiscoveryPayload(existingSuccess?.payload);
+      const existingDiscovered = parseValidatedDiscoveryPayload(
+        existingSuccess?.payload,
+        topic,
+        criteria,
+      );
 
       if (existingDiscovered) {
         // Already completed — reuse results
@@ -768,7 +801,12 @@ export async function runManagedPipeline(
         if (existingInfo) {
           // Task is in progress — wait for it to finish
           writeLog(subscriptionId, 'find_sources', 'info', '等待数据源发现任务完成...');
-          const discovered = await waitForFindSourcesResult(subscriptionId, () => isCancelled(subscriptionId));
+          const discovered = await waitForFindSourcesResult(
+            subscriptionId,
+            topic,
+            criteria,
+            () => isCancelled(subscriptionId),
+          );
           if (await isCancelled(subscriptionId)) return;
           if (discovered) {
             allFoundSources = discovered;
@@ -843,11 +881,9 @@ export async function runManagedPipeline(
       // Clear old LLM calls from Phase 1 (find_sources has no sourceUrl, would clutter the store)
       clearLLMCalls(subscriptionId);
 
-      // Use selected sources for script generation, not all found sources
-      // foundSources contains all discovered sources, but we want only the ones actually selected
-      const sourcesToProcess = initialFoundSources && initialFoundSources.length > 0
-        ? initialFoundSources  // Frontend passed specific sources
-        : foundSources;  // Use what Phase 1 set (should be selected sources from info log)
+      // Phase 1 has already mapped client-selected URLs back to canonical,
+      // server-validated objects. Never reintroduce the raw client payload here.
+      const sourcesToProcess = foundSources;
 
       // Skip sources already provided in initialGeneratedSources (wizard handoff)
       const alreadyDoneUrls = new Set(reusableInitialGeneratedSources.map((s) => s.url));

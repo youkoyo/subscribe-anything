@@ -26,35 +26,48 @@ import type {
   ArticleValidationResult,
   ValidatedArticle,
 } from './articleTypes';
-import { validateArticleCandidate } from './articleValidator';
+import { parseStrictPublicationDate, validateArticleCandidate } from './articleValidator';
 import { searchCandidateToArticleCandidate } from './collectors/searchSourceCollector';
 
 const SEARCH_SOURCE_URL = 'search://collection-plan/v1';
 const STABLE_DISCOVERY_URL = 'discovery://stable-source-candidates/v1';
 const MAX_DISCOVERY_SAMPLES = 12;
+const MAX_ORIGINAL_ARTICLE_FETCHES = 12;
+const ORIGINAL_FETCH_CONCURRENCY = 4;
+const MAX_STABLE_CANDIDATES = 10;
+const STABLE_VALIDATION_CONCURRENCY = 3;
+const MAX_STABLE_ARTICLE_CANDIDATES = 50;
+const DEFAULT_STABLE_DISCOVERY_TIMEOUT_MS = 30_000;
 
 const SEARCH_PATH_SEGMENTS = new Set([
   'find',
   'query',
   'results',
   'search',
-  'search.html',
+  'searchresult',
+  'searchresults',
   'so',
 ]);
 const SEARCH_QUERY_PARAMETERS = new Set([
+  'key',
   'keyword',
   'keywords',
+  'kw',
   'q',
   'query',
+  'qtext',
   'search',
+  'searchtext',
+  'searchword',
   'wd',
+  'word',
 ]);
 const DISALLOWED_STABLE_SEGMENTS = new Set([
   'about',
-  'about-us',
+  'aboutus',
   'catalog',
   'contact',
-  'contact-us',
+  'contactus',
   'product',
   'products',
   'shop',
@@ -68,11 +81,14 @@ export interface DiscoveryPlanInput {
 
 export interface DiscoveryPlanDependencies {
   searchFn: SearchFunction;
-  discoverStableCandidates?: () => Promise<readonly FoundSource[]>;
+  discoverStableCandidates?: (signal: AbortSignal) => Promise<readonly FoundSource[]>;
   sampleStableCandidate?: (
     source: FoundSource,
     mode: Exclude<CollectionMode, 'search'>,
   ) => Promise<ArticleCandidate[]>;
+  /** Best-effort original-page fetch; failures fall back to complete provider evidence. */
+  enrichSearchCandidate?: (candidate: ArticleCandidate) => Promise<ArticleCandidate>;
+  stableDiscoveryTimeoutMs?: number;
   now?: Date | (() => Date);
 }
 
@@ -90,8 +106,41 @@ function currentTime(value: DiscoveryPlanDependencies['now']) {
   return new Date();
 }
 
+async function discoverStableWithDeadline(
+  discover: NonNullable<DiscoveryPlanDependencies['discoverStableCandidates']>,
+  configuredTimeoutMs: number | undefined,
+) {
+  const timeoutMs = Number.isFinite(configuredTimeoutMs) && (configuredTimeoutMs ?? 0) > 0
+    ? configuredTimeoutMs as number
+    : DEFAULT_STABLE_DISCOVERY_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const task = Promise.resolve().then(() => discover(controller.signal));
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      const error = new Error(`可选稳定源发现超时（${timeoutMs} ms）`);
+      controller.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([task, deadline]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function normalizedText(value: string | undefined) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function isStableSourceCandidate(value: unknown): value is FoundSource {
+  if (!value || typeof value !== 'object') return false;
+  const source = value as Partial<FoundSource>;
+  return !!normalizedText(source.title)
+    && !!normalizedText(source.url)
+    && typeof source.description === 'string';
 }
 
 function safeUrl(value: string) {
@@ -116,25 +165,35 @@ function pathSegments(url: URL) {
     });
 }
 
+function pageToken(segment: string) {
+  return segment
+    .replace(/\.(?:html?|aspx?|php)$/i, '')
+    .replace(/[-_]/g, '')
+    .toLowerCase();
+}
+
 function isDynamicSearchPage(source: Pick<FoundSource, 'title' | 'url' | 'description'>) {
   const parsed = safeUrl(source.url);
   const text = `${source.title} ${source.description}`.toLowerCase();
   if (/站内搜索|搜索结果|动态搜索|site search|search results/.test(text)) return true;
   if (!parsed) return false;
+  if (/^(?:search|so)\./i.test(parsed.hostname)) return true;
 
   const segments = pathSegments(parsed);
-  if (segments.some((segment) => SEARCH_PATH_SEGMENTS.has(segment))) return true;
+  if (segments.some((segment) => SEARCH_PATH_SEGMENTS.has(pageToken(segment)))) return true;
   return [...parsed.searchParams.keys()]
-    .some((key) => SEARCH_QUERY_PARAMETERS.has(key.toLowerCase()));
+    .some((key) => SEARCH_QUERY_PARAMETERS.has(pageToken(key)));
 }
 
 export function classifyDiscoveryCollectionMode(source: FoundSource): CollectionMode {
-  // A model-supplied label can never turn a dynamic search page into a script source.
-  if (isDynamicSearchPage(source)) return 'search';
-  if (source.collectionMode === 'search') return 'search';
+  // Explicit built-in collectors prove their content type by parsing. Apply
+  // browser-page heuristics only to untyped or script candidates.
   if (source.collectionMode === 'rss' || source.collectionMode === 'json') {
     return source.collectionMode;
   }
+  // A model-supplied script label can never turn a dynamic search page into a script source.
+  if (isDynamicSearchPage(source)) return 'search';
+  if (source.collectionMode === 'search') return 'search';
   if (source.collectionMode === 'feed_script') return 'feed_script';
 
   const url = source.url.toLowerCase();
@@ -161,13 +220,101 @@ function stablePageExclusion(source: FoundSource, mode: CollectionMode) {
   if (!parsed) return '来源 URL 不是有效的 HTTP(S) 地址';
   const segments = pathSegments(parsed);
 
-  if (segments.some((segment) => DISALLOWED_STABLE_SEGMENTS.has(segment))) {
+  if (segments.some((segment) => DISALLOWED_STABLE_SEGMENTS.has(pageToken(segment)))) {
     return '页面类型不允许：商品页或关于页面不能作为稳定采集源';
   }
   if (mode === 'feed_script' && segments.length === 0) {
     return '页面类型不允许：网站首页不能作为已验证的稳定采集源';
   }
   return undefined;
+}
+
+function hasCompleteProviderEvidence(candidate: ArticleCandidate) {
+  return candidate.queryEvidence?.some((evidence) => (
+    !!normalizedText(evidence.title)
+    && !!normalizedText(evidence.snippet)
+    && !!normalizedText(evidence.publisherName)
+    && !!normalizedText(evidence.publishedAt)
+    && parseStrictPublicationDate(evidence.publishedAt as string) !== undefined
+  )) ?? false;
+}
+
+function validateSearchCandidate(
+  candidate: ArticleCandidate,
+  intent: MonitoringIntent,
+  now: Date,
+): ArticleValidationResult {
+  const validation = validateArticleCandidate(candidate, intent, now);
+  if (
+    validation.accepted
+    && validation.evidenceLevel === 'search'
+    && !hasCompleteProviderEvidence(candidate)
+  ) {
+    return {
+      accepted: false,
+      reason: 'incomplete_search_evidence',
+      message: '原文不可读取时，搜索证据必须同时包含明确标题、摘要、发布者和发布时间',
+    };
+  }
+  return validation;
+}
+
+async function enrichSearchCandidates(
+  candidates: ArticleCandidate[],
+  enrich: DiscoveryPlanDependencies['enrichSearchCandidate'],
+) {
+  if (!enrich || candidates.length === 0) return candidates;
+  const enrichCandidate = enrich;
+  const enriched = [...candidates];
+  const fetchCount = Math.min(candidates.length, MAX_ORIGINAL_ARTICLE_FETCHES);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < fetchCount) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        const result = await enrichCandidate(candidates[index]);
+        if (result && typeof result === 'object') enriched[index] = result;
+      } catch {
+        // A blocked original page is an expected fallback. The strict provider
+        // evidence check below decides whether the search result is sufficient.
+      }
+    }
+  }
+
+  await Promise.all(Array.from(
+    { length: Math.min(ORIGINAL_FETCH_CONCURRENCY, fetchCount) },
+    () => worker(),
+  ));
+  return enriched;
+}
+
+async function settleMapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+) {
+  const results = new Array<PromiseSettledResult<R>>(values.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: 'fulfilled', value: await mapper(values[index]) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  }
+
+  await Promise.all(Array.from(
+    { length: Math.min(concurrency, values.length) },
+    () => worker(),
+  ));
+  return results;
 }
 
 function toDiscoverySample(article: ValidatedArticle): DiscoverySourceSample {
@@ -187,33 +334,52 @@ function toDiscoverySample(article: ValidatedArticle): DiscoverySourceSample {
 function toAuditEvidence(
   candidate: ArticleCandidate,
   validation: ArticleValidationResult,
-): SourceEvidence {
-  const queryEvidence = candidate.queryEvidence?.[0];
-  if (validation.accepted) {
-    return {
-      url: validation.canonicalUrl,
-      title: validation.title,
-      ...(validation.summary ? { snippet: validation.summary } : {}),
-      ...(queryEvidence ? { queryId: queryEvidence.queryId, query: queryEvidence.query } : {}),
-      publishedAt: validation.publishedAt,
-      ...(validation.publisherName ? { publisherName: validation.publisherName } : {}),
-      evidenceLevel: validation.evidenceLevel,
-      matchReason: validation.matchReason,
-      validationOutcome: 'accepted',
-    };
-  }
+): SourceEvidence[] {
+  const queryEvidence = candidate.queryEvidence?.length
+    ? candidate.queryEvidence
+    : [undefined];
 
-  return {
-    url: candidate.url,
-    ...(normalizedText(candidate.title) ? { title: candidate.title.trim() } : {}),
-    ...(normalizedText(candidate.summary) ? { snippet: candidate.summary?.trim() } : {}),
-    ...(queryEvidence ? { queryId: queryEvidence.queryId, query: queryEvidence.query } : {}),
-    ...(normalizedText(candidate.publishedAt) ? { publishedAt: candidate.publishedAt?.trim() } : {}),
-    ...(normalizedText(candidate.publisherName) ? { publisherName: candidate.publisherName?.trim() } : {}),
-    validationOutcome: 'rejected',
-    rejectionCode: validation.reason,
-    exclusionReason: validation.message,
-  };
+  return queryEvidence.map((query) => {
+    if (validation.accepted) {
+      return {
+        url: query?.url ?? validation.canonicalUrl,
+        title: normalizedText(query?.title) ?? validation.title,
+        ...(normalizedText(query?.snippet) ?? validation.summary
+          ? { snippet: normalizedText(query?.snippet) ?? validation.summary }
+          : {}),
+        ...(query ? { queryId: query.queryId, query: query.query } : {}),
+        ...(normalizedText(query?.publishedAt) ?? validation.publishedAt
+          ? { publishedAt: normalizedText(query?.publishedAt) ?? validation.publishedAt }
+          : {}),
+        ...(normalizedText(query?.publisherName) ?? validation.publisherName
+          ? { publisherName: normalizedText(query?.publisherName) ?? validation.publisherName }
+          : {}),
+        evidenceLevel: validation.evidenceLevel,
+        matchReason: validation.matchReason,
+        validationOutcome: 'accepted' as const,
+      };
+    }
+
+    return {
+      url: query?.url ?? candidate.url,
+      ...(normalizedText(query?.title) ?? normalizedText(candidate.title)
+        ? { title: normalizedText(query?.title) ?? normalizedText(candidate.title) }
+        : {}),
+      ...(normalizedText(query?.snippet) ?? normalizedText(candidate.summary)
+        ? { snippet: normalizedText(query?.snippet) ?? normalizedText(candidate.summary) }
+        : {}),
+      ...(query ? { queryId: query.queryId, query: query.query } : {}),
+      ...(normalizedText(query?.publishedAt) ?? normalizedText(candidate.publishedAt)
+        ? { publishedAt: normalizedText(query?.publishedAt) ?? normalizedText(candidate.publishedAt) }
+        : {}),
+      ...(normalizedText(query?.publisherName) ?? normalizedText(candidate.publisherName)
+        ? { publisherName: normalizedText(query?.publisherName) ?? normalizedText(candidate.publisherName) }
+        : {}),
+      validationOutcome: 'rejected' as const,
+      rejectionCode: validation.reason,
+      exclusionReason: validation.message,
+    };
+  });
 }
 
 function uniqueReasons(validations: ArticleValidationResult[]) {
@@ -344,8 +510,12 @@ async function validateStableSource(
   }
 
   let candidates: ArticleCandidate[];
+  let sampledCandidateCount = 0;
   try {
-    candidates = await dependencies.sampleStableCandidate(source, mode);
+    const sampled = await dependencies.sampleStableCandidate(source, mode);
+    if (!Array.isArray(sampled)) throw new Error('现场采样器返回值必须是文章候选数组');
+    sampledCandidateCount = sampled.length;
+    candidates = sampled.slice(0, MAX_STABLE_ARTICLE_CANDIDATES);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const exclusionReason = `稳定源现场采样失败：${message}`;
@@ -362,7 +532,7 @@ async function validateStableSource(
 
   const validations = candidates.map((candidate) => validateArticleCandidate(candidate, intent, now));
   const accepted = dedupeValidatedArticles(validations);
-  const evidence = candidates.map((candidate, index) => toAuditEvidence(candidate, validations[index]));
+  const evidence = candidates.flatMap((candidate, index) => toAuditEvidence(candidate, validations[index]));
   if (accepted.length === 0) {
     const reasons = uniqueReasons(validations);
     const exclusionReason = candidates.length === 0
@@ -375,6 +545,7 @@ async function validateStableSource(
         validationOutcome: 'rejected',
         evidence,
         exclusionReason,
+        evidenceCount: sampledCandidateCount,
       }),
     };
   }
@@ -393,6 +564,7 @@ async function validateStableSource(
       validationOutcome: 'accepted',
       evidence,
       acceptedReason: `现场采样中有 ${accepted.length} 篇近期匹配文章通过验证`,
+      evidenceCount: sampledCandidateCount,
     }),
   };
 }
@@ -407,14 +579,17 @@ export async function discoverCollectionPlan(
   const intent = buildMonitoringIntent(input.topic, criteria);
   const plan = buildSearchQueryPlan(intent, [...(input.sourcePreferences ?? [])]);
   const collection = await executeSearchPlan(plan, dependencies.searchFn);
-  const searchCandidates = collection.candidates.map(searchCandidateToArticleCandidate);
+  const searchCandidates = await enrichSearchCandidates(
+    collection.candidates.map(searchCandidateToArticleCandidate),
+    dependencies.enrichSearchCandidate,
+  );
   const searchValidations = searchCandidates.map((candidate) => (
-    validateArticleCandidate(candidate, intent, now)
+    validateSearchCandidate(candidate, intent, now)
   ));
   const acceptedSearch = dedupeValidatedArticles(searchValidations)
     .slice(0, MAX_DISCOVERY_SAMPLES);
   const searchCollector = searchSource(input, plan, acceptedSearch.map(toDiscoverySample));
-  const searchEvidence = searchCandidates.map((candidate, index) => (
+  const searchEvidence = searchCandidates.flatMap((candidate, index) => (
     toAuditEvidence(candidate, searchValidations[index])
   ));
   const searchAccepted = acceptedSearch.length > 0;
@@ -427,12 +602,24 @@ export async function discoverCollectionPlan(
       ? { acceptedReason: `${acceptedSearch.length} 篇当前搜索文章通过验证` }
       : { exclusionReason: searchFailureReason(collection.executions, searchValidations) }),
     queries: plan.queries.map((query) => ({ queryId: query.id, query: query.query })),
+    executions: collection.executions,
   })];
 
-  let stableCandidates: readonly FoundSource[] = [];
+  let stableCandidates: FoundSource[] = [];
   if (dependencies.discoverStableCandidates) {
     try {
-      stableCandidates = await dependencies.discoverStableCandidates();
+      const discovered: unknown = await discoverStableWithDeadline(
+        dependencies.discoverStableCandidates,
+        dependencies.stableDiscoveryTimeoutMs,
+      );
+      if (!Array.isArray(discovered)) throw new Error('稳定源发现器返回值必须是候选数组');
+      stableCandidates = discovered.filter((candidate, index) => {
+        if (isStableSourceCandidate(candidate)) return true;
+        auditRecords.push(stableDiscoveryFailure(
+          new Error(`第 ${index + 1} 个稳定源候选格式无效`),
+        ));
+        return false;
+      });
     } catch (error) {
       auditRecords.push(stableDiscoveryFailure(error));
     }
@@ -445,9 +632,37 @@ export async function discoverCollectionPlan(
     seenStableUrls.add(key);
     return true;
   });
-  const stableResults = await Promise.all(distinctStableCandidates.map((candidate) => (
-    validateStableSource(candidate, intent, dependencies, now)
-  )));
+  const candidatesToValidate = distinctStableCandidates.slice(0, MAX_STABLE_CANDIDATES);
+  for (const source of distinctStableCandidates.slice(MAX_STABLE_CANDIDATES)) {
+    const mode = classifyDiscoveryCollectionMode(source);
+    auditRecords.push(buildValidatedSourceDecisionRecord({
+      source,
+      collectionMode: mode,
+      validationOutcome: 'rejected',
+      evidence: [],
+      exclusionReason: `超过稳定源候选上限（${MAX_STABLE_CANDIDATES}）`,
+    }));
+  }
+  const settledStableResults = await settleMapWithConcurrency(
+    candidatesToValidate,
+    STABLE_VALIDATION_CONCURRENCY,
+    (candidate) => validateStableSource(candidate, intent, dependencies, now),
+  );
+  const stableResults = settledStableResults.flatMap((result, index) => {
+    if (result.status === 'fulfilled') return [result.value];
+    const source = candidatesToValidate[index];
+    const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    const mode = classifyDiscoveryCollectionMode(source);
+    return [{
+      audit: buildValidatedSourceDecisionRecord({
+        source,
+        collectionMode: mode,
+        validationOutcome: 'rejected',
+        evidence: [],
+        exclusionReason: `稳定源验证异常：${message}`,
+      }),
+    }];
+  });
   auditRecords.push(...stableResults.map((result) => result.audit));
 
   const sources = orderValidatedSources([

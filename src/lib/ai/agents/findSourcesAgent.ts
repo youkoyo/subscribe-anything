@@ -16,17 +16,21 @@ import { getTemplate, getProviderForTemplate, buildOpenAIClient, llmStream } fro
 import type { LLMCallInfo } from '@/lib/ai/client';
 import { webSearch, webSearchToolDef } from '@/lib/ai/tools/webSearch';
 import { rssRadar, rssRadarToolDef } from '@/lib/ai/tools/rssRadar';
-import { checkFeed, checkFeedToolDef } from '@/lib/ai/tools/checkFeed';
 import { applySourceIntentPolicy, type SourceType } from './sourceIntentPolicy';
 import { describeSourcePreferences, getActiveSourcePreferences, type SourcePreference } from './sourcePreferences';
 import { discoverCollectionPlan } from '@/lib/collection/discoveryPlan';
 import { createRssSourceCollector } from '@/lib/collection/collectors/rssSourceCollector';
 import { createJsonSourceCollector } from '@/lib/collection/collectors/jsonSourceCollector';
 import type { CollectorSource } from '@/lib/collection/collectors/types';
+import { fetchCollectorText } from '@/lib/collection/collectors/httpCollectorFetch';
+import { sampleStaticArticleList } from '@/lib/collection/staticListSampler';
+import type { ArticleCandidate } from '@/lib/collection/articleTypes';
 import type { CollectionMode, FoundSource } from '@/types/wizard';
 import type OpenAI from 'openai';
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
+const MAX_LLM_STABLE_CANDIDATES = 10;
+const MAX_DISCOVERY_HTML_BYTES = 1024 * 1024;
 
 // Appended at runtime so customized prompt rows cannot reintroduce dynamic
 // search pages or same-domain guesses as script sources.
@@ -53,8 +57,12 @@ async function discoverStableSourceCandidatesWithLlm(
   sourcePreferences: SourcePreference[],
   emit: (event: unknown) => void,
   onLLMCall?: (info: LLMCallInfo) => void,
-  userId?: string | null
+  userId?: string | null,
+  signal?: AbortSignal,
 ): Promise<FoundSource[]> {
+  const emitWhileActive = (event: unknown) => {
+    if (!signal?.aborted) emit(event);
+  };
   const [provider, tpl] = await Promise.all([
     getProviderForTemplate('find-sources', userId),
     getTemplate('find-sources', userId),
@@ -80,17 +88,18 @@ async function discoverStableSourceCandidatesWithLlm(
 
   // Agentic loop — max 32 iterations to prevent runaway
   for (let iteration = 0; iteration < 32; iteration++) {
+    signal?.throwIfAborted();
     let textBuffer = '';
     const toolCallMap = new Map<number, { id: string; name: string; args: string }>();
 
     const stream = llmStream(openai, {
       model: provider.modelId,
       messages,
-      tools: [webSearchToolDef, rssRadarToolDef, checkFeedToolDef],
+      tools: [webSearchToolDef, rssRadarToolDef],
       tool_choice: 'auto',
       stream: true,
       stream_options: { include_usage: true },
-    }, { callIndex: iteration + 1, onCall: onLLMCall });
+    }, { callIndex: iteration + 1, onCall: onLLMCall, signal });
 
     for await (const chunk of stream) {
       const choice = chunk.choices[0];
@@ -99,7 +108,7 @@ async function discoverStableSourceCandidatesWithLlm(
       // Accumulate text
       if (delta?.content) {
         textBuffer += delta.content;
-        emit({ type: 'text', content: delta.content });
+        emitWhileActive({ type: 'text', content: delta.content });
       }
 
       // Accumulate tool calls (streamed in pieces)
@@ -141,17 +150,17 @@ async function discoverStableSourceCandidatesWithLlm(
 
     // Execute each tool call
     for (const tc of toolCalls) {
-      emit({ type: 'tool_call', name: tc.name, args: JSON.parse(tc.args || '{}') });
+      emitWhileActive({ type: 'tool_call', name: tc.name, args: JSON.parse(tc.args || '{}') });
 
       let resultContent = '';
       try {
         if (tc.name === 'rssRadar') {
-          const queries: string[] = JSON.parse(tc.args).queries ?? [];
+          const queries: string[] = (JSON.parse(tc.args).queries ?? []).slice(0, 10);
           const results = await Promise.all(queries.map((q) => rssRadar(q)));
           const combined = results.map((routes, i) => ({ query: queries[i], routes }));
           resultContent = JSON.stringify(combined);
           const total = results.reduce((s, r) => s + r.length, 0);
-          emit({
+          emitWhileActive({
             type: 'tool_result',
             name: 'rssRadar',
             resultSummary: `${queries.length} 个查询，共找到 ${total} 条 RSS 路由`,
@@ -159,13 +168,26 @@ async function discoverStableSourceCandidatesWithLlm(
           });
         } else if (tc.name === 'webSearch') {
           const { query } = JSON.parse(tc.args);
-          webSearchCount++;
+          if (webSearchCount >= MAX_WEB_SEARCH_CALLS) {
+            resultContent = JSON.stringify({
+              error: `webSearch 已达到最大调用次数限制（${MAX_WEB_SEARCH_CALLS}次）`,
+            });
+            emitWhileActive({
+              type: 'tool_result',
+              name: 'webSearch',
+              resultSummary: `已阻止超出预算的搜索 (${webSearchCount}/${MAX_WEB_SEARCH_CALLS})`,
+              success: false,
+            });
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: resultContent } as Message);
+            continue;
+          }
+          webSearchCount += 1;
 
           // Check for no-provider error before hitting the API — throw so sseStream
           // catches it and emits { type: 'error' } for the client to display
           let results;
           try {
-            results = await webSearch(query);
+            results = await webSearch(query, { signal });
           } catch (searchErr) {
             const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
             // "No search provider" is a fatal config error — stop the agent entirely
@@ -174,7 +196,7 @@ async function discoverStableSourceCandidatesWithLlm(
             }
             // Transient error — report to LLM and continue
             resultContent = JSON.stringify({ error: msg });
-            emit({ type: 'tool_result', name: 'webSearch', resultSummary: `搜索出错: ${msg.slice(0, 60)}`, success: false });
+            emitWhileActive({ type: 'tool_result', name: 'webSearch', resultSummary: `搜索出错: ${msg.slice(0, 60)}`, success: false });
             messages.push({ role: 'tool', tool_call_id: tc.id, content: resultContent } as Message);
             continue;
           }
@@ -188,30 +210,11 @@ async function discoverStableSourceCandidatesWithLlm(
           }
 
           const resultSummary = `找到 ${results.length} 条结果 (webSearch: ${webSearchCount}/${MAX_WEB_SEARCH_CALLS})`;
-          emit({
+          emitWhileActive({
             type: 'tool_result',
             name: 'webSearch',
             resultSummary,
             success: true,
-          });
-        } else if (tc.name === 'checkFeed') {
-          const args = JSON.parse(tc.args);
-          const urls: string[] = args.urls ?? [];
-          const keywords: string[] | undefined = args.keywords?.length ? args.keywords : undefined;
-          const results = await checkFeed(urls, keywords);
-          resultContent = JSON.stringify(results.map((r, i) => ({ url: urls[i], ...r })));
-          const validCount = results.filter((r) => r.valid).length;
-          const summary = results.map((r, i) => {
-            if (r.valid) return `✓ ${urls[i]}`;
-            if (r.templateMismatch) return `✗ ${urls[i]} (结构有误)`;
-            if (r.keywordFound === false) return `✗ ${urls[i]} (实体 ID 有误)`;
-            return `✗ ${urls[i]} (HTTP ${r.status})`;
-          }).join('\n');
-          emit({
-            type: 'tool_result',
-            name: 'checkFeed',
-            resultSummary: `${urls.length} 个 feed，${validCount} 个有效\n${summary}`,
-            success: validCount > 0,
           });
         } else {
         }
@@ -265,7 +268,24 @@ async function sampleStableCandidate(
     }
     return createJsonSourceCollector().collectCandidates(collectorSource);
   }
-  throw new Error('静态列表候选尚无可现场运行的采样脚本，不能提前准入');
+  return sampleStaticArticleList(source.url);
+}
+
+async function enrichSearchCandidate(candidate: ArticleCandidate): Promise<ArticleCandidate> {
+  const article = await fetchCollectorText(candidate.url, {
+    maxResponseBytes: MAX_DISCOVERY_HTML_BYTES,
+  }, {
+    label: 'Search article evidence',
+    headers: {
+      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'SubscribeAnything/1.0; discovery article evidence',
+    },
+  });
+  return {
+    ...candidate,
+    url: article.finalUrl,
+    rawHtml: article.text,
+  };
 }
 
 /** Run deterministic discovery first; LLM failures can only remove optional stable sources. */
@@ -313,13 +333,15 @@ export async function findSourcesAgent(
           throw error;
         }
       },
-      discoverStableCandidates: () => discoverStableSourceCandidatesWithLlm(
+      discoverStableCandidates: (signal) => discoverStableSourceCandidatesWithLlm(
         input,
         sourcePreferences,
         emit,
         onLLMCall,
         userId,
+        signal,
       ),
+      enrichSearchCandidate,
       sampleStableCandidate: async (source, mode) => {
         emit({ type: 'tool_call', name: 'liveSourceSample', args: { url: source.url, collectionMode: mode } });
         try {
@@ -407,6 +429,7 @@ function tryParseJsonArray(raw: string): FoundSource[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((item) => item && typeof item.url === 'string' && item.url.startsWith('http'))
+      .slice(0, MAX_LLM_STABLE_CANDIDATES)
       .map(normalizeSource);
   } catch {
     return [];
@@ -440,6 +463,7 @@ function parseSourcesFromText(text: string): FoundSource[] {
       const obj = JSON.parse(match[0]) as Record<string, unknown>;
       if (typeof obj.url === 'string' && obj.url.startsWith('http')) {
         objects.push(normalizeSource(obj));
+        if (objects.length >= MAX_LLM_STABLE_CANDIDATES) break;
       }
     } catch {
       // skip malformed
@@ -455,6 +479,7 @@ function parseSourcesFromText(text: string): FoundSource[] {
     const url = match[2].replace(/[,.)]+$/, ''); // strip trailing punctuation
     if (url.startsWith('http')) {
       markdownSources.push({ title: title || url, url, description: '' });
+      if (markdownSources.length >= MAX_LLM_STABLE_CANDIDATES) break;
     }
   }
   if (markdownSources.length > 0) return markdownSources;

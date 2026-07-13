@@ -3,6 +3,7 @@ import type { CollectorType } from '@/lib/collection/collectors/types';
 import type { IntentSource } from './sourceIntentPolicy';
 
 export type SourceValidationOutcome = 'accepted' | 'rejected';
+const MAX_RETAINED_EVIDENCE = 50;
 
 export interface AuditedSource extends IntentSource {
   collectionMode?: CollectorType;
@@ -32,6 +33,15 @@ export interface SourceDecisionRecord {
   validationOutcome: SourceValidationOutcome;
   exclusionReason?: string;
   queries?: Array<{ queryId: string; query: string }>;
+  executions?: Array<{
+    queryId: string;
+    query: string;
+    status: 'success' | 'error';
+    resultCount: number;
+    error?: string;
+  }>;
+  evidenceCount: number;
+  omittedEvidenceCount: number;
 }
 
 /** Format one live-validation result while preserving the existing audit UI contract. */
@@ -43,21 +53,28 @@ export function buildValidatedSourceDecisionRecord(input: {
   acceptedReason?: string;
   exclusionReason?: string;
   queries?: Array<{ queryId: string; query: string }>;
+  executions?: SourceDecisionRecord['executions'];
+  evidenceCount?: number;
 }): SourceDecisionRecord {
   const accepted = input.validationOutcome === 'accepted';
   const reason = accepted
     ? input.acceptedReason ?? '已通过实时样本验证'
     : input.exclusionReason ?? '没有文章通过实时样本验证';
 
+  const evidenceCount = Math.max(input.evidence.length, input.evidenceCount ?? 0);
+  const evidence = input.evidence.slice(0, MAX_RETAINED_EVIDENCE);
   return {
     source: { ...input.source, collectionMode: input.collectionMode },
     decision: input.validationOutcome,
     reason,
-    evidence: input.evidence,
+    evidence,
     collectionMode: input.collectionMode,
     validationOutcome: input.validationOutcome,
     ...(input.exclusionReason ? { exclusionReason: input.exclusionReason } : {}),
     ...(input.queries ? { queries: input.queries } : {}),
+    ...(input.executions ? { executions: input.executions } : {}),
+    evidenceCount,
+    omittedEvidenceCount: Math.max(0, evidenceCount - evidence.length),
   };
 }
 

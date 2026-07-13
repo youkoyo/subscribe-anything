@@ -73,7 +73,15 @@ export function mapSerperResult(result: SerperResult): SearchResult {
   };
 }
 
-async function searchTavily(query: string, apiKey: string): Promise<SearchResult[]> {
+export interface WebSearchOptions {
+  signal?: AbortSignal;
+}
+
+async function searchTavily(
+  query: string,
+  apiKey: string,
+  options: WebSearchOptions,
+): Promise<SearchResult[]> {
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -83,6 +91,7 @@ async function searchTavily(query: string, apiKey: string): Promise<SearchResult
       search_depth: 'basic',
       max_results: 10,
     }),
+    signal: options.signal,
   });
 
   if (!res.ok) {
@@ -95,7 +104,11 @@ async function searchTavily(query: string, apiKey: string): Promise<SearchResult
   return (data.results ?? []).map(mapTavilyResult);
 }
 
-async function searchSerper(query: string, apiKey: string): Promise<SearchResult[]> {
+async function searchSerper(
+  query: string,
+  apiKey: string,
+  options: WebSearchOptions,
+): Promise<SearchResult[]> {
   const res = await fetch('https://google.serper.dev/search', {
     method: 'POST',
     headers: {
@@ -103,6 +116,7 @@ async function searchSerper(query: string, apiKey: string): Promise<SearchResult
       'X-API-KEY': apiKey,
     },
     body: JSON.stringify({ q: query, num: 10 }),
+    signal: options.signal,
   });
 
   if (!res.ok) {
@@ -116,7 +130,10 @@ async function searchSerper(query: string, apiKey: string): Promise<SearchResult
 }
 
 /** Runs a web search using the configured provider. Throws if not configured. */
-export async function webSearch(query: string): Promise<SearchResult[]> {
+export async function webSearch(
+  query: string,
+  options: WebSearchOptions = {},
+): Promise<SearchResult[]> {
   const db = getDb();
   const config = (await db
     .select()
@@ -132,8 +149,8 @@ export async function webSearch(query: string): Promise<SearchResult[]> {
     );
   }
 
-  if (provider === 'tavily') return searchTavily(query, apiKey);
-  if (provider === 'serper') return searchSerper(query, apiKey);
+  if (provider === 'tavily') return searchTavily(query, apiKey, options);
+  if (provider === 'serper') return searchSerper(query, apiKey, options);
 
   throw new Error(`Unknown search provider: ${provider}`);
 }
