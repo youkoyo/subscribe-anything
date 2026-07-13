@@ -8,7 +8,7 @@
  *   3. complete      — call createSourcesForSubscription, mark subscription active
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions, managedBuildLogs } from '@/lib/db/schema';
 import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
@@ -172,6 +172,42 @@ async function shouldAutoAdvance(subscriptionId: string): Promise<boolean> {
 
 // ── Exported step functions (no isCancelled checks — run to completion) ──────
 
+async function discoverSourcesForSubscription(
+  subscriptionId: string,
+  topic: string,
+  criteria: string | undefined,
+  userId: string,
+) {
+  const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
+  const pendingProgressLogs: Promise<void>[] = [];
+  let sourceAudit: unknown[] | undefined;
+
+  try {
+    return await findSourcesAgent(
+      { topic, criteria },
+      (event: unknown) => {
+        const e = event as Record<string, unknown>;
+        if (e.type === 'tool_call' && e.name === 'webSearch') {
+          const args = e.args as { query: string };
+          pendingProgressLogs.push(
+            writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query}`),
+          );
+        }
+        if (e.type === 'source_audit' && Array.isArray(e.records)) {
+          sourceAudit = e.records;
+        }
+      },
+      (info) => upsertLLMCall(subscriptionId, info),
+      userId,
+    );
+  } finally {
+    await Promise.allSettled(pendingProgressLogs);
+    if (sourceAudit) {
+      await writeLog(subscriptionId, 'find_sources', 'info', 'AI_SOURCE_AUDIT', sourceAudit);
+    }
+  }
+}
+
 /**
  * Run the find_sources step for a subscription.
  * Writes logs to DB; runs to completion unless subscription is deleted.
@@ -182,34 +218,20 @@ export async function runFindSourcesStep(
   criteria: string | undefined,
   userId: string
 ): Promise<void> {
-  writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
+  await writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
 
   try {
-    const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
-
-    const discovered = await findSourcesAgent(
-      { topic, criteria },
-      (event: unknown) => {
-        const e = event as Record<string, unknown>;
-        if (e.type === 'tool_call' && e.name === 'webSearch') {
-          const args = e.args as { query: string };
-          writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query}`);
-        }
-        if (e.type === 'source_audit' && Array.isArray(e.records)) {
-          writeLog(subscriptionId, 'find_sources', 'info', 'AI_SOURCE_AUDIT', e.records);
-        }
-      },
-      (info) => upsertLLMCall(subscriptionId, info),
-      userId
+    const discovered = await discoverSourcesForSubscription(
+      subscriptionId,
+      topic,
+      criteria,
+      userId,
     );
-
-    // Auto-select up to 5 sources (prefer recommended) so managed takeover can restore correctly
-    const selected = autoSelectSources(discovered);
     // Write success log with all discovered sources (for reference)
-    writeLog(subscriptionId, 'find_sources', 'success', `发现 ${discovered.length} 个数据源`, discovered);
+    await writeLog(subscriptionId, 'find_sources', 'success', `发现 ${discovered.length} 个数据源`, discovered);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    writeLog(subscriptionId, 'find_sources', 'error', `发现数据源失败：${msg}`);
+    await writeLog(subscriptionId, 'find_sources', 'error', `发现数据源失败：${msg}`);
   }
 }
 
@@ -515,13 +537,11 @@ async function waitForFindSourcesResult(
           eq(managedBuildLogs.step, 'find_sources'),
           eq(managedBuildLogs.level, 'success')
         )
-      ))[0];
-    if (successLog?.payload) {
-      try {
-        const s = JSON.parse(successLog.payload);
-        if (Array.isArray(s)) return s as FoundSource[];
-      } catch { /* ignore */ }
-    }
+      )
+      .orderBy(desc(managedBuildLogs.createdAt))
+      .limit(1))[0];
+    const discovered = parseValidatedDiscoveryPayload(successLog?.payload);
+    if (discovered) return discovered;
     const errorLog = (await db
       .select({ id: managedBuildLogs.id })
       .from(managedBuildLogs)
@@ -538,12 +558,55 @@ async function waitForFindSourcesResult(
   return null;
 }
 
-/** Auto-select up to 5 sources: prefer recommended, fall back to all */
-function autoSelectSources(discovered: FoundSource[]): FoundSource[] {
-  const recommended = discovered.filter((s) => s.recommended);
-  const notRecommended = discovered.filter((s) => !s.recommended);
-  if (recommended.length >= 5) return recommended.slice(0, 5);
-  return [...recommended, ...notRecommended.slice(0, 5 - recommended.length)];
+export function isValidatedDiscoverySource(source: unknown): source is FoundSource {
+  if (!source || typeof source !== 'object') return false;
+  const candidate = source as FoundSource;
+  if (candidate.discoveryVersion !== 1) return false;
+  if (!candidate.collectionMode || !Array.isArray(candidate.initialItems) || candidate.initialItems.length === 0) {
+    return false;
+  }
+  return candidate.collectionMode !== 'search'
+    || !!candidate.searchPlan?.queries?.length;
+}
+
+function parseValidatedDiscoveryPayload(payload: string | null | undefined) {
+  if (!payload) return null;
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    return Array.isArray(parsed)
+      && parsed.length > 0
+      && parsed.every(isValidatedDiscoverySource)
+      ? parsed as FoundSource[]
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Auto-select up to five sources while reserving the first slot for search. */
+export function autoSelectSources(discovered: FoundSource[]): FoundSource[] {
+  const search = discovered.find((source) => source.collectionMode === 'search');
+  const stable = discovered.filter((source) => source !== search);
+  const recommended = stable.filter((source) => source.recommended);
+  const notRecommended = stable.filter((source) => !source.recommended);
+  return [
+    ...(search ? [search] : []),
+    ...recommended,
+    ...notRecommended,
+  ].slice(0, 5);
+}
+
+/** Map client-selected URLs back to the server-validated discovery objects. */
+export function selectRequestedDiscoverySources(
+  discovered: FoundSource[],
+  requested: FoundSource[] | undefined,
+) {
+  if (!requested?.length) return autoSelectSources(discovered);
+  const requestedUrls = new Set(requested.map((source) => source.url));
+  const canonicalSelection = discovered.filter((source) => requestedUrls.has(source.url));
+  return canonicalSelection.length > 0
+    ? canonicalSelection.slice(0, 5)
+    : autoSelectSources(discovered);
 }
 
 /**
@@ -632,9 +695,15 @@ export async function runManagedPipeline(
   const { topic, criteria, startStep, userId, foundSources: initialFoundSources, allFoundSources: initialAllFoundSources, generatedSources: initialGeneratedSources } = payload;
 
   try {
-    let foundSources: FoundSource[] = initialFoundSources ?? [];
+    // A find_sources run must re-establish server-side validation. Client data
+    // is used only as a requested URL selection after canonical discovery.
+    let foundSources: FoundSource[] = startStep === 'find_sources'
+      ? []
+      : initialFoundSources ?? [];
     // allFoundSources: full discovered list for display (superset of foundSources)
-    let allFoundSources: FoundSource[] = initialAllFoundSources ?? initialFoundSources ?? [];
+    let allFoundSources: FoundSource[] = startStep === 'find_sources'
+      ? []
+      : initialAllFoundSources ?? initialFoundSources ?? [];
     const reusableInitialGeneratedSources = (initialGeneratedSources ?? []).filter((source) =>
       isReusableGeneratedSample(source.initialItems, criteria)
     );
@@ -655,38 +724,37 @@ export async function runManagedPipeline(
             eq(managedBuildLogs.step, 'find_sources'),
             eq(managedBuildLogs.level, 'success')
           )
-        ))[0];
+        )
+        .orderBy(desc(managedBuildLogs.createdAt))
+        .limit(1))[0];
+      const existingDiscovered = parseValidatedDiscoveryPayload(existingSuccess?.payload);
 
-      if (existingSuccess?.payload) {
+      if (existingDiscovered) {
         // Already completed — reuse results
-        // If frontend passed specific sources (initialFoundSources), use them
-        // Otherwise auto-select from discovered sources (max 5)
-        if (initialFoundSources && initialFoundSources.length > 0) {
-          foundSources = initialFoundSources;
-          writeLog(subscriptionId, 'find_sources', 'info', `使用已选择 ${initialFoundSources.length} 个数据源`, initialFoundSources);
-        } else {
-          try {
-            const discovered = JSON.parse(existingSuccess.payload) as FoundSource[];
-            if (Array.isArray(discovered)) {
-              const selected = autoSelectSources(discovered);
-              foundSources = selected;
-                          }
-          } catch { /* ignore, will fall through to fresh run */ }
+        allFoundSources = existingDiscovered;
+        foundSources = selectRequestedDiscoverySources(existingDiscovered, initialFoundSources);
+        if (initialFoundSources?.length) {
+          await writeLog(
+            subscriptionId,
+            'find_sources',
+            'info',
+            `使用已验证的 ${foundSources.length} 个已选择数据源`,
+            foundSources,
+          );
         }
         // Persist Phase 1 result into wizardStateJson
-        // For Phase 1 with existing results, allFoundSources stays as-is (from initial payload or empty)
         const selectedUrls1 = new Set(foundSources.map((s) => s.url));
-        updateWizardState(subscriptionId, {
+        await updateWizardState(subscriptionId, {
           step: 3,
-          foundSources: allFoundSources.length > 0 ? allFoundSources : foundSources,
-          selectedIndices: (allFoundSources.length > 0 ? allFoundSources : foundSources)
+          foundSources: allFoundSources,
+          selectedIndices: allFoundSources
             .map((s: FoundSource, i: number) => selectedUrls1.has(s.url) ? i : -1)
             .filter((i: number) => i >= 0),
           generatedSources: [],
         });
       } else {
         // Check if a find_sources task is already in progress
-        const existingInfo = (await db
+        const existingInfo = existingSuccess?.payload ? undefined : (await db
           .select({ id: managedBuildLogs.id })
           .from(managedBuildLogs)
           .where(
@@ -704,17 +772,19 @@ export async function runManagedPipeline(
           if (await isCancelled(subscriptionId)) return;
           if (discovered) {
             allFoundSources = discovered;
-            // If frontend passed specific sources, use them; otherwise auto-select (max 5)
-            if (initialFoundSources && initialFoundSources.length > 0) {
-              foundSources = initialFoundSources;
-              writeLog(subscriptionId, 'find_sources', 'info', `使用已选择 ${initialFoundSources.length} 个数据源`, initialFoundSources);
-            } else {
-              const selected = autoSelectSources(discovered);
-              foundSources = selected;
-                          }
+            foundSources = selectRequestedDiscoverySources(discovered, initialFoundSources);
+            if (initialFoundSources?.length) {
+              await writeLog(
+                subscriptionId,
+                'find_sources',
+                'info',
+                `使用已验证的 ${foundSources.length} 个已选择数据源`,
+                foundSources,
+              );
+            }
             // Persist Phase 1 result into wizardStateJson
             const selectedUrls2 = new Set(foundSources.map((s) => s.url));
-            updateWizardState(subscriptionId, {
+            await updateWizardState(subscriptionId, {
               step: 3,
               foundSources: allFoundSources,
               selectedIndices: allFoundSources
@@ -728,36 +798,25 @@ export async function runManagedPipeline(
 
         if (foundSources.length === 0 && !(await isCancelled(subscriptionId))) {
           // No existing results or previous attempt failed — run from scratch
-          writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
+          await writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
 
           try {
-            const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
-
-            const discovered = await findSourcesAgent(
-              { topic, criteria },
-              (event: unknown) => {
-                const e = event as Record<string, unknown>;
-                if (e.type === 'tool_call' && e.name === 'webSearch') {
-                  const args = e.args as { query: string };
-                  writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query}`);
-                }
-                if (e.type === 'source_audit' && Array.isArray(e.records)) {
-                  writeLog(subscriptionId, 'find_sources', 'info', 'AI_SOURCE_AUDIT', e.records);
-                }
-              },
-              (info) => upsertLLMCall(subscriptionId, info),
-              userId
+            const discovered = await discoverSourcesForSubscription(
+              subscriptionId,
+              topic,
+              criteria,
+              userId,
             );
 
-            const selected = autoSelectSources(discovered);
+            const selected = selectRequestedDiscoverySources(discovered, initialFoundSources);
             foundSources = selected;
             allFoundSources = discovered;
 
             // Always write sources log — even if cancelled (watch mode needs to see results)
-            writeLog(subscriptionId, 'find_sources', 'success', `发现 ${discovered.length} 个数据源`, discovered);
-                        // Persist Phase 1 result into wizardStateJson
+            await writeLog(subscriptionId, 'find_sources', 'success', `发现 ${discovered.length} 个数据源`, discovered);
+            // Persist Phase 1 result into wizardStateJson
             const selectedUrls3 = new Set(selected.map((s) => s.url));
-            updateWizardState(subscriptionId, {
+            await updateWizardState(subscriptionId, {
               step: 3,
               foundSources: discovered,
               selectedIndices: discovered
@@ -767,7 +826,7 @@ export async function runManagedPipeline(
             });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            writeLog(subscriptionId, 'find_sources', 'error', `发现数据源失败：${msg}`);
+            await writeLog(subscriptionId, 'find_sources', 'error', `发现数据源失败：${msg}`);
             markFailed(subscriptionId, `发现数据源失败：${msg}`);
             return;
           }

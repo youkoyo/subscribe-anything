@@ -123,7 +123,8 @@ function queryEvidence(candidate: SearchCandidate): ArticleQueryEvidence[] {
   }));
 }
 
-function toArticleCandidate(candidate: SearchCandidate): ArticleCandidate {
+/** Shared by discovery and runtime so search evidence is interpreted identically. */
+export function searchCandidateToArticleCandidate(candidate: SearchCandidate): ArticleCandidate {
   const datedPrimary = candidate.evidence.find((item) => {
     const publishedAt = nonBlank(item.publishedAt);
     return publishedAt !== undefined
@@ -163,7 +164,7 @@ export function createSearchSourceCollector(
           .join('; ');
         throw new Error(`All enabled search queries failed${details ? `: ${details}` : ''}`);
       }
-      return collection.candidates.map(toArticleCandidate);
+      return collection.candidates.map(searchCandidateToArticleCandidate);
     },
   };
 }

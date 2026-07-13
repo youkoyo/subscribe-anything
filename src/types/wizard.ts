@@ -4,8 +4,22 @@ import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { SourceType } from '@/lib/ai/agents/sourceIntentPolicy';
 import type { SourceDecisionRecord } from '@/lib/ai/agents/sourcePortfolioPolicy';
 import type { SearchPlan } from '@/lib/search/queryPlan';
+import type {
+  ArticleEvidenceLevel,
+  ArticleQueryEvidence,
+} from '@/lib/collection/articleTypes';
 
 export type CollectionMode = 'search' | 'rss' | 'json' | 'feed_script';
+
+/** A discovery-time sample that has already passed the strict article gate. */
+export interface DiscoverySourceSample extends CollectedItem {
+  publishedAt: string;
+  publisherName?: string;
+  evidenceLevel: ArticleEvidenceLevel;
+  relevanceScore: number;
+  matchReason: string;
+  queryEvidence: ArticleQueryEvidence[];
+}
 
 export interface FoundSource {
   title: string;
@@ -18,6 +32,12 @@ export interface FoundSource {
   sourceType?: SourceType;
   collectionMode?: CollectionMode;
   searchPlan?: SearchPlan;
+  /** Live samples that passed freshness, relevance, and page-type validation. */
+  initialItems?: DiscoverySourceSample[];
+  /** Validated runtime configuration for non-search built-in collectors. */
+  collectorConfigJson?: string;
+  /** Prevents legacy, same-domain-only discovery logs from being reused. */
+  discoveryVersion?: 1;
 }
 
 export interface GeneratedSource {
