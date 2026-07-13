@@ -153,6 +153,7 @@ for (const [label, url] of [
   ['about page', 'https://example.com/about'],
   ['contact page', 'https://example.com/contact-us'],
   ['listing page', 'https://example.com/category/industry-news'],
+  ['bare archives listing', 'https://example.com/archives'],
   ['search page with an HTML extension', 'https://example.com/search.html?q=鞋厂'],
   ['listing page with an HTML extension', 'https://example.com/list.html'],
 ] as const) {
@@ -171,6 +172,16 @@ test('does not reject article slugs merely containing generic page-type substrin
   assert.equal(result.accepted, true);
 });
 
+test('accepts an article permalink nested under an archives path', () => {
+  const result = validateArticleCandidate(
+    candidate({ url: 'https://example.com/archives/12345' }),
+    intent(),
+    now,
+  );
+
+  assert.equal(result.accepted, true);
+});
+
 test('accepts a matching article 20 days old under an explicit 30-day intent', () => {
   const result = validateArticleCandidate(
     candidate({ publishedAt: '2026-06-23T12:00:00Z' }),
@@ -179,6 +190,37 @@ test('accepts a matching article 20 days old under an explicit 30-day intent', (
   );
 
   assert.equal(result.accepted, true);
+});
+
+test('combines topic and criteria when scoring a current shoe-factory accident', () => {
+  const result = validateArticleCandidate(
+    candidate(),
+    intent({
+      topic: '鞋业动态资讯',
+      criteria: '关注最近30天安全事故',
+    }),
+    now,
+  );
+
+  assert.equal(result.accepted, true);
+});
+
+test('does not let a current unrelated chemical accident satisfy a footwear intent', () => {
+  assertRejected(
+    validateArticleCandidate(
+      candidate({
+        url: 'https://example.com/news/chemical-accident',
+        title: '山东一化工厂发生爆炸事故',
+        summary: '危化品装置受损，当地已启动应急处置。',
+      }),
+      intent({
+        topic: '鞋业动态资讯',
+        criteria: '关注最近30天安全事故',
+      }),
+      now,
+    ),
+    'irrelevant',
+  );
 });
 
 test('accepts a clear search-provider date when original HTML is unavailable', () => {
@@ -205,16 +247,16 @@ test('original HTML publication date wins over a conflicting current search date
 test('merges usable fields across multiple JSON-LD article nodes', () => {
   const rawHtml = `
     <script type="application/ld+json">
-      {"@type":"NewsArticle","headline":"多节点鞋厂火灾"}
+      {"@type":"NewsArticle","@id":"https://example.com/news/multi-node-fire#article","headline":"多节点鞋厂火灾"}
     </script>
     <script type="application/ld+json">
-      {"@type":"NewsArticle","datePublished":"2023-07-12T08:00:00Z"}
+      {"@type":"NewsArticle","@id":"https://example.com/news/multi-node-fire#article","datePublished":"2023-07-12T08:00:00Z"}
     </script>
     <script type="application/ld+json">
-      {"@type":"NewsArticle","publisher":{"name":"多节点新闻社"}}
+      {"@type":"NewsArticle","@id":"https://example.com/news/multi-node-fire#article","publisher":{"name":"多节点新闻社"}}
     </script>
     <script type="application/ld+json">
-      {"@type":"NewsArticle","url":"/news/multi-node-fire"}
+      {"@type":"NewsArticle","@id":"https://example.com/news/multi-node-fire#article","url":"/news/multi-node-fire"}
     </script>
   `;
 
@@ -227,6 +269,73 @@ test('merges usable fields across multiple JSON-LD article nodes', () => {
       publishedAt: '2023-07-12T08:00:00Z',
     },
   );
+});
+
+test('does not merge a related JSON-LD article date into the page article', () => {
+  const rawHtml = `
+    <link rel="canonical" href="https://example.com/news/main-shoe-fire">
+    <script type="application/ld+json">
+      {
+        "@type":"NewsArticle",
+        "@id":"https://example.com/news/main-shoe-fire#article",
+        "url":"https://example.com/news/main-shoe-fire",
+        "headline":"晋江鞋厂发生火灾"
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@type":"NewsArticle",
+        "@id":"https://example.com/news/related-chemical-accident#article",
+        "url":"https://example.com/news/related-chemical-accident",
+        "headline":"外地化工厂事故旧闻",
+        "datePublished":"2020-01-02T03:04:05Z"
+      }
+    </script>
+  `;
+
+  assert.deepEqual(
+    extractArticleMetadata(rawHtml, 'https://example.com/news/main-shoe-fire'),
+    {
+      canonicalUrl: 'https://example.com/news/main-shoe-fire',
+      title: '晋江鞋厂发生火灾',
+    },
+  );
+});
+
+test('uses current search evidence when only a related JSON-LD article has a stale date', () => {
+  const rawHtml = `
+    <link rel="canonical" href="https://example.com/news/main-shoe-fire">
+    <script type="application/ld+json">
+      {
+        "@type":"NewsArticle",
+        "url":"https://example.com/news/main-shoe-fire",
+        "headline":"晋江鞋厂发生火灾"
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@type":"NewsArticle",
+        "url":"https://example.com/news/related-old-story",
+        "headline":"外地化工厂事故旧闻",
+        "datePublished":"2020-01-02T03:04:05Z"
+      }
+    </script>
+  `;
+  const result = validateArticleCandidate(
+    candidate({
+      url: 'https://example.com/news/main-shoe-fire',
+      rawHtml,
+      publishedAt: '2026-07-12T08:00:00Z',
+    }),
+    intent(),
+    now,
+  );
+
+  assert.equal(result.accepted, true);
+  if (result.accepted) {
+    assert.equal(result.publishedAt, '2026-07-12T08:00:00Z');
+    assert.equal(result.evidenceLevel, 'search');
+  }
 });
 
 test('merged original JSON-LD date outranks a current search date', () => {

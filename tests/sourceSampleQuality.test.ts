@@ -104,6 +104,46 @@ test('rejects a missing publication date without using collection time', () => {
   assert.match(result.reason, /30天/);
 });
 
+test('rejects an invalid calendar date in both quality and reuse checks', () => {
+  const items = [
+    {
+      title: '晋江鞋厂火灾事故通报',
+      url: 'https://example.com/invalid-calendar-date',
+      publishedAt: '2026-02-30T00:00:00Z',
+    },
+  ];
+  const referenceNow = new Date('2026-03-02T12:00:00Z');
+
+  assert.equal(assessInitialItemsQuality(items, undefined, referenceNow).valid, false);
+  assert.equal(isReusableGeneratedSample(items, undefined, referenceNow), false);
+});
+
+test('rejects a timezone-free datetime in both quality and reuse checks', () => {
+  const items = [
+    {
+      title: '晋江鞋厂火灾事故通报',
+      url: 'https://example.com/timezone-free-date',
+      publishedAt: '2026-07-11T08:00:00',
+    },
+  ];
+
+  assert.equal(assessInitialItemsQuality(items, undefined, now).valid, false);
+  assert.equal(isReusableGeneratedSample(items, undefined, now), false);
+});
+
+test('keeps accepting an absolute valid ISO publication date', () => {
+  const items = [
+    {
+      title: '晋江鞋厂火灾事故通报',
+      url: 'https://example.com/valid-iso-date',
+      publishedAt: '2026-07-11T08:00:00Z',
+    },
+  ];
+
+  assert.equal(assessInitialItemsQuality(items, undefined, now).valid, true);
+  assert.equal(isReusableGeneratedSample(items, undefined, now), true);
+});
+
 test('allows at most 24 hours of future clock skew in source samples', () => {
   const withinTolerance = assessInitialItemsQuality(
     [

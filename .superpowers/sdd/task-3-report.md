@@ -125,3 +125,44 @@ The optional RFC 2822 weekday is now captured. When present, it is compared agai
 `npx tsc --noEmit` still reports only the two pre-existing `tests/dbConfig.test.ts` fixtures that omit `ProcessEnv.NODE_ENV`; neither RFC weekday follow-up file appears in its output.
 
 This follow-up changes only `src/lib/collection/articleValidator.ts`, `tests/articleValidator.test.ts`, and this report.
+
+## Quality review follow-up
+
+### RED evidence
+
+Before changing production code, only `tests/articleValidator.test.ts` and `tests/sourceSampleQuality.test.ts` were modified. Then ran:
+
+`node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+
+Result: exit 1; 38 passed and 6 failed. The failures reproduced:
+
+- source sample quality accepting an invalid calendar date and a timezone-free datetime;
+- a current article permalink under `/archives/12345` being rejected as a listing;
+- a relevant shoe-factory accident being rejected when the industry was present in the topic but not repeated in criteria;
+- a related JSON-LD article's 2020 date being merged into the main page article and overriding current search evidence.
+
+The valid ISO source-sample case, bare `/archives` rejection, unrelated chemical-accident rejection, and same-entity split JSON-LD aggregation all passed during RED.
+
+### Follow-up decisions
+
+- Exported the strict publication-date parser from `articleValidator.ts` and reused it from `sourceSampleQuality.ts`; arbitrary strings are no longer delegated directly to `new Date` in sample-quality filtering.
+- JSON-LD selection identifies articles from `url`, `@id`, and `mainEntityOfPage`, normalizes fragment identities, prioritizes the page/canonical identity, and only fills fields from matching identities or identity-free nodes without a headline conflict.
+- `archive` and `archives` are treated as listing tokens only when they are the final path segment; article identifiers below them remain eligible. Other page-type tokens retain their existing strict behavior.
+- Relevance parsing now receives topic, criteria, and structured monitoring-intent terms together while retaining `sourceName: null`, the real publication date, and the existing scorer.
+
+### Follow-up GREEN evidence
+
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts`
+  - exit 0; 44 passed, 0 failed.
+- `node --import tsx --test tests/articleValidator.test.ts tests/sourceSampleQuality.test.ts tests/searchCollector.test.ts tests/searchQueryPlan.test.ts`
+  - exit 0; 65 passed, 0 failed.
+- `node --import tsx --test tests/enterpriseCriteriaMatcher.test.ts tests/enterpriseDeliveryScoring.test.ts`
+  - exit 0; 9 passed, 0 failed.
+- `git diff --check`
+  - exit 0.
+- Production no-fallback scan
+  - `NO_PRODUCTION_FALLBACK_MATCHES`.
+
+`npx tsc --noEmit` still reports only the two pre-existing `tests/dbConfig.test.ts` fixtures that omit `ProcessEnv.NODE_ENV`; no quality follow-up file appears in its output.
+
+This follow-up changes only `src/lib/collection/articleMetadata.ts`, `src/lib/collection/articleValidator.ts`, `src/lib/ai/agents/sourceSampleQuality.ts`, both Task 3 test files, and this report.

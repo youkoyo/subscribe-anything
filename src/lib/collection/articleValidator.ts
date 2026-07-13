@@ -17,6 +17,7 @@ const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:
 const RFC_2822_DATE = /^(?:(Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s*)?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+(GMT|UT|[+-]\d{4})$/i;
 const RFC_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const RFC_WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const ARCHIVE_SEGMENTS = new Set(['archive', 'archives']);
 const NON_ARTICLE_SEGMENTS = new Set([
   'about', 'about-us', 'archive', 'archives', 'catalog', 'categories', 'category',
   'contact', 'contact-us', 'default.aspx', 'default.html', 'find', 'home', 'homepage',
@@ -65,10 +66,11 @@ function safePathSegments(canonicalUrl: string) {
 
 function isNonArticlePage(canonicalUrl: string) {
   const segments = safePathSegments(canonicalUrl);
-  return segments.length === 0 || segments.some((segment) => (
-    NON_ARTICLE_SEGMENTS.has(segment)
-    || NON_ARTICLE_SEGMENTS.has(segment.replace(PAGE_EXTENSION, ''))
-  ));
+  return segments.length === 0 || segments.some((segment, index) => {
+    const pageToken = segment.replace(PAGE_EXTENSION, '');
+    if (ARCHIVE_SEGMENTS.has(pageToken)) return index === segments.length - 1;
+    return NON_ARTICLE_SEGMENTS.has(segment) || NON_ARTICLE_SEGMENTS.has(pageToken);
+  });
 }
 
 function hasValidCalendarDate(year: number, month: number, day: number) {
@@ -96,7 +98,7 @@ function hasValidOffset(value: string) {
   return Number(compact[0]) <= 23 && Number(compact[1]) <= 59;
 }
 
-function parsePublishedAt(value: string) {
+export function parseStrictPublicationDate(value: string) {
   const iso = value.match(ISO_DATE_TIME);
   if (iso) {
     const [, yearText, monthText, dayText, hourText, minuteText, secondText, offset] = iso;
@@ -162,7 +164,7 @@ function validate(candidate: ArticleCandidate, intent: MonitoringIntent, now: Da
   const publishedAt = metadataDate ?? candidateDate;
   if (!publishedAt) return rejection('missing_date', '文章缺少真实发布时间');
 
-  const publishedDate = parsePublishedAt(publishedAt);
+  const publishedDate = parseStrictPublicationDate(publishedAt);
   if (!publishedDate) return rejection('invalid_date', '文章发布时间无法解析为绝对日期');
 
   const ageMs = now.getTime() - publishedDate.getTime();
@@ -171,7 +173,15 @@ function validate(candidate: ArticleCandidate, intent: MonitoringIntent, now: Da
     return rejection('stale', `文章发布时间超过最近 ${intent.freshnessDays} 天`);
   }
 
-  const criteriaText = nonBlankString(intent.criteria) ?? nonBlankString(intent.topic) ?? '';
+  const criteriaText = Array.from(new Set([
+    intent.topic,
+    intent.criteria,
+    ...intent.industryTerms,
+    ...intent.eventTerms,
+    ...intent.businessTerms,
+    ...intent.entities,
+    ...intent.regions,
+  ].map(nonBlankString).filter((value): value is string => value !== undefined))).join(' ');
   const parsedCriteria = {
     ...parseDeliveryCriteria(criteriaText),
     timeWindowDays: intent.freshnessDays,

@@ -156,7 +156,66 @@ function extractJsonLdUrl(record: JsonRecord, pageUrl: string) {
   return undefined;
 }
 
-function extractJsonLd(html: string, pageUrl: string): ArticleMetadata {
+function normalizeJsonLdIdentity(value: unknown, pageUrl: string) {
+  const resolved = resolveUrl(value, pageUrl);
+  if (!resolved) return undefined;
+
+  try {
+    const url = new URL(resolved);
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function extractJsonLdIdentity(record: JsonRecord, pageUrl: string) {
+  const mainEntity = record.mainEntityOfPage;
+  const mainEntityIdentity = isJsonRecord(mainEntity)
+    ? mainEntity['@id'] ?? mainEntity.url
+    : mainEntity;
+
+  for (const value of [record.url, record['@id'], mainEntityIdentity]) {
+    const identity = normalizeJsonLdIdentity(value, pageUrl);
+    if (identity) return identity;
+  }
+  return undefined;
+}
+
+function extractJsonLdTitle(record: JsonRecord) {
+  return nonBlankString(record.headline) ?? nonBlankString(record.name);
+}
+
+function selectCompatibleArticleNodes(
+  nodes: JsonRecord[],
+  pageUrl: string,
+  canonicalUrl: string | undefined,
+) {
+  if (nodes.length === 0) return [];
+
+  const preferredIdentity = normalizeJsonLdIdentity(canonicalUrl ?? pageUrl, pageUrl);
+  const primary = nodes.find((record) => (
+    extractJsonLdIdentity(record, pageUrl) === preferredIdentity
+  )) ?? nodes[0];
+  const primaryIdentity = extractJsonLdIdentity(primary, pageUrl);
+  const primaryTitle = extractJsonLdTitle(primary);
+
+  return nodes.filter((record) => {
+    if (record === primary) return true;
+
+    const identity = extractJsonLdIdentity(record, pageUrl);
+    if (identity) return Boolean(primaryIdentity && identity === primaryIdentity);
+
+    const title = extractJsonLdTitle(record);
+    return !title || !primaryTitle || title === primaryTitle;
+  });
+}
+
+function extractJsonLd(
+  html: string,
+  pageUrl: string,
+  preferredCanonicalUrl: string | undefined,
+): ArticleMetadata {
   const nodes: JsonRecord[] = [];
 
   for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
@@ -176,9 +235,9 @@ function extractJsonLd(html: string, pageUrl: string): ArticleMetadata {
   let publisherName: string | undefined;
   let publishedAt: string | undefined;
 
-  for (const record of nodes) {
+  for (const record of selectCompatibleArticleNodes(nodes, pageUrl, preferredCanonicalUrl)) {
     canonicalUrl ??= extractJsonLdUrl(record, pageUrl);
-    title ??= nonBlankString(record.headline) ?? nonBlankString(record.name);
+    title ??= extractJsonLdTitle(record);
     description ??= nonBlankString(record.description);
     publisherName ??= extractPublisher(record.publisher);
     publishedAt ??= nonBlankString(record.datePublished);
@@ -202,9 +261,10 @@ export function extractArticleMetadata(html: string, pageUrl: string): ArticleMe
   try {
     if (typeof html !== 'string' || !html) return {};
 
-    const jsonLd = extractJsonLd(html, pageUrl);
+    const canonicalLink = extractCanonicalLink(html, pageUrl);
+    const jsonLd = extractJsonLd(html, pageUrl, canonicalLink);
     const meta = extractHtmlMeta(html);
-    const canonicalUrl = extractCanonicalLink(html, pageUrl) ?? jsonLd.canonicalUrl;
+    const canonicalUrl = canonicalLink ?? jsonLd.canonicalUrl;
     const title = jsonLd.title
       ?? firstMeta(meta, ['og:title', 'twitter:title', 'headline'])
       ?? extractTitleTag(html);

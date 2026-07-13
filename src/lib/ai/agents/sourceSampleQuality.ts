@@ -3,6 +3,7 @@ import {
   parseDeliveryCriteria,
   scoreCardAgainstCriteria,
 } from '@/lib/enterprise/criteriaMatcher';
+import { parseStrictPublicationDate } from '@/lib/collection/articleValidator';
 import type { CollectedItem } from '@/lib/sandbox/contract';
 
 export interface SourceSampleQualityResult {
@@ -13,8 +14,8 @@ export interface SourceSampleQualityResult {
 
 function isRecentPublication(value: string | undefined, now: Date, timeWindowDays: number) {
   if (!value) return false;
-  const publishedAt = new Date(value);
-  if (!Number.isFinite(publishedAt.getTime())) return false;
+  const publishedAt = parseStrictPublicationDate(value);
+  if (!publishedAt) return false;
 
   const ageMs = now.getTime() - publishedAt.getTime();
   const maxAgeMs = timeWindowDays * 24 * 60 * 60 * 1000;
