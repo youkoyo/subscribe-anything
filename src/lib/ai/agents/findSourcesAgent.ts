@@ -18,14 +18,7 @@ import { webSearch, webSearchToolDef } from '@/lib/ai/tools/webSearch';
 import { rssRadar, rssRadarToolDef } from '@/lib/ai/tools/rssRadar';
 import { checkFeed, checkFeedToolDef } from '@/lib/ai/tools/checkFeed';
 import type OpenAI from 'openai';
-
-export interface FoundSource {
-  title: string;
-  url: string;
-  description: string;
-  recommended?: boolean;
-  canProvideCriteria?: boolean;
-}
+import type { FoundSource } from '@/types/wizard';
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
 

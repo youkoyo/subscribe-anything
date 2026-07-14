@@ -96,6 +96,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
   const [userPromptInputs, setUserPromptInputs] = useState<Record<number, string>>({});
   const [retryExpanded, setRetryExpanded] = useState<Set<number>>(new Set());
   const [llmCalls, setLLMCalls] = useState<LLMCallInfo[]>([]);
+  const [showAllSources, setShowAllSources] = useState(false);
   // Track which source's LLM log dialog is open (globalIdx), null = none
   const [llmLogOpenFor, setLLMLogOpenFor] = useState<number | null>(null);
   const [previewSourceIdx, setPreviewSourceIdx] = useState<number | null>(null);
@@ -251,6 +252,9 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         cronExpression: s.cronExpression,
         initialItems: s.items,
         isEnabled: true,
+        catalogSourceId: source.catalogSourceId,
+        discoveryOrigin: source.discoveryOrigin,
+        collectionStrategy: source.collectionStrategy,
       });
     }
     return acc;
@@ -268,6 +272,9 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         cronExpression: s.cronExpression,
         initialItems: s.items,
         isEnabled: true,
+        catalogSourceId: source.catalogSourceId,
+        discoveryOrigin: source.discoveryOrigin,
+        collectionStrategy: source.collectionStrategy,
       });
     } else if (s?.status === 'failed') {
       acc.push({
@@ -279,6 +286,9 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         initialItems: [],
         isEnabled: false,
         failedReason: s.error,
+        catalogSourceId: source.catalogSourceId,
+        discoveryOrigin: source.discoveryOrigin,
+        collectionStrategy: source.collectionStrategy,
       });
     } else if (s?.status === 'skipped') {
       acc.push({
@@ -290,12 +300,27 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         initialItems: [],
         isEnabled: false,
         failedReason: '未生成',
+        catalogSourceId: source.catalogSourceId,
+        discoveryOrigin: source.discoveryOrigin,
+        collectionStrategy: source.collectionStrategy,
       });
     }
     return acc;
   }, []);
 
   const hasSuccess = successSources.length > 0;
+  const selectedSourceIndices = state.selectedIndices;
+  const queuedSourceIndices = selectedSourceIndices.filter((i) => sourceStatuses[i]?.status === 'pending');
+  const activeSourceIndices = selectedSourceIndices.filter((i) => sourceStatuses[i]?.status === 'generating');
+  const completedSourceIndices = selectedSourceIndices.filter((i) => isTerminal(sourceStatuses[i]));
+  const waitingForWorker = queuedSourceIndices.length > 0 && activeSourceIndices.length === 0;
+  const visibleSourceIndices = showAllSources || selectedSourceIndices.length <= 24
+    ? selectedSourceIndices
+    : [...new Set([
+      ...completedSourceIndices.slice(-12),
+      ...activeSourceIndices,
+      ...queuedSourceIndices.slice(0, 12),
+    ])].sort((left, right) => left - right);
 
   const handleRetrySource = async (globalIdx: number) => {
     const source = allSources[globalIdx];
@@ -365,6 +390,9 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
   };
 
   const handleNext = () => {
+    // The route is an SSE poller. Explicitly abort before changing steps so a
+    // completed Step 3 never retains a database connection until its timeout.
+    abortRef.current?.abort();
     onStateChange({ generatedSources: allResultSources });
     onNext();
   };
@@ -381,11 +409,31 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         <p className="text-sm text-muted-foreground">
           AI 正在为管理员选中的数据源并行生成并验证采集脚本，日志、脚本和初始样本都会保留到信息池
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>已完成 {completedSourceIndices.length}/{selectedSourceIndices.length}</span>
+          <span>处理中 {activeSourceIndices.length}</span>
+          <span>排队中 {queuedSourceIndices.length}</span>
+          {waitingForWorker && <span>后台：等待 Worker 领取本批任务</span>}
+          {selectedSourceIndices.length > 24 && (
+            <button
+              type="button"
+              onClick={() => setShowAllSources((previous) => !previous)}
+              className="text-primary hover:underline underline-offset-2"
+            >
+              {showAllSources ? '收起列表' : `查看全部 ${selectedSourceIndices.length} 个源`}
+            </button>
+          )}
+        </div>
+        {!showAllSources && selectedSourceIndices.length > 24 && (
+          <p className="mt-1 text-xs text-muted-foreground">默认仅展示最近完成、正在处理和部分排队任务，避免大量源同时渲染影响操作。</p>
+        )}
       </div>
 
       <ScrollArea className="flex-1 min-h-0 md:h-[48vh] md:flex-none">
         <div className="flex flex-col gap-3 pr-2 overflow-hidden">
-          {allSources.map((source, globalIdx) => {
+          {visibleSourceIndices.map((globalIdx) => {
+            const source = allSources[globalIdx];
+            if (!source) return null;
             const s = sourceStatuses[globalIdx] ?? { status: 'skipped' as const };
             const inProgress = isInProgress(s);
             const expanded = retryExpanded.has(globalIdx);
@@ -395,7 +443,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
             return (
               <Card
                 key={globalIdx}
-                className={`overflow-hidden${s.status === 'skipped' ? ' opacity-60' : ''}`}
+                className={`overflow-hidden content-visibility-auto [contain-intrinsic-size:auto_8rem]${s.status === 'skipped' ? ' opacity-60' : ''}`}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
@@ -427,7 +475,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
                         <p className="text-xs text-muted-foreground">未选中，跳过生成</p>
                       )}
                       {s.status === 'pending' && (
-                        <p className="text-xs text-muted-foreground">正在初始化...</p>
+                        <p className="text-xs text-muted-foreground">排队中，等待后台 Worker 领取本批任务</p>
                       )}
                       {s.status === 'generating' && (
                         <p className="text-xs text-muted-foreground">

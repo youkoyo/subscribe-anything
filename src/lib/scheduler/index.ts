@@ -7,7 +7,7 @@ import { and, eq, ne, lt } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { sources } from '@/lib/db/schema';
 import { scheduleSource, getScheduledCount } from './jobManager';
-import { collect } from './collector';
+import { enqueueSourceCollectionJob } from '@/lib/background-jobs/queue';
 
 export async function initScheduler(): Promise<void> {
   const db = getDb();
@@ -44,8 +44,8 @@ export async function initScheduler(): Promise<void> {
     console.log(`[Scheduler] Recovering ${failedSources.length} previously failed source(s)`);
     for (const source of failedSources) {
       // Fire and forget — collect will enter retry chain if it fails again
-      collect(source.id).catch((err) =>
-        console.error(`[Scheduler] Recovery collect failed for ${source.id}:`, err)
+      enqueueSourceCollectionJob(source.id).catch((err) =>
+        console.error(`[Scheduler] Recovery enqueue failed for ${source.id}:`, err)
       );
     }
   }

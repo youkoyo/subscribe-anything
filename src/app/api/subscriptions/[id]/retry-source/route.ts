@@ -2,12 +2,10 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
-import { deleteSourceLogs, retryGenerateSourceStep } from '@/lib/managed/pipeline';
+import { deleteSourceLogs } from '@/lib/managed/pipeline';
 import { clearSourceLLMCalls } from '@/lib/managed/llmCallStore';
+import { enqueueGenerateSourceJob } from '@/lib/background-jobs/queue';
 import type { FoundSource } from '@/types/wizard';
-
-// In-memory set to prevent duplicate concurrent retries per source
-const retryingSource = new Set<string>();
 
 // POST /api/subscriptions/[id]/retry-source
 // Body: { sourceUrl: string, sourceTitle: string, sourceDescription?: string, userPrompt?: string }
@@ -41,13 +39,8 @@ export async function POST(
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
-    const key = `${id}:${sourceUrl}`;
-    if (retryingSource.has(key)) {
-      return Response.json({ running: true });
-    }
-
     // Clear old logs and LLM calls for this source
-    deleteSourceLogs(id, sourceUrl);
+    await deleteSourceLogs(id, sourceUrl);
     clearSourceLLMCalls(id, sourceUrl);
 
     const source: FoundSource = {
@@ -56,12 +49,9 @@ export async function POST(
       description: sourceDescription ?? '',
     };
 
-    retryingSource.add(key);
-    retryGenerateSourceStep(id, source, sub.criteria ?? undefined, session.userId, userPrompt)
-      .finally(() => retryingSource.delete(key))
-      .catch(() => {});
+    const queued = await enqueueGenerateSourceJob(id, source, userPrompt);
 
-    return Response.json({ started: true }, { status: 202 });
+    return Response.json({ started: queued, running: !queued }, { status: 202 });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

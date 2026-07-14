@@ -30,13 +30,41 @@ interface LogEntry {
   payload: unknown;
 }
 
+interface CatalogStatus {
+  matchedFeedCount: number;
+  validFeedCount: number;
+  qualifiedItemCount: number;
+  usingAiFallback: boolean;
+}
+
+function getCatalogSummary(payload: unknown): Omit<CatalogStatus, 'usingAiFallback'> | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const value = payload as Record<string, unknown>;
+  if (value.type !== 'catalog_summary') return null;
+
+  return {
+    matchedFeedCount: Number(value.matchedFeedCount) || 0,
+    validFeedCount: Number(value.validFeedCount) || 0,
+    qualifiedItemCount: Number(value.qualifiedItemCount) || 0,
+  };
+}
+
 function defaultSelection(sources: FoundSource[]): Set<number> {
   if (sources.length === 0) return new Set();
+  const catalogSources = sources.reduce<number[]>((indices, source, index) => {
+    if (source.collectionStrategy === 'generic_rss') indices.push(index);
+    return indices;
+  }, []);
   const recommended = sources.reduce<number[]>((acc, s, i) => {
-    if (s.recommended) acc.push(i);
+    if (s.recommended && s.collectionStrategy !== 'generic_rss') acc.push(i);
     return acc;
   }, []);
-  return new Set(recommended.length > 0 ? recommended : sources.map((_, i) => i));
+  const selected = recommended.length > 0 ? recommended : sources.map((_, i) => i);
+  return new Set([...catalogSources, ...selected]);
+}
+
+function allCatalogSources(sources: FoundSource[]): FoundSource[] {
+  return sources.filter((source) => source.collectionStrategy === 'generic_rss');
 }
 
 export default function Step2FindSources({
@@ -52,7 +80,9 @@ export default function Step2FindSources({
     state.foundSources.length > 0 ? state.foundSources : []
   );
   const [checkedIndices, setCheckedIndices] = useState<Set<number>>(() => {
-    if (state.selectedIndices.length > 0) return new Set(state.selectedIndices);
+    if (state.selectedIndices.length > 0) {
+      return new Set(state.selectedIndices);
+    }
     if (state.foundSources.length > 0) return defaultSelection(state.foundSources);
     return new Set();
   });
@@ -61,6 +91,7 @@ export default function Step2FindSources({
   const [errorMessage, setErrorMessage] = useState('');
   const [isSearchProviderError, setIsSearchProviderError] = useState(false);
   const [llmCalls, setLLMCalls] = useState<LLMCallInfo[]>(state.step2LlmCalls ?? []);
+  const [catalogStatus, setCatalogStatus] = useState<CatalogStatus | null>(null);
   const [showLLMLog, setShowLLMLog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const seenQueriesRef = useRef(new Set<string>());
@@ -133,6 +164,19 @@ export default function Step2FindSources({
               }
 
               if (event.type !== 'log' || event.step !== 'find_sources') continue;
+
+              const summary = getCatalogSummary(event.payload);
+              if (summary) {
+                setCatalogStatus({ ...summary, usingAiFallback: false });
+                continue;
+              }
+
+              if (
+                event.message.includes('预置源暂无强相关或有关内容') ||
+                event.message.includes('Catalog has no qualified items')
+              ) {
+                setCatalogStatus((current) => current ? { ...current, usingAiFallback: true } : current);
+              }
 
               // Search query progress
               if (event.level === 'progress' && event.message.startsWith('搜索：')) {
@@ -221,6 +265,7 @@ export default function Step2FindSources({
     seenQueriesRef.current.clear();
     setErrorMessage('');
     setIsSearchProviderError(false);
+    setCatalogStatus(null);
     setLLMCalls([]);
     onStateChange({ step2LlmCalls: [], managedError: null });
 
@@ -256,9 +301,12 @@ export default function Step2FindSources({
       .sort((a, b) => a - b)
       .map((i) => sources[i])
       .filter(Boolean);
+    const selectedIndices = sources
+      .map((source, index) => selectedSources.some((selected) => selected.url === source.url) ? index : -1)
+      .filter((index) => index >= 0);
     onStateChange({
       foundSources: sources,
-      selectedIndices: Array.from(checkedIndices).sort((a, b) => a - b),
+      selectedIndices,
     });
     if (onStep2Next) {
       onStep2Next(selectedSources);
@@ -267,6 +315,7 @@ export default function Step2FindSources({
 
   const selectedCount = checkedIndices.size;
   const recommendedCount = sources.filter((s) => s.recommended).length;
+  const catalogCount = allCatalogSources(sources).length;
 
   return (
     <div className="flex flex-col gap-4 pt-4">
@@ -292,6 +341,23 @@ export default function Step2FindSources({
           </button>
         )}
       </div>
+
+      {isStreaming && (
+        <div className="rounded-xl border border-primary/15 bg-primary/[0.04] px-4 py-3 text-sm text-foreground/80">
+          {catalogStatus ? (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-medium text-foreground">已执行 {catalogStatus.matchedFeedCount} 个预置 RSS</span>
+              <span className="text-muted-foreground">· {catalogStatus.validFeedCount} 个可用</span>
+              <span className="text-muted-foreground">· {catalogStatus.qualifiedItemCount} 条强相关/有关内容</span>
+              {catalogStatus.usingAiFallback && (
+                <span className="font-medium text-amber-700 dark:text-amber-300">· 预置源本轮未命中，正在补充 AI 发现源</span>
+              )}
+            </div>
+          ) : (
+            <span className="font-medium">正在执行预置 RSS，并按产业画像筛选内容…</span>
+          )}
+        </div>
+      )}
 
       {/* Search progress pills — hide once sources are loaded */}
       {!isDone && (isStreaming || searchQueries.length > 0) && (
@@ -340,7 +406,8 @@ export default function Step2FindSources({
         <>
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              共发现 {sources.length} 个数据源
+                  共发现 {sources.length} 个数据源
+                  {catalogCount > 0 && <>，其中 <span className="font-medium text-foreground">{catalogCount}</span> 个预置 RSS 将全量执行</>}
               {recommendedCount > 0 && (
                 <>
                   ，已默认勾选{' '}
@@ -363,8 +430,9 @@ export default function Step2FindSources({
 
           <ScrollArea className="h-[46vh] md:h-[42vh] rounded-lg border">
             <div className="divide-y">
-              {sources.map((source, idx) => {
-                const isChecked = checkedIndices.has(idx);
+                  {sources.map((source, idx) => {
+                    const isChecked = checkedIndices.has(idx);
+                    const isCatalogSource = source.collectionStrategy === 'generic_rss';
                 return (
                   <label
                     key={idx}
@@ -374,17 +442,22 @@ export default function Step2FindSources({
                       type="checkbox"
                       checked={isChecked}
                       onChange={() => toggleIndex(idx)}
-                      disabled={!isDone}
-                      className="mt-1 h-4 w-4 rounded border-border accent-primary flex-shrink-0 cursor-pointer disabled:cursor-default"
+                          disabled={!isDone}
+                          className="mt-1 h-4 w-4 rounded border-border accent-primary flex-shrink-0 cursor-pointer disabled:cursor-default"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                         <span className="font-semibold text-sm leading-snug">{source.title}</span>
-                        {source.recommended && (
+                            {source.recommended && (
                           <Badge className="h-4 px-1.5 text-[10px] bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30 font-medium">
                             推荐
                           </Badge>
-                        )}
+                            )}
+                            {isCatalogSource && (
+                              <Badge className="h-4 px-1.5 text-[10px] bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30 font-medium">
+                                预置源 · 全量执行
+                              </Badge>
+                            )}
                         <a
                           href={source.url}
                           target="_blank"
@@ -423,7 +496,11 @@ export default function Step2FindSources({
       {isStreaming && sources.length === 0 && searchQueries.length === 0 && !errorMessage && (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-sm gap-2">
           <Loader2 className="h-6 w-6 animate-spin" />
-          <p>AI 正在搜索合适的数据源...</p>
+          <p>
+            {catalogStatus?.usingAiFallback
+              ? '预置源本轮未命中，AI 正在补充发现源…'
+              : '正在执行预置 RSS 并生成产业画像…'}
+          </p>
         </div>
       )}
 
@@ -449,10 +526,10 @@ export default function Step2FindSources({
           {onManagedCreate && (
             <Button
               variant="outline"
-              onClick={() => {
-                abortRef.current?.abort();
-                const selected = Array.from(checkedIndices).map((i) => sources[i]).filter(Boolean);
-                onManagedCreate(selected);
+                  onClick={() => {
+                    abortRef.current?.abort();
+                    const selected = Array.from(checkedIndices).map((i) => sources[i]).filter(Boolean);
+                    onManagedCreate(selected);
               }}
               disabled={isDone && selectedCount === 0}
               className="flex-none text-amber-600 border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50"

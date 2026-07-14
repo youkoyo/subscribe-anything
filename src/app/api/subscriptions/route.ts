@@ -2,7 +2,8 @@ import { desc, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions, managedBuildLogs } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
-import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
+import { enqueueSourceProvisioningJob } from '@/lib/background-jobs/queue';
+import { prioritizeSourcesForPublish } from '@/lib/subscriptionCreator';
 import {
   industrySelectionErrorResponse,
   resolveSubscriptionIndustrySelection,
@@ -147,7 +148,11 @@ export async function POST(req: Request) {
 
     // 2. If wizard mode: create sources + initial message cards
     if (Array.isArray(sourcesInput) && sourcesInput.length > 0) {
-      await createSourcesForSubscription(subscription.id, sourcesInput, criteria);
+      const { priority, deferred } = prioritizeSourcesForPublish(sourcesInput);
+      await enqueueSourceProvisioningJob(subscription.id, priority, criteria, 'priority');
+      if (deferred.length > 0) {
+        await enqueueSourceProvisioningJob(subscription.id, deferred, criteria, 'deferred');
+      }
     }
 
     // Re-fetch to return final state

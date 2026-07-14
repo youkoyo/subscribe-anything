@@ -1,8 +1,8 @@
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { sources, subscriptions } from '@/lib/db/schema';
-import { collect } from '@/lib/scheduler/collector';
 import { clearRetry } from '@/lib/scheduler/retryManager';
+import { enqueueSourceCollectionJob } from '@/lib/background-jobs/queue';
 import { requireAuth } from '@/lib/auth';
 
 // POST /api/sources/[id]/trigger
@@ -32,9 +32,7 @@ export async function POST(
     clearRetry(id);
 
     // Fire and forget — frontend polls retry-states for progress
-    collect(id).catch((err) =>
-      console.error(`[Trigger] collect failed for ${id}:`, err)
-    );
+    await enqueueSourceCollectionJob(id, 10);
 
     return Response.json({ triggered: true });
   } catch (err) {

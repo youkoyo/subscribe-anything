@@ -1,9 +1,18 @@
 import {
+  DEFAULT_SOURCE_PREFERENCES,
   SOURCE_TYPE_OPTIONS,
   type IndustryConfigSnapshot,
   type IndustrySourceType,
   type IndustrySubscriptionSuggestion,
 } from './types';
+import {
+  mapIndustrySourceTypesToPreferences,
+} from '@/lib/discovery-sources/catalog';
+import {
+  SOURCE_PREFERENCES,
+  type SourcePreference,
+} from '@/lib/discovery-sources/types';
+import { normalizeIndustryTermProfile, type IndustryTermProfile } from './term-profile';
 
 interface IndustryConfigRowLike {
   id: string;
@@ -16,7 +25,21 @@ interface IndustryConfigRowLike {
   regionsJson: string | null;
   entitiesJson: string | null;
   sourceTypesJson: string | null;
+  sourcePreferencesJson?: string | null;
+  allowAiDiscoveryFallback?: boolean | null;
+  termProfileJson?: string | null;
   alertLevel: string | null;
+}
+
+function decodeTermProfile(
+  value: string | null | undefined,
+  input: { topic: string; criteria?: string; sourcePreferences: SourcePreference[] }
+): IndustryTermProfile {
+  try {
+    return normalizeIndustryTermProfile(value ? JSON.parse(value) : null, input);
+  } catch {
+    return normalizeIndustryTermProfile(null, input);
+  }
 }
 
 export function normalizeStringList(value: unknown): string[] {
@@ -53,7 +76,22 @@ export function normalizeSourceTypes(value: unknown): IndustrySourceType[] {
   );
 }
 
+export function normalizeSourcePreferences(value: unknown): SourcePreference[] {
+  return normalizeStringList(value).filter((item): item is SourcePreference =>
+    SOURCE_PREFERENCES.includes(item as SourcePreference)
+  );
+}
+
 export function buildIndustryConfigSnapshot(row: IndustryConfigRowLike): IndustryConfigSnapshot {
+  const sourceTypes = normalizeSourceTypes(decodeStringList(row.sourceTypesJson));
+  const sourcePreferences = normalizeSourcePreferences(
+    decodeStringList(row.sourcePreferencesJson)
+  );
+  const resolvedSourcePreferences = sourcePreferences.length > 0
+    ? sourcePreferences
+    : (mapIndustrySourceTypesToPreferences(sourceTypes).length > 0
+      ? mapIndustrySourceTypesToPreferences(sourceTypes)
+      : DEFAULT_SOURCE_PREFERENCES);
   return {
     id: row.id,
     name: row.name,
@@ -64,7 +102,14 @@ export function buildIndustryConfigSnapshot(row: IndustryConfigRowLike): Industr
     riskTerms: decodeStringList(row.riskTermsJson),
     regions: decodeStringList(row.regionsJson),
     entities: decodeStringList(row.entitiesJson),
-    sourceTypes: normalizeSourceTypes(decodeStringList(row.sourceTypesJson)),
+    sourceTypes,
+    sourcePreferences: resolvedSourcePreferences,
+    allowAiDiscoveryFallback: row.allowAiDiscoveryFallback !== false,
+    termProfile: decodeTermProfile(row.termProfileJson, {
+      topic: row.name,
+      criteria: row.description ?? undefined,
+      sourcePreferences: resolvedSourcePreferences,
+    }),
     alertLevel: row.alertLevel ?? '一般关注',
   };
 }
@@ -78,6 +123,10 @@ export function buildIndustrySubscriptionSuggestion(
     ...snapshot.regions,
     ...snapshot.entities,
   ];
+
+  if (criteriaParts.length === 0) {
+    criteriaParts.push(snapshot.name, snapshot.category, snapshot.subCategory, snapshot.description);
+  }
 
   return {
     topic: `${snapshot.name}动态监测`,

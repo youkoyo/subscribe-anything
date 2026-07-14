@@ -16,7 +16,22 @@ import { createId } from '@paralleldrive/cuid2';
 import pLimit from 'p-limit';
 import { upsertLLMCall, clearLLMCalls } from './llmCallStore';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
+import { needsIndustryProfileExpansion } from '@/lib/industry-configs/term-profile';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
+import { buildStandardFeedScript } from '@/lib/discovery-sources/standard-feed-script';
+
+// Script agents can invoke browser tools, run sandboxes, and make several LLM calls.
+// Keep them deliberately low-concurrency so a large source selection cannot starve the
+// same Node process that serves the wizard and its progress stream.
+const SCRIPT_GENERATION_CONCURRENCY = 2;
+
+function prioritizeSourcesForScriptGeneration(sources: FoundSource[]): FoundSource[] {
+  return [...sources].sort((left, right) => {
+    const leftIsCatalog = left.collectionStrategy === 'generic_rss';
+    const rightIsCatalog = right.collectionStrategy === 'generic_rss';
+    return Number(rightIsCatalog) - Number(leftIsCatalog);
+  });
+}
 
 // In-memory set of "subscriptionId:sourceUrl" keys that have been manually aborted.
 export const abortedSourceKeys = new Set<string>();
@@ -171,6 +186,92 @@ async function shouldAutoAdvance(subscriptionId: string): Promise<boolean> {
 
 // ── Exported step functions (no isCancelled checks — run to completion) ──────
 
+async function discoverSourcesWithFallback(
+  subscriptionId: string,
+  input: { topic: string; criteria?: string; userId: string; snapshot?: IndustryConfigSnapshot | null }
+): Promise<FoundSource[]> {
+  const { generateIndustryTermProfile } = await import('@/lib/ai/agents/industryProfileAgent');
+  const { discoverFromCuratedCatalog } = await import('@/lib/discovery-sources/discovery');
+  const profile = input.snapshot?.termProfile?.version === 2
+    && !needsIndustryProfileExpansion(input.snapshot.termProfile)
+    ? input.snapshot.termProfile
+    : await generateIndustryTermProfile({
+    topic: input.topic,
+    criteria: input.criteria,
+    sourcePreferences: input.snapshot?.sourcePreferences,
+  }, input.userId);
+  const snapshot = await persistSubscriptionProfile(subscriptionId, input, profile);
+  const curated = await discoverFromCuratedCatalog({
+    topic: input.topic,
+    criteria: input.criteria,
+    profile,
+    userId: input.userId,
+  });
+  writeLog(subscriptionId, 'find_sources', 'info', `已执行 ${curated.matchedFeedCount} 个预置 RSS，${curated.validFeedCount} 个可用，筛得 ${curated.qualifiedItemCount} 条强相关/有关内容。`, { type: 'catalog_summary', ...curated });
+  if (curated.qualifiedItemCount > 0 || snapshot.allowAiDiscoveryFallback === false) {
+    return curated.sources;
+  }
+  writeLog(subscriptionId, 'find_sources', 'info', '预置源暂无强相关或有关内容，开始补充 AI 发现源。');
+  const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
+  const aiSources = await findSourcesAgent(
+    { topic: input.topic, criteria: input.criteria },
+    (event: unknown) => {
+      const eventData = event as Record<string, unknown>;
+      if (eventData.type === 'tool_call' && eventData.name === 'webSearch') {
+        const args = eventData.args as { query?: string };
+        writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query ?? ''}`);
+      }
+    },
+    (info) => upsertLLMCall(subscriptionId, info),
+    input.userId
+  );
+  return [...curated.sources, ...aiSources.map((source) => ({ ...source, discoveryOrigin: 'ai' as const, collectionStrategy: 'ai_script' as const }))];
+}
+
+async function persistSubscriptionProfile(
+  subscriptionId: string,
+  input: { topic: string; criteria?: string; snapshot?: IndustryConfigSnapshot | null },
+  profile: IndustryConfigSnapshot['termProfile']
+): Promise<IndustryConfigSnapshot> {
+  const snapshot: IndustryConfigSnapshot = {
+    id: input.snapshot?.id ?? '',
+    name: input.snapshot?.name ?? input.topic,
+    category: input.snapshot?.category ?? '',
+    subCategory: input.snapshot?.subCategory ?? '',
+    description: input.snapshot?.description ?? input.criteria ?? '',
+    keywords: input.snapshot?.keywords ?? [],
+    riskTerms: input.snapshot?.riskTerms ?? [],
+    regions: input.snapshot?.regions ?? [],
+    entities: input.snapshot?.entities ?? [],
+    sourceTypes: input.snapshot?.sourceTypes ?? [],
+    sourcePreferences: input.snapshot?.sourcePreferences ?? profile?.sourcePreferences ?? [],
+    allowAiDiscoveryFallback: input.snapshot?.allowAiDiscoveryFallback !== false,
+    termProfile: profile,
+    alertLevel: input.snapshot?.alertLevel ?? '一般关注',
+  };
+  const db = getDb();
+  await db.update(subscriptions)
+    .set({ industryConfigSnapshot: JSON.stringify(snapshot), updatedAt: new Date() })
+    .where(eq(subscriptions.id, subscriptionId));
+  await updateWizardState(subscriptionId, { industryConfigSnapshot: snapshot });
+  return snapshot;
+}
+
+function buildCatalogGeneratedSource(source: FoundSource): GeneratedSource {
+  return {
+    title: source.title,
+    url: source.url,
+    description: source.description,
+    script: buildStandardFeedScript(source.url),
+    cronExpression: '0 * * * *',
+    initialItems: source.initialItems ?? [],
+    isEnabled: true,
+    catalogSourceId: source.catalogSourceId,
+    discoveryOrigin: 'catalog',
+    collectionStrategy: 'generic_rss',
+  };
+}
+
 /**
  * Run the find_sources step for a subscription.
  * Writes logs to DB; runs to completion unless subscription is deleted.
@@ -179,25 +280,15 @@ export async function runFindSourcesStep(
   subscriptionId: string,
   topic: string,
   criteria: string | undefined,
-  userId: string
+  userId: string,
+  industryConfigSnapshot?: IndustryConfigSnapshot | null
 ): Promise<void> {
   writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
 
   try {
-    const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
-
-    const discovered = await findSourcesAgent(
-      { topic, criteria },
-      (event: unknown) => {
-        const e = event as Record<string, unknown>;
-        if (e.type === 'tool_call' && e.name === 'webSearch') {
-          const args = e.args as { query: string };
-          writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query}`);
-        }
-      },
-      (info) => upsertLLMCall(subscriptionId, info),
-      userId
-    );
+    const discovered = await discoverSourcesWithFallback(subscriptionId, {
+      topic, criteria, userId, snapshot: industryConfigSnapshot,
+    });
 
     // Auto-select up to 5 sources (prefer recommended) so managed takeover can restore correctly
     const selected = autoSelectSources(discovered);
@@ -212,7 +303,7 @@ export async function runFindSourcesStep(
 /**
  * Run the generate_scripts step for a subscription.
  * Skips sources that already have a success log.
- * Runs all sources in parallel (up to 5 concurrent).
+ * Prioritizes deterministic preset RSS sources; AI agents run at low concurrency.
  * Writes logs to DB; runs to completion unless subscription is deleted or source is aborted.
  */
 export async function runGenerateScriptsStep(
@@ -232,9 +323,9 @@ export async function runGenerateScriptsStep(
   const completedUrls = await getCompletedSourceUrls(subscriptionId);
 
   const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
-  const limit = pLimit(5);
+  const limit = pLimit(SCRIPT_GENERATION_CONCURRENCY);
 
-  const tasks = sources
+  const tasks = prioritizeSourcesForScriptGeneration(sources)
     .filter((source) => !completedUrls.has(source.url))
     .map((source) =>
       limit(async () => {
@@ -246,6 +337,20 @@ export async function runGenerateScriptsStep(
         writeLog(subscriptionId, 'generate_script', 'info', `正在为 "${source.title}" 生成脚本...`, { sourceUrl: source.url });
 
         try {
+          if (source.collectionStrategy === 'generic_rss') {
+            const generated = buildCatalogGeneratedSource(source);
+            unregisterSourceAbort(subscriptionId, source.url);
+            writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}”使用预置 RSS 采集器，采集到 ${generated.initialItems.length} 条强相关/有关内容。`, {
+              sourceUrl: source.url,
+              script: generated.script,
+              cronExpression: generated.cronExpression,
+              initialItems: generated.initialItems,
+              catalogSourceId: generated.catalogSourceId,
+              discoveryOrigin: generated.discoveryOrigin,
+              collectionStrategy: generated.collectionStrategy,
+            });
+            return;
+          }
           const result = await generateScriptAgent(
             {
               title: source.title,
@@ -527,12 +632,18 @@ async function waitForFindSourcesResult(
   return null;
 }
 
-/** Auto-select up to 5 sources: prefer recommended, fall back to all */
+/**
+ * Preset catalog feeds are a selected collection policy, not suggestions. Keep
+ * every one of them; the legacy AI-discovered sources retain the five-source
+ * guardrail for backwards compatibility.
+ */
 function autoSelectSources(discovered: FoundSource[]): FoundSource[] {
-  const recommended = discovered.filter((s) => s.recommended);
-  const notRecommended = discovered.filter((s) => !s.recommended);
-  if (recommended.length >= 5) return recommended.slice(0, 5);
-  return [...recommended, ...notRecommended.slice(0, 5 - recommended.length)];
+  const catalogSources = discovered.filter((s) => s.collectionStrategy === 'generic_rss');
+  const candidates = discovered.filter((s) => s.collectionStrategy !== 'generic_rss');
+  const recommended = candidates.filter((s) => s.recommended);
+  const notRecommended = candidates.filter((s) => !s.recommended);
+  if (recommended.length >= 5) return [...catalogSources, ...recommended.slice(0, 5)];
+  return [...catalogSources, ...recommended, ...notRecommended.slice(0, 5 - recommended.length)];
 }
 
 /**
@@ -560,7 +671,7 @@ async function getSourceResultFromLogs(
       const log = logs[i];
       if (!log.payload) continue;
       try {
-        const p = JSON.parse(log.payload) as { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: unknown[]; unverified?: boolean };
+        const p = JSON.parse(log.payload) as { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: unknown[]; unverified?: boolean; catalogSourceId?: string; discoveryOrigin?: 'catalog' | 'ai'; collectionStrategy?: 'generic_rss' | 'ai_script' };
         if (p.sourceUrl !== source.url) continue;
 
         if (log.level === 'success' && p.script) {
@@ -572,6 +683,9 @@ async function getSourceResultFromLogs(
             cronExpression: p.cronExpression ?? '0 * * * *',
             initialItems: (p.initialItems as GeneratedSource['initialItems']) ?? [],
             isEnabled: true,
+            catalogSourceId: p.catalogSourceId,
+            discoveryOrigin: p.discoveryOrigin,
+            collectionStrategy: p.collectionStrategy,
           };
         } else if (log.level === 'error') {
           return {
@@ -714,20 +828,12 @@ export async function runManagedPipeline(
           writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
 
           try {
-            const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
-
-            const discovered = await findSourcesAgent(
-              { topic, criteria },
-              (event: unknown) => {
-                const e = event as Record<string, unknown>;
-                if (e.type === 'tool_call' && e.name === 'webSearch') {
-                  const args = e.args as { query: string };
-                  writeLog(subscriptionId, 'find_sources', 'progress', `搜索：${args.query}`);
-                }
-              },
-              (info) => upsertLLMCall(subscriptionId, info),
-              userId
-            );
+            const discovered = await discoverSourcesWithFallback(subscriptionId, {
+              topic,
+              criteria,
+              userId,
+              snapshot: payload.industryConfigSnapshot,
+            });
 
             const selected = autoSelectSources(discovered);
             foundSources = selected;
@@ -788,9 +894,9 @@ export async function runManagedPipeline(
         }
 
         const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
-        const limit = pLimit(5);
+        const limit = pLimit(SCRIPT_GENERATION_CONCURRENCY);
 
-        const pipelineTasks = sourcesToProcess
+        const pipelineTasks = prioritizeSourcesForScriptGeneration(sourcesToProcess)
           .filter((source) => !alreadyDoneUrls.has(source.url))
           .map((source) =>
             limit(async () => {
@@ -822,6 +928,24 @@ export async function runManagedPipeline(
               writeLog(subscriptionId, 'generate_script', 'info', `正在为 "${source.title}" 生成脚本...`, { sourceUrl: source.url });
 
               try {
+                if (source.collectionStrategy === 'generic_rss') {
+                  const generated = buildCatalogGeneratedSource(source);
+                  unregisterSourceAbort(subscriptionId, source.url);
+                  if (!(await isCancelled(subscriptionId))) {
+                    generatedSources.push(generated);
+                    updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
+                    writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}”使用预置 RSS 采集器，采集到 ${generated.initialItems.length} 条强相关/有关内容。`, {
+                      sourceUrl: source.url,
+                      script: generated.script,
+                      cronExpression: generated.cronExpression,
+                      initialItems: generated.initialItems,
+                      catalogSourceId: generated.catalogSourceId,
+                      discoveryOrigin: generated.discoveryOrigin,
+                      collectionStrategy: generated.collectionStrategy,
+                    });
+                  }
+                  return;
+                }
                 const result = await generateScriptAgent(
                   {
                     title: source.title,

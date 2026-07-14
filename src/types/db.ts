@@ -3,6 +3,7 @@ import type {
   llmProviders,
   promptTemplates,
   searchProviderConfig,
+  discoverySourceCatalog,
   industryConfigs,
   subscriptions,
   sources,
@@ -23,6 +24,9 @@ export type PromptTemplate = InferSelectModel<typeof promptTemplates>;
 export type NewPromptTemplate = InferInsertModel<typeof promptTemplates>;
 
 export type SearchProviderConfig = InferSelectModel<typeof searchProviderConfig>;
+
+export type DiscoverySourceCatalogEntry = InferSelectModel<typeof discoverySourceCatalog>;
+export type NewDiscoverySourceCatalogEntry = InferInsertModel<typeof discoverySourceCatalog>;
 
 export type IndustryConfig = InferSelectModel<typeof industryConfigs>;
 export type NewIndustryConfig = InferInsertModel<typeof industryConfigs>;

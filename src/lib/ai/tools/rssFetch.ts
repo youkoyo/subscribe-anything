@@ -3,7 +3,7 @@
  *
  * - Automatically replaces rsshub.app → freezrss.zeabur.app
  * - Parses RSS 2.0 and Atom 1.0 feeds via lightweight regex (no DOM, no extra deps)
- * - Returns up to 10 recent items so the agent can judge feed quality quickly
+ * - Returns up to 10 recent items by default so the agent can judge feed quality quickly
  *
  * Usage by agent:
  *   1. Call rssRadar({ query }) to get candidate routes with exampleUrls
@@ -14,6 +14,7 @@
 import { getActiveRssBaseUrl } from '@/lib/rss';
 
 const RSSHUB_DOMAIN_RE = /rsshub\.app/gi;
+const RSSHUB_TEST_RE = /rsshub\.app/i;
 
 export interface FeedItem {
   title: string;
@@ -60,13 +61,13 @@ function stripHtml(html: string, maxLen = 200): string {
 
 // ── Feed parsers ───────────────────────────────────────────────────────────────
 
-function parseRss(xml: string): { feedTitle: string; items: FeedItem[] } {
+function parseRss(xml: string, maxItems: number): { feedTitle: string; items: FeedItem[] } {
   const feedTitle = extractTag(xml, 'title') || 'RSS Feed';
 
   const items: FeedItem[] = xml
     .split(/<item[\s>]/i)
     .slice(1)
-    .slice(0, 10)
+    .slice(0, maxItems)
     .map((block) => {
       const end = block.indexOf('</item>');
       const itemXml = end >= 0 ? block.slice(0, end) : block;
@@ -93,7 +94,7 @@ function parseRss(xml: string): { feedTitle: string; items: FeedItem[] } {
   return { feedTitle, items };
 }
 
-function parseAtom(xml: string): { feedTitle: string; items: FeedItem[] } {
+function parseAtom(xml: string, maxItems: number): { feedTitle: string; items: FeedItem[] } {
   // Channel title appears before the first <entry>
   const beforeFirstEntry = xml.split(/<entry[\s>]/i)[0] ?? xml;
   const feedTitle = extractTag(beforeFirstEntry, 'title') || 'Atom Feed';
@@ -101,7 +102,7 @@ function parseAtom(xml: string): { feedTitle: string; items: FeedItem[] } {
   const items: FeedItem[] = xml
     .split(/<entry[\s>]/i)
     .slice(1)
-    .slice(0, 10)
+    .slice(0, maxItems)
     .map((block) => {
       const end = block.indexOf('</entry>');
       const entryXml = end >= 0 ? block.slice(0, end) : block;
@@ -134,9 +135,19 @@ function parseAtom(xml: string): { feedTitle: string; items: FeedItem[] } {
  * Fetch an RSS/Atom feed URL and return its items.
  * rsshub.app is automatically replaced with freezrss.zeabur.app.
  */
-export async function rssFetch(url: string): Promise<FeedResult> {
-  const baseUrl = await getActiveRssBaseUrl();
-  const feedUrl = normalizeRssHubUrl(url, baseUrl);
+export async function rssFetch(
+  url: string,
+  options: { maxItems?: number | 'all' } = {}
+): Promise<FeedResult> {
+  const maxItems = options.maxItems === 'all'
+    ? Number.POSITIVE_INFINITY
+    : Math.max(options.maxItems ?? 10, 1);
+  // Curated feeds such as Anyfeeder are already direct RSS URLs. Resolving an
+  // RSSHub instance for each of them makes otherwise valid feeds depend on an
+  // unrelated configuration row.
+  const feedUrl = RSSHUB_TEST_RE.test(url)
+    ? normalizeRssHubUrl(url, await getActiveRssBaseUrl())
+    : url;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
@@ -158,9 +169,9 @@ export async function rssFetch(url: string): Promise<FeedResult> {
 
   let parsed: { feedTitle: string; items: FeedItem[] };
   if (/<feed[\s>]/i.test(xml) && xml.includes('<entry')) {
-    parsed = parseAtom(xml);
+    parsed = parseAtom(xml, maxItems);
   } else if ((/<rss[\s>]/i.test(xml) || xml.includes('<channel')) && xml.includes('<item')) {
-    parsed = parseRss(xml);
+    parsed = parseRss(xml, maxItems);
   } else {
     throw new Error('Response is not a valid RSS 2.0 or Atom 1.0 feed');
   }

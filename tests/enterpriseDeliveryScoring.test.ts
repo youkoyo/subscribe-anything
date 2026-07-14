@@ -62,6 +62,29 @@ test('selectDeliveryCards returns top relevant cards within max count', () => {
   assert.ok(selected[0].score.total >= selected[1].score.total);
 });
 
+test('selectDeliveryCards keeps industry pool cards when custom criteria is empty', () => {
+  const selected = selectDeliveryCards({
+    cards: [
+      {
+        id: 'industry-update',
+        title: '行业协会发布本周产业运行简报',
+        summary: null,
+        sourceName: null,
+        publishedAt: new Date('2026-07-02T03:00:00Z'),
+        createdAt: new Date('2026-07-02T03:00:00Z'),
+      },
+    ],
+    customCriteria: '',
+    now: new Date('2026-07-02T09:00:00Z'),
+    maxItems: 5,
+  });
+
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].card.id, 'industry-update');
+  assert.equal(selected[0].score.relevance, 100);
+  assert.equal(selected[0].score.matchReason, '产业信息池匹配');
+});
+
 test('resolveDeliverySelection falls back to previously delivered cards when there are no new cards', () => {
   const selection = resolveDeliverySelection({
     newCards: [],

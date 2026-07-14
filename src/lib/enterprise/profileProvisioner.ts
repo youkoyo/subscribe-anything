@@ -8,7 +8,7 @@ import {
   userIndustrySubscriptions,
 } from '@/lib/db/schema';
 import { buildIndustryConfigSnapshot } from '@/lib/industry-configs/utils';
-import { runManagedPipeline } from '@/lib/managed/pipeline';
+import { enqueueManagedPipelineJob } from '@/lib/background-jobs/queue';
 
 export async function listMonitoringProfilesForIndustry(industryConfigId: string) {
   const db = getDb();
@@ -115,53 +115,14 @@ export async function startProfileProvisioning(profileId: string) {
     })
     .where(eq(industryMonitoringProfiles.id, profile.id));
 
-  runManagedPipeline(subscription.id, {
+  await enqueueManagedPipelineJob(subscription.id, {
     topic,
     criteria,
     startStep: 'find_sources',
     userId: ownerUserId,
     industryConfigId: industry.id,
     industryConfigSnapshot: snapshot,
-  })
-    .then(async () => {
-      const latest = (await db
-        .select({
-          managedStatus: subscriptions.managedStatus,
-          managedError: subscriptions.managedError,
-        })
-        .from(subscriptions)
-        .where(eq(subscriptions.id, subscription.id)))[0];
-
-      if (latest?.managedStatus === null) {
-        await db.update(industryMonitoringProfiles)
-          .set({
-            status: 'active',
-            lastProvisionedAt: new Date(),
-            provisioningError: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(industryMonitoringProfiles.id, profile.id));
-        await db.update(userIndustrySubscriptions)
-          .set({ status: 'active', updatedAt: new Date() })
-          .where(
-            and(
-              eq(userIndustrySubscriptions.monitoringProfileId, profile.id),
-              eq(userIndustrySubscriptions.status, 'pending_profile')
-            )
-          );
-      } else {
-        const error = latest?.managedError ?? '共享信息池创建失败';
-        await db.update(industryMonitoringProfiles)
-          .set({ status: 'failed', provisioningError: error, updatedAt: new Date() })
-          .where(eq(industryMonitoringProfiles.id, profile.id));
-      }
-    })
-    .catch(async (err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      await db.update(industryMonitoringProfiles)
-        .set({ status: 'failed', provisioningError: message, updatedAt: new Date() })
-        .where(eq(industryMonitoringProfiles.id, profile.id));
-    });
+  }, profile.id);
 
   return subscription;
 }

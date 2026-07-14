@@ -14,7 +14,7 @@ export async function POST(
       return Response.json({ error: 'subscriptionId is required' }, { status: 400 });
     }
 
-    const profile = bindSubscriptionAsIndustryPool({
+    const profile = await bindSubscriptionAsIndustryPool({
       industryConfigId: id,
       subscriptionId: body.subscriptionId,
       adminUserId: session.userId,

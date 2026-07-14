@@ -27,6 +27,10 @@ export interface CollectedItem {
   criteriaResult?: 'matched' | 'not_matched' | 'invalid';
   /** Raw extracted metric value for display, e.g. "¥299" or "1,234 stars". */
   metricValue?: string;
+  /** Curated-industry relevance, set by the host-side profile classifier. */
+  relevanceLabel?: 'strong' | 'related';
+  relevanceReason?: string;
+  matchedTerms?: string[];
 }
 
 export interface RunResult {

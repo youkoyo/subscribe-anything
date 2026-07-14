@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
-import { createSourcesForSubscription } from '@/lib/subscriptionCreator';
+import { prioritizeSourcesForPublish } from '@/lib/subscriptionCreator';
+import { enqueueSourceProvisioningJob } from '@/lib/background-jobs/queue';
 import {
   industrySelectionErrorResponse,
   resolveSubscriptionIndustrySelection,
@@ -64,8 +65,12 @@ export async function POST(
       }
     }
 
-    // Create sources and message cards
-    await createSourcesForSubscription(id, sourcesInput, criteria ?? existing.criteria ?? undefined);
+    // Make validated news available before the remaining selected sources.
+    const { priority, deferred } = prioritizeSourcesForPublish(sourcesInput);
+    await enqueueSourceProvisioningJob(id, priority, criteria ?? existing.criteria ?? undefined, 'priority');
+    if (deferred.length > 0) {
+      await enqueueSourceProvisioningJob(id, deferred, criteria ?? existing.criteria ?? undefined, 'deferred');
+    }
 
     // Mark subscription as active
     const now = new Date();
@@ -81,7 +86,11 @@ export async function POST(
       })
       .where(eq(subscriptions.id, id));
 
-    return Response.json({ id });
+    return Response.json({
+      id,
+      prioritySourceCount: priority.length,
+      deferredSourceCount: deferred.length,
+    });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

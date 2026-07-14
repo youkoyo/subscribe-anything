@@ -6,8 +6,7 @@ import {
   industrySelectionErrorResponse,
   resolveSubscriptionIndustrySelection,
 } from '@/lib/industry-configs/subscriptionSelection';
-import { bindSubscriptionAsIndustryPool } from '@/lib/enterprise/industryPoolService';
-import { runManagedPipeline } from '@/lib/managed/pipeline';
+import { enqueueManagedPipelineJob } from '@/lib/background-jobs/queue';
 import type { ManagedStartStep } from '@/lib/managed/pipeline';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
@@ -137,8 +136,7 @@ export async function POST(req: Request) {
       subscriptionId = subscription.id;
     }
 
-    // Fire-and-forget managed pipeline
-    runManagedPipeline(subscriptionId, {
+    await enqueueManagedPipelineJob(subscriptionId, {
       topic: topic.trim(),
       criteria: criteria?.trim(),
       startStep,
@@ -148,16 +146,7 @@ export async function POST(req: Request) {
       foundSources,
       allFoundSources,
       generatedSources,
-    })
-      .then(() => {
-        if (!industrySelection.industryConfigId) return;
-        bindSubscriptionAsIndustryPool({
-          industryConfigId: industrySelection.industryConfigId,
-          subscriptionId,
-          adminUserId: session.userId,
-        });
-      })
-      .catch((err) => console.error('[managed POST] Pipeline error:', err));
+    });
 
     return Response.json({ id: subscriptionId }, { status: 201 });
   } catch (err) {

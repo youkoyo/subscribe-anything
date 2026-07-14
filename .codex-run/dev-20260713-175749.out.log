@@ -1,0 +1,34 @@
+
+> subscribe-anything@0.1.0 dev
+> cross-env NODE_OPTIONS=--disable-warning=DEP0169 tsx server.ts
+
+[DB] Using postgresql://postgres@47.97.114.189:5432/nebula_prism_industry_info
+[DB] PostgreSQL migrations complete
+[DB] Prompt templates seeded
+[Scheduler] Scheduled source zswx44xorg8zwhhdj22m1xpn with cron 0 8 * * *
+[Scheduler] Scheduled source z8qrexihxearp05iwkg19ih2 with cron 0 8 * * *
+[Scheduler] Scheduled source gsmejz95fjjkrzehpoae65t2 with cron 0 8 * * *
+[Scheduler] Loaded 3 sources
+[Scheduler] Recovering 1 previously failed source(s)
+[DeliveryScheduler] Scheduled 1 industry delivery job(s) with cron 0 9 * * *
+[DeliveryScheduler] Loaded 1 delivery group job(s)
+[Retry] source=zswx44xorg8zwhhdj22m1xpn attempt=1/3 scheduled in 5s
+[Collector] source=zswx44xorg8zwhhdj22m1xpn FAILED (retrying): 脚本执行成功但未返回任何数据，请检查脚本逻辑或目标页面是否变更
+[Retry] source=zswx44xorg8zwhhdj22m1xpn attempt=1/3 — executing
+[Server] Ready on http://localhost:3000 (dev)
+[Retry] source=zswx44xorg8zwhhdj22m1xpn attempt=2/3 scheduled in 30s
+[Collector] source=zswx44xorg8zwhhdj22m1xpn FAILED (retrying): 脚本执行成功但未返回任何数据，请检查脚本逻辑或目标页面是否变更
+ ✓ Compiled /middleware in 394ms (114 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 6.4s (887 modules)
+ GET /login?redirect=%2F 200 in 7616ms
+ ✓ Compiled in 1567ms (371 modules)
+[Retry] source=zswx44xorg8zwhhdj22m1xpn attempt=2/3 — executing
+[Retry] source=zswx44xorg8zwhhdj22m1xpn attempt=3/3 scheduled in 60s
+[Collector] source=zswx44xorg8zwhhdj22m1xpn FAILED (retrying): 脚本执行成功但未返回任何数据，请检查脚本逻辑或目标页面是否变更
+ ○ Compiling /api/subscriptions/[id]/llm-calls ...
+ ✓ Compiled /api/subscriptions/[id]/llm-calls in 1873ms (1027 modules)
+ GET /api/subscriptions/yzsb559xxy031syaraxje6v7/llm-calls 401 in 3939ms
+ GET /login 200 in 453ms
+[Retry] source=zswx44xorg8zwhhdj22m1xpn attempt=3/3 — executing
+ GET /api/subscriptions/yzsb559xxy031syaraxje6v7/llm-calls 401 in 83ms

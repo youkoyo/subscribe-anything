@@ -49,7 +49,8 @@ export function scoreDeliveryCard(
 ): DeliveryScore {
   const text = `${card.title} ${card.summary ?? ''}`;
   const criteriaMatch = scoreCardAgainstCriteria(card, parsedCriteria, now);
-  const relevance = criteriaMatch.score;
+  const hasPersonalFilter = customCriteria.trim().length > 0;
+  const relevance = hasPersonalFilter ? criteriaMatch.score : 100;
   const authority = includesAny(card.sourceName ?? '', AUTHORITY_TERMS) ? 90 : 55;
   const importance = includesAny(text, IMPORTANT_TERMS) ? 85 : 45;
   const freshness = scoreFreshness(card.publishedAt ?? card.createdAt, now);
@@ -69,7 +70,7 @@ export function scoreDeliveryCard(
     freshness,
     contentQuality,
     total,
-    matchReason: criteriaMatch.reason,
+    matchReason: hasPersonalFilter ? criteriaMatch.reason : '产业信息池匹配',
   };
 }
 
@@ -80,13 +81,14 @@ export function selectDeliveryCards(input: {
   maxItems: number;
 }) {
   const limit = Math.min(500, Math.max(1, input.maxItems));
+  const hasPersonalFilter = input.customCriteria.trim().length > 0;
   const parsedCriteria: ParsedDeliveryCriteria = parseDeliveryCriteria(input.customCriteria);
   return input.cards
     .map((card) => ({
       card,
       score: scoreDeliveryCard(card, input.customCriteria, input.now, parsedCriteria),
     }))
-    .filter((item) => item.score.relevance >= 35 || item.score.total >= 52)
+    .filter((item) => !hasPersonalFilter || item.score.relevance >= 35 || item.score.total >= 52)
     .sort((a, b) => b.score.total - a.score.total)
     .slice(0, limit);
 }

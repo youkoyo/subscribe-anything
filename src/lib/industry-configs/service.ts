@@ -7,8 +7,15 @@ import {
   buildIndustrySubscriptionSuggestion,
   encodeStringList,
   normalizeSourceTypes,
+  normalizeSourcePreferences,
 } from './utils';
+import {
+  DEFAULT_SOURCE_PREFERENCES,
+} from './types';
+import { mapIndustrySourceTypesToPreferences } from '@/lib/discovery-sources/catalog';
 import type { IndustryConfigInput } from './types';
+import { generateIndustryTermProfile } from '@/lib/ai/agents/industryProfileAgent';
+import { buildFallbackIndustryTermProfile, type IndustryTermProfile } from './term-profile';
 
 type IndustryConfigRow = typeof industryConfigs.$inferSelect;
 
@@ -21,7 +28,9 @@ function toApi(row: IndustryConfigRow) {
   };
 }
 
-function toDbValues(input: IndustryConfigInput) {
+function toDbValues(input: IndustryConfigInput, termProfile?: IndustryTermProfile) {
+  const sourceTypes = normalizeSourceTypes(input.sourceTypes);
+  const sourcePreferences = normalizeSourcePreferences(input.sourcePreferences);
   return {
     name: input.name.trim(),
     category: input.category?.trim() || null,
@@ -31,7 +40,20 @@ function toDbValues(input: IndustryConfigInput) {
     riskTermsJson: encodeStringList(input.riskTerms),
     regionsJson: encodeStringList(input.regions),
     entitiesJson: encodeStringList(input.entities),
-    sourceTypesJson: JSON.stringify(normalizeSourceTypes(input.sourceTypes)),
+    sourceTypesJson: JSON.stringify(sourceTypes),
+    sourcePreferencesJson: JSON.stringify(
+      sourcePreferences.length > 0
+        ? sourcePreferences
+        : (mapIndustrySourceTypesToPreferences(sourceTypes).length > 0
+          ? mapIndustrySourceTypesToPreferences(sourceTypes)
+          : DEFAULT_SOURCE_PREFERENCES)
+    ),
+    allowAiDiscoveryFallback: input.allowAiDiscoveryFallback !== false,
+    termProfileJson: JSON.stringify(termProfile ?? buildFallbackIndustryTermProfile({
+      topic: input.name,
+      criteria: input.description,
+      sourcePreferences: sourcePreferences.length > 0 ? sourcePreferences : undefined,
+    })),
     alertLevel: input.alertLevel?.trim() || '一般关注',
     isEnabled: input.isEnabled !== false,
     visibility: input.visibility ?? 'draft',
@@ -142,12 +164,17 @@ export async function getPublishedIndustryConfig(id: string) {
 export async function createIndustryConfigForAdmin(adminUserId: string, input: IndustryConfigInput) {
   const db = getDb();
   const now = new Date();
+  const termProfile = await generateIndustryTermProfile({
+    topic: input.name,
+    criteria: [input.category, input.subCategory, input.description].filter(Boolean).join('；'),
+    sourcePreferences: normalizeSourcePreferences(input.sourcePreferences),
+  }, adminUserId);
   const row = (await db
     .insert(industryConfigs)
     .values({
       userId: adminUserId,
       createdBy: adminUserId,
-      ...toDbValues(input),
+      ...toDbValues(input, termProfile),
       createdAt: now,
       updatedAt: now,
     })
@@ -161,9 +188,14 @@ export async function updateIndustryConfigForAdmin(id: string, input: IndustryCo
   if (!existing) return null;
 
   const db = getDb();
+  const termProfile = await generateIndustryTermProfile({
+    topic: input.name,
+    criteria: [input.category, input.subCategory, input.description].filter(Boolean).join('；'),
+    sourcePreferences: normalizeSourcePreferences(input.sourcePreferences),
+  }, existing.userId);
   await db.update(industryConfigs)
     .set({
-      ...toDbValues(input),
+      ...toDbValues(input, termProfile),
       updatedAt: new Date(),
     })
     .where(eq(industryConfigs.id, id));

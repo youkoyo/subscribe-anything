@@ -26,6 +26,10 @@ function escapeHtml(value: string) {
     .replace(/"/g, '&quot;');
 }
 
+function displayCustomCriteria(value: string) {
+  return value.trim() || '整个产业信息池';
+}
+
 export function renderIndustryDeliveryEmail(input: RenderIndustryDeliveryEmailInput) {
   const deliveryMode = input.deliveryMode ?? 'new';
   const subjectPrefix =
@@ -33,9 +37,10 @@ export function renderIndustryDeliveryEmail(input: RenderIndustryDeliveryEmailIn
       ? `${input.industryName}产业信息早报`
       : `${input.industryName}产业信息状态`;
   const subject = `${subjectPrefix}｜${input.profileTitle}｜${input.dateLabel}`;
+  const criteriaLabel = displayCustomCriteria(input.customCriteria);
   const intro =
     deliveryMode === 'new'
-      ? `本次为你筛选出 ${input.items.length} 条与「${escapeHtml(input.customCriteria)}」相关的产业信息。`
+      ? `本次为你筛选出 ${input.items.length} 条与「${escapeHtml(criteriaLabel)}」相关的产业信息。`
       : deliveryMode === 'previous'
         ? `本周期暂无高相关新增信息。以下为已报送过的持续关注信息，供你复核。`
         : `本周期暂无高相关新增信息，订阅仍在运行。当前没有可重复展示的信息。`;
@@ -86,7 +91,7 @@ export function renderIndustryDeliveryEmail(input: RenderIndustryDeliveryEmailIn
   const text = [
     subject,
     deliveryMode === 'new'
-      ? `本次为你筛选出 ${input.items.length} 条与「${input.customCriteria}」相关的产业信息。`
+      ? `本次为你筛选出 ${input.items.length} 条与「${criteriaLabel}」相关的产业信息。`
       : deliveryMode === 'previous'
         ? '本周期暂无高相关新增信息。以下为已报送过的持续关注信息，供你复核。'
         : '本周期暂无高相关新增信息，订阅仍在运行。当前没有可重复展示的信息。',
@@ -205,7 +210,7 @@ export function renderIndustryDigestEmail(input: RenderIndustryDigestEmailInput)
       return `
         <section style="margin-top:24px;">
           <h3 style="margin:0 0 6px;font-size:18px;line-height:1.4;color:#0f172a;">${index + 1}. ${escapeHtml(section.industryName)}产业信息</h3>
-          <p style="margin:0;color:#64748b;font-size:13px;">条件：${escapeHtml(section.customCriteria)}；状态：${modeLabel(section.deliveryMode)}；本产业 ${section.totalItemCount} 条。</p>
+          <p style="margin:0;color:#64748b;font-size:13px;">条件：${escapeHtml(displayCustomCriteria(section.customCriteria))}；状态：${modeLabel(section.deliveryMode)}；本产业 ${section.totalItemCount} 条。</p>
           ${tableOrStatus}
         </section>
       `;
@@ -253,7 +258,7 @@ export function renderIndustryDigestExcelAttachment(
     ...input.sections.flatMap((section) =>
       section.items.map((item) => [
         section.industryName,
-        section.customCriteria,
+        displayCustomCriteria(section.customCriteria),
         modeLabel(section.deliveryMode),
         item.title,
         item.summary,

@@ -16,6 +16,22 @@ export const SOURCE_TYPE_LABELS: Record<IndustrySourceType, string> = {
   custom: '自有补充源',
 };
 
+export const SOURCE_PREFERENCE_LABELS: Record<SourcePreference, string> = {
+  authoritative: '权威监管与官方发布',
+  mainstream: '主流新闻与政策动态',
+  business: '财经与商业观察',
+  industry: '行业与产业链信息',
+  developer: '开发者与开源社区',
+  research: '研究、知识与深度解读',
+  trend: '热点与趋势线索',
+  creator: '公众号与创作者观察',
+};
+
+export const DEFAULT_SOURCE_PREFERENCES: SourcePreference[] = [
+  'authoritative',
+  'mainstream',
+];
+
 export interface IndustryConfigSnapshot {
   id: string;
   name: string;
@@ -27,6 +43,13 @@ export interface IndustryConfigSnapshot {
   regions: string[];
   entities: string[];
   sourceTypes: IndustrySourceType[];
+  /**
+   * Optional for backwards-compatible callers that construct a snapshot manually.
+   * Snapshots read from storage are always normalized by buildIndustryConfigSnapshot.
+   */
+  sourcePreferences?: SourcePreference[];
+  allowAiDiscoveryFallback?: boolean;
+  termProfile?: import('./term-profile').IndustryTermProfile;
   alertLevel: string;
 }
 
@@ -100,6 +123,8 @@ export interface IndustryConfigInput extends EnterpriseIndustryFields {
   regions?: string[];
   entities?: string[];
   sourceTypes?: string[];
+  sourcePreferences?: SourcePreference[];
+  allowAiDiscoveryFallback?: boolean;
   alertLevel?: string;
   isEnabled?: boolean;
 }
@@ -108,3 +133,4 @@ export interface IndustrySubscriptionSuggestion {
   topic: string;
   criteria: string;
 }
+import type { SourcePreference } from '@/lib/discovery-sources/types';

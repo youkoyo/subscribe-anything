@@ -14,15 +14,11 @@ export async function POST(req: Request) {
     if (!body.industryConfigId) {
       return Response.json({ error: 'industryConfigId is required' }, { status: 400 });
     }
-    if (!body.customCriteria?.trim()) {
-      return Response.json({ error: 'customCriteria is required' }, { status: 400 });
-    }
-
     normalizeRecipientEmails(null, body.extraRecipientEmails ?? []);
     const created = createUserIndustrySubscription({
       userId: session.userId,
       industryConfigId: body.industryConfigId,
-      customCriteria: body.customCriteria,
+      customCriteria: body.customCriteria ?? '',
       extraRecipientEmails: body.extraRecipientEmails ?? [],
     });
 

@@ -9,6 +9,14 @@ export interface FoundSource {
   recommended?: boolean;
   /** true = source can provide metric data for the monitoring criteria */
   canProvideCriteria?: boolean;
+  /** Catalog sources bypass AI script generation and use the standard RSS collector. */
+  discoveryOrigin?: 'catalog' | 'ai';
+  collectionStrategy?: 'generic_rss' | 'ai_script';
+  catalogSourceId?: string;
+  sourcePreference?: import('@/lib/discovery-sources/types').SourcePreference;
+  trustLevel?: import('@/lib/discovery-sources/types').TrustLevel;
+  initialItems?: CollectedItem[];
+  termProfile?: import('@/lib/industry-configs/term-profile').IndustryTermProfile;
 }
 
 export interface GeneratedSource {
@@ -21,6 +29,9 @@ export interface GeneratedSource {
   isEnabled: boolean;
   /** If set, this source failed script generation and cannot be enabled */
   failedReason?: string;
+  catalogSourceId?: string;
+  discoveryOrigin?: 'catalog' | 'ai';
+  collectionStrategy?: 'generic_rss' | 'ai_script';
 }
 
 export interface WizardState {

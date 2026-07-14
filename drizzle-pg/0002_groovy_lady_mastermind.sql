@@ -1,0 +1,1 @@
+ALTER TABLE "industry_configs" ADD COLUMN "term_profile_json" text DEFAULT '{}' NOT NULL;

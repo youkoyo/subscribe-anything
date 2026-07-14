@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { getDb } from './index';
 import * as schema from './schema';
+import { catalogSeedValues } from '@/lib/discovery-sources/repository';
 
 const MIGRATIONS_DIR = 'drizzle-pg';
 
@@ -200,6 +201,7 @@ export async function runMigrations() {
   await seedPromptTemplates(db);
   await seedSearchProvider(db);
   await seedRssInstance(db);
+  await seedDiscoverySourceCatalog(db);
 }
 
 async function seedPromptTemplates(db: ReturnType<typeof getDb>) {
@@ -269,5 +271,12 @@ async function seedRssInstance(db: ReturnType<typeof getDb>) {
       createdAt: now,
       updatedAt: now,
     })
+    .onConflictDoNothing();
+}
+
+async function seedDiscoverySourceCatalog(db: ReturnType<typeof getDb>) {
+  await db
+    .insert(schema.discoverySourceCatalog)
+    .values(catalogSeedValues())
     .onConflictDoNothing();
 }

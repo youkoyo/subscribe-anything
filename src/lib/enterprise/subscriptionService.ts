@@ -14,7 +14,7 @@ import { normalizeRecipientEmails, validateRecipientEmails } from './recipientEm
 export interface CreateUserIndustrySubscriptionInput {
   userId: string;
   industryConfigId: string;
-  customCriteria: string;
+  customCriteria?: string;
   extraRecipientEmails?: string[];
 }
 
@@ -68,8 +68,7 @@ export async function createUserIndustrySubscription(input: CreateUserIndustrySu
   const recipientValidation = validateRecipientEmails(recipients);
   if (!recipientValidation.valid) throw new Error(recipientValidation.error);
 
-  const criteria = input.customCriteria.trim();
-  if (!criteria) throw new Error('CUSTOM_CRITERIA_REQUIRED');
+  const criteria = input.customCriteria?.trim() ?? '';
 
   const initialStatus =
     industry.subscriptionMode === 'approval_required' ? 'pending_approval' : 'pending_profile';
@@ -133,8 +132,9 @@ export async function bindSubscriptionToProfile(userSubscriptionId: string) {
       .where(eq(userIndustrySubscriptions.id, row.subscription.id)))[0];
   }
 
+  const criteriaForProfile = row.subscription.customCriteria || row.industry.name;
   const match = matchMonitoringProfile({
-    customCriteria: row.subscription.customCriteria,
+    customCriteria: criteriaForProfile,
     profiles,
     autoProfileExpansion: false,
   });
@@ -153,7 +153,7 @@ export async function bindSubscriptionToProfile(userSubscriptionId: string) {
       id: createId(),
       industryConfigId: row.industry.id,
       title: pendingTitle,
-      seedCriteria: row.subscription.customCriteria,
+      seedCriteria: criteriaForProfile,
       criteriaSummary,
       keywordsJson: JSON.stringify([]),
       targetEntitiesJson: JSON.stringify([]),
@@ -212,7 +212,7 @@ export async function updateMyIndustrySubscription(
 
   await db.update(userIndustrySubscriptions)
     .set({
-      customCriteria: input.customCriteria?.trim() || existing.customCriteria,
+      customCriteria: input.customCriteria === undefined ? existing.customCriteria : input.customCriteria.trim(),
       recipientEmailsJson: JSON.stringify(recipients),
       status: 'pending_profile',
       monitoringProfileId: null,

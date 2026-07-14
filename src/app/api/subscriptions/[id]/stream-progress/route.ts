@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, gte } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions, managedBuildLogs } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
@@ -28,6 +28,9 @@ export async function GET(
 
     const encoder = new TextEncoder();
 
+    const STREAM_MAX_AGE_MS = 5 * 60 * 1000;
+    let stopStream: (() => void) | null = null;
+
     const stream = new ReadableStream({
       async start(controller) {
         const send = (data: unknown) => {
@@ -40,10 +43,16 @@ export async function GET(
 
         const seenIds = new Set<string>();
         let closed = false;
+        let lastSeenAt: Date | null = null;
+        let polling = false;
+        let interval: ReturnType<typeof setInterval> | null = null;
+        let timeout: ReturnType<typeof setTimeout> | null = null;
 
         const close = () => {
           if (closed) return;
           closed = true;
+          if (interval) clearInterval(interval);
+          if (timeout) clearTimeout(timeout);
           try {
             controller.close();
           } catch {
@@ -51,40 +60,60 @@ export async function GET(
           }
         };
 
-        const sendNewLogs = async () => {
-          if (closed) return null;
-          const logs = (await db
-            .select()
-            .from(managedBuildLogs)
-            .where(eq(managedBuildLogs.subscriptionId, id))
-            .orderBy(asc(managedBuildLogs.createdAt)));
+        stopStream = close;
 
-          for (const log of logs) {
-            if (!seenIds.has(log.id)) {
-              seenIds.add(log.id);
-              send({
-                type: 'log',
-                id: log.id,
-                step: log.step,
-                level: log.level,
-                message: log.message,
-                payload: log.payload ? JSON.parse(log.payload) : null,
-                createdAt: log.createdAt,
-              });
+        const sendNewLogs = async (allowWhenBackpressured = false) => {
+          // Do not keep querying Postgres for a browser that has stopped
+          // consuming this stream. Success logs can contain scripts and RSS items.
+          if (
+            closed ||
+            polling ||
+            (!allowWhenBackpressured && controller.desiredSize !== null && controller.desiredSize <= 0)
+          ) return undefined;
+          polling = true;
+          try {
+            const logFilter = lastSeenAt
+              ? and(
+                  eq(managedBuildLogs.subscriptionId, id),
+                  gte(managedBuildLogs.createdAt, lastSeenAt)
+                )
+              : eq(managedBuildLogs.subscriptionId, id);
+            const logs = (await db
+              .select()
+              .from(managedBuildLogs)
+              .where(logFilter)
+              .orderBy(asc(managedBuildLogs.createdAt)));
+
+            for (const log of logs) {
+              if (!seenIds.has(log.id)) {
+                seenIds.add(log.id);
+                send({
+                  type: 'log',
+                  id: log.id,
+                  step: log.step,
+                  level: log.level,
+                  message: log.message,
+                  payload: log.payload ? JSON.parse(log.payload) : null,
+                  createdAt: log.createdAt,
+                });
+              }
+              if (!lastSeenAt || log.createdAt > lastSeenAt) lastSeenAt = log.createdAt;
             }
+
+            // Check subscription status
+            const current = (await db
+              .select({ managedStatus: subscriptions.managedStatus })
+              .from(subscriptions)
+              .where(eq(subscriptions.id, id)))[0];
+
+            return current;
+          } finally {
+            polling = false;
           }
-
-          // Check subscription status
-          const current = (await db
-            .select({ managedStatus: subscriptions.managedStatus })
-            .from(subscriptions)
-            .where(eq(subscriptions.id, id)))[0];
-
-          return current;
         };
 
         // Send all existing logs immediately
-        const initial = await sendNewLogs();
+        const initial = await sendNewLogs(true);
         if (!initial) {
           send({ type: 'done', reason: 'deleted' });
           close();
@@ -97,35 +126,33 @@ export async function GET(
         }
 
         // Poll for new logs every 800ms
-        const interval = setInterval(async () => {
+        interval = setInterval(async () => {
           if (closed) {
-            clearInterval(interval);
             return;
           }
           const current = await sendNewLogs();
+          if (current === undefined) return;
           if (!current) {
             send({ type: 'done', reason: 'deleted' });
-            clearInterval(interval);
             close();
           } else if (current.managedStatus === null) {
             send({ type: 'done', reason: 'complete' });
-            clearInterval(interval);
             close();
           }
         }, 800);
 
-        // Safety: close after 30 minutes
-        const timeout = setTimeout(() => {
-          clearInterval(interval);
+        // Safety: an abandoned view cannot retain a connection for 30 minutes.
+        timeout = setTimeout(() => {
           close();
-        }, 30 * 60 * 1000);
+        }, STREAM_MAX_AGE_MS);
 
         // Handle client disconnect
         req.signal.addEventListener('abort', () => {
-          clearInterval(interval);
-          clearTimeout(timeout);
           close();
         });
+      },
+      cancel() {
+        stopStream?.();
       },
     });
 

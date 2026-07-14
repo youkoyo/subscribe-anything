@@ -5,6 +5,8 @@
 // Run prod:  node dist/server.js  (after tsc -p tsconfig.server.json)
 
 import { createServer } from 'http';
+import { fork, spawn, type ChildProcess } from 'child_process';
+import path from 'path';
 import { parse } from 'url';
 import { loadEnvConfig } from '@next/env';
 import next from 'next';
@@ -20,6 +22,22 @@ function requireDatabaseUrl() {
   console.log(`[DB] Using ${describeDatabaseUrl(databaseUrl)}`);
 }
 
+function startBackgroundWorker(): ChildProcess {
+  const workerPath = dev
+    ? path.join(process.cwd(), 'worker.ts')
+    : path.join(__dirname, 'worker.js');
+  const worker = dev
+    ? spawn(process.execPath, ['--import', 'tsx', workerPath], { stdio: 'inherit', env: process.env })
+    : fork(workerPath, [], { stdio: 'inherit', env: process.env });
+  worker.on('exit', (code, signal) => {
+    console.warn(`[Worker] Exited (code=${code ?? 'null'}, signal=${signal ?? 'none'})`);
+  });
+  const stopWorker = () => worker.kill('SIGTERM');
+  process.once('SIGINT', stopWorker);
+  process.once('SIGTERM', stopWorker);
+  return worker;
+}
+
 async function main() {
   requireDatabaseUrl();
 
@@ -28,8 +46,7 @@ async function main() {
   await runMigrations();
 
   // 2. Init scheduler — load all enabled sources and register cron jobs
-  const { initScheduler } = await import('./src/lib/scheduler');
-  await initScheduler();
+  startBackgroundWorker();
 
   // 3. Init enterprise delivery scheduler — load enabled industry email jobs
   const { initDeliveryScheduler } = await import('./src/lib/enterprise/deliveryScheduler');

@@ -11,10 +11,15 @@ import { eq, and, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { sources, subscriptions, messageCards } from '@/lib/db/schema';
 import { runScript } from '@/lib/sandbox/runner';
+import { rssFetch } from '@/lib/ai/tools/rssFetch';
 import { hash } from '@/lib/utils/hash';
 import { nextCronDate } from '@/lib/utils/cron';
 import { createNotification } from '@/lib/notifications';
 import { scheduleRetry, clearRetry, markCollecting, clearCollecting, setLastResult } from './retryManager';
+import { classifyProfileItems } from '@/lib/industry-configs/profile-classifier';
+import type { IndustryTermProfile } from '@/lib/industry-configs/term-profile';
+import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
+import type { CollectedItem } from '@/lib/sandbox/contract';
 
 export interface CollectResult {
   newItems: number;
@@ -65,30 +70,47 @@ async function _doCollect(
 
   const now = new Date();
 
-  // ── Run script ───────────────────────────────────────────────────────────────
-  let runResult: Awaited<ReturnType<typeof runScript>>;
-  try {
-    runResult = await runScript(source.script);
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    await _handleFailure(db, source, subscription, errorMsg, now);
-    return { newItems: 0, skipped: 0, error: errorMsg };
+  // Preset feeds use the same host-side parser as initial discovery. Running
+  // them through the sandbox produced an avoidable split-brain behaviour:
+  // a feed could validate during discovery but appear empty after publishing.
+  let rawItems: CollectedItem[];
+  if (source.collectionStrategy === 'generic_rss') {
+    try {
+      rawItems = (await rssFetch(source.url, { maxItems: 'all' })).items;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await _handleFailure(db, source, subscription, errorMsg, now);
+      return { newItems: 0, skipped: 0, error: errorMsg };
+    }
+  } else {
+    let runResult: Awaited<ReturnType<typeof runScript>>;
+    try {
+      runResult = await runScript(source.script);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await _handleFailure(db, source, subscription, errorMsg, now);
+      return { newItems: 0, skipped: 0, error: errorMsg };
+    }
+
+    if (!runResult.success) {
+      const errorMsg = runResult.error ?? 'Script error';
+      await _handleFailure(db, source, subscription, errorMsg, now);
+      return { newItems: 0, skipped: 0, error: runResult.error };
+    }
+    rawItems = runResult.items ?? [];
   }
 
-  if (!runResult.success) {
-    const errorMsg = runResult.error ?? 'Script error';
-    await _handleFailure(db, source, subscription, errorMsg, now);
-    return { newItems: 0, skipped: 0, error: runResult.error };
-  }
-
-  const items = runResult.items ?? [];
-
-  // ── Zero items = script broken (returns nothing useful) ─────────────────────
-  if (items.length === 0) {
+  // An empty preset feed is a successful poll with no new content. A custom
+  // script returning no data is still treated as broken, as before.
+  if (rawItems.length === 0 && source.collectionStrategy !== 'generic_rss') {
     const errorMsg = '脚本执行成功但未返回任何数据，请检查脚本逻辑或目标页面是否变更';
     await _handleFailure(db, source, subscription, errorMsg, now);
     return { newItems: 0, skipped: 0, error: errorMsg };
   }
+
+  // Preset RSS scripts return every item exposed by the feed. Relevance stays
+  // host-owned so every scheduled collection uses the same industry profile.
+  const items = await classifyPresetRssItems(source, subscription, rawItems);
 
   // ── Dedup + persist ───────────────────────────────────────────────────────────
   let newItems = 0;
@@ -196,6 +218,48 @@ async function _doCollect(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function readV2IndustryProfile(snapshotJson: string | null | undefined): IndustryTermProfile | null {
+  if (!snapshotJson) return null;
+  try {
+    const snapshot = JSON.parse(snapshotJson) as Partial<IndustryConfigSnapshot>;
+    return snapshot.termProfile?.version === 2 ? snapshot.termProfile : null;
+  } catch {
+    return null;
+  }
+}
+
+async function classifyPresetRssItems(
+  source: { id: string; collectionStrategy?: string | null },
+  subscription: { userId?: string | null; industryConfigSnapshot?: string | null } | undefined,
+  rawItems: CollectedItem[],
+): Promise<CollectedItem[]> {
+  if (source.collectionStrategy !== 'generic_rss') return rawItems;
+
+  const profile = readV2IndustryProfile(subscription?.industryConfigSnapshot);
+  if (!profile) {
+    console.warn(`[Collector] source=${source.id} skipped preset RSS items because its v2 industry profile is missing`);
+    return [];
+  }
+
+  const candidates = rawItems.map((item, index) => ({
+    id: `${source.id}:${index}`,
+    title: item.title,
+    summary: item.summary,
+  }));
+  const relevanceById = await classifyProfileItems(profile, candidates, subscription?.userId);
+
+  return rawItems.flatMap((item, index) => {
+    const relevance = relevanceById.get(`${source.id}:${index}`);
+    if (!relevance || relevance.label === 'irrelevant') return [];
+    return [{
+      ...item,
+      relevanceLabel: relevance.label,
+      relevanceReason: relevance.reason,
+      matchedTerms: relevance.matchedTerms,
+    }];
+  });
+}
 
 async function _handleFailure(
   db: ReturnType<typeof getDb>,

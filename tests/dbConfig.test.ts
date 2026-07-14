@@ -8,7 +8,7 @@ test('database target selects remote URL even when DATABASE_URL points at local'
     DATABASE_URL: 'postgresql://subscribe:subscribe@localhost:5432/subscribe_anything',
     DATABASE_URL_LOCAL: 'postgresql://subscribe:subscribe@localhost:5432/subscribe_anything',
     DATABASE_URL_REMOTE: 'postgresql://postgres:secret@47.97.114.189:5432/nebula_prism_industry_info',
-  });
+  } as unknown as NodeJS.ProcessEnv);
 
   assert.equal(
     url,
@@ -19,7 +19,7 @@ test('database target selects remote URL even when DATABASE_URL points at local'
 test('database config falls back to DATABASE_URL when no target is configured', () => {
   const url = resolveDatabaseUrl({
     DATABASE_URL: 'postgresql://subscribe:subscribe@localhost:5432/subscribe_anything',
-  });
+  } as unknown as NodeJS.ProcessEnv);
 
   assert.equal(url, 'postgresql://subscribe:subscribe@localhost:5432/subscribe_anything');
 });

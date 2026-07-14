@@ -157,6 +157,12 @@ export async function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInpu
     })
     .where(eq(industryConfigs.id, industry.id));
 
+  // The process may already be running when a pool is published. Reload the
+  // in-memory cron registry now; waiting for the next server restart means
+  // subscribers never receive the newly configured digest.
+  const { reloadIndustryDelivery } = await import('./deliveryScheduler');
+  await reloadIndustryDelivery(industry.id);
+
   return activeProfile;
 }
 

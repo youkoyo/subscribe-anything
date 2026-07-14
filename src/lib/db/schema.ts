@@ -93,6 +93,37 @@ export const searchProviderConfig = pgTable('search_provider_config', {
     .notNull(),
 });
 
+// ─── discovery_source_catalog ────────────────────────────────────────────────
+// Global, versioned discovery candidates. These are not user subscription
+// sources: a catalog row can be matched by many subscriptions and can be
+// disabled independently when a feed becomes unhealthy.
+export const discoverySourceCatalog = pgTable('discovery_source_catalog', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  feedUrl: text('feed_url').notNull().unique(),
+  feedProvider: text('feed_provider', { enum: ['anyfeeder', 'direct'] }).notNull(),
+  originalCategory: text('original_category').notNull(),
+  preferencesJson: text('preferences_json').notNull().default('[]'),
+  trustLevel: text('trust_level', { enum: ['high', 'medium', 'low'] }).notNull(),
+  defaultUsage: text('default_usage', {
+    enum: ['primary', 'supplementary', 'discovery'],
+  }).notNull(),
+  topicTagsJson: text('topic_tags_json').notNull().default('[]'),
+  keywordsJson: text('keywords_json').notNull().default('[]'),
+  isEnabled: boolean('is_enabled').notNull().default(true),
+  healthStatus: text('health_status', {
+    enum: ['unknown', 'healthy', 'unhealthy'],
+  }).notNull().default('unknown'),
+  lastValidatedAt: timestamp('last_validated_at', { mode: 'date' }),
+  lastValidationError: text('last_validation_error'),
+  createdAt: timestamp('created_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
 // ─── industry_configs ────────────────────────────────────────────────────────
 export const industryConfigs = pgTable('industry_configs', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
@@ -108,6 +139,11 @@ export const industryConfigs = pgTable('industry_configs', {
   regionsJson: text('regions_json').notNull().default('[]'),
   entitiesJson: text('entities_json').notNull().default('[]'),
   sourceTypesJson: text('source_types_json').notNull().default('[]'),
+  sourcePreferencesJson: text('source_preferences_json')
+    .notNull()
+    .default('["authoritative","mainstream"]'),
+  allowAiDiscoveryFallback: boolean('allow_ai_discovery_fallback').notNull().default(true),
+  termProfileJson: text('term_profile_json').notNull().default('{}'),
   alertLevel: text('alert_level').notNull().default('一般关注'),
   isEnabled: boolean('is_enabled').notNull().default(true),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
@@ -174,6 +210,34 @@ export const managedBuildLogs = pgTable('managed_build_logs', {
   message: text('message').notNull(),
   payload: text('payload'), // JSON：关键步骤结果（foundSources 列表、脚本等）
   createdAt: timestamp('created_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+// Durable handoff between the Web/email process and the background worker.
+// Heavy work must never depend on an in-memory Promise owned by an API request.
+export const backgroundJobs = pgTable('background_jobs', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  type: text('type', {
+    enum: ['managed_pipeline', 'managed_step', 'generate_source', 'source_collection', 'source_provisioning'],
+  }).notNull(),
+  status: text('status', { enum: ['queued', 'running', 'completed', 'failed'] })
+    .notNull()
+    .default('queued'),
+  priority: integer('priority').notNull().default(100),
+  dedupeKey: text('dedupe_key').notNull(),
+  payload: text('payload').notNull(),
+  availableAt: timestamp('available_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  startedAt: timestamp('started_at', { mode: 'date' }),
+  finishedAt: timestamp('finished_at', { mode: 'date' }),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
 });
@@ -293,6 +357,13 @@ export const sources = pgTable('sources', {
   title: text('title').notNull(),
   description: text('description'),
   url: text('url').notNull(),
+  catalogSourceId: text('catalog_source_id').references(() => discoverySourceCatalog.id, {
+    onDelete: 'set null',
+  }),
+  discoveryOrigin: text('discovery_origin', { enum: ['catalog', 'ai'] }),
+  collectionStrategy: text('collection_strategy', {
+    enum: ['generic_rss', 'ai_script'],
+  }),
   script: text('script').notNull().default(''),
   cronExpression: text('cron_expression').notNull().default('0 * * * *'),
   isEnabled: boolean('is_enabled').notNull().default(true),
@@ -545,8 +616,19 @@ export const sourcesRelations = relations(sources, ({ one, many }) => ({
     fields: [sources.subscriptionId],
     references: [subscriptions.id],
   }),
+  catalogSource: one(discoverySourceCatalog, {
+    fields: [sources.catalogSourceId],
+    references: [discoverySourceCatalog.id],
+  }),
   messageCards: many(messageCards),
 }));
+
+export const discoverySourceCatalogRelations = relations(
+  discoverySourceCatalog,
+  ({ many }) => ({
+    sources: many(sources),
+  })
+);
 
 export const messageCardsRelations = relations(messageCards, ({ one }) => ({
   subscription: one(subscriptions, {

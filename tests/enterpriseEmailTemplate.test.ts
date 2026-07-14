@@ -32,6 +32,19 @@ test('renderIndustryDeliveryEmail includes summary and table rows', () => {
   assert.match(email.text, /与管理条例高度相关/);
 });
 
+test('renderIndustryDeliveryEmail describes an empty criterion as the whole industry pool', () => {
+  const email = renderIndustryDeliveryEmail({
+    industryName: '鞋业',
+    profileTitle: '鞋业信息池',
+    customCriteria: '',
+    dateLabel: '2026-07-14',
+    items: [],
+  });
+
+  assert.match(email.html, /整个产业信息池/);
+  assert.match(email.text, /整个产业信息池/);
+});
+
 test('renderIndustryDigestEmail groups industries with stable readable table widths', () => {
   const email = renderIndustryDigestEmail({
     dateLabel: '2026-07-08',

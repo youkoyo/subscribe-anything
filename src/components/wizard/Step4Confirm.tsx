@@ -28,7 +28,24 @@ interface Step4ConfirmProps {
   onDiscard?: () => void;
 }
 
-const CUSTOM_VALUE = '__custom__';
+type PublishStage = 'idle' | 'submitting' | 'activating' | 'redirecting';
+
+const PUBLISH_REQUEST_TIMEOUT_MS = 20_000;
+
+async function requestJsonWithTimeout(input: RequestInfo | URL, init: RequestInit) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), PUBLISH_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('发布请求超过 20 秒仍未得到服务端响应，请稍后重试。');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 export default function Step4Confirm({
   state,
@@ -38,10 +55,17 @@ export default function Step4Confirm({
   onDiscard,
 }: Step4ConfirmProps) {
   const [sources, setSources] = useState<GeneratedSource[]>(state.generatedSources);
-  const [customCrons, setCustomCrons] = useState<Record<number, string>>({});
+  const [poolCron, setPoolCron] = useState(
+    state.generatedSources[0]?.cronExpression ?? '0 * * * *'
+  );
   const [editingTitleIdx, setEditingTitleIdx] = useState<number | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [publishStage, setPublishStage] = useState<PublishStage>('idle');
+  const [provisioningSummary, setProvisioningSummary] = useState<{
+    prioritySourceCount: number;
+    deferredSourceCount: number;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [previewSource, setPreviewSource] = useState<GeneratedSource | null>(null);
   const isIndustryPool = !!state.industryConfigId;
@@ -73,44 +97,26 @@ export default function Step4Confirm({
     });
   };
 
-  const getCronSelectValue = (idx: number, cronExpression: string): string => {
-    const preset = CRON_PRESETS.find((p) => p.value === cronExpression);
-    if (preset) return cronExpression;
-    return CUSTOM_VALUE;
-  };
-
-  const handleCronSelectChange = (idx: number, value: string) => {
-    if (value === CUSTOM_VALUE) {
-      // Keep current expression as custom
-      setCustomCrons((prev) => ({ ...prev, [idx]: sources[idx].cronExpression }));
-    } else {
-      updateSource(idx, { cronExpression: value });
-      setCustomCrons((prev) => {
-        const next = { ...prev };
-        delete next[idx];
-        return next;
-      });
-    }
-  };
-
-  const handleCustomCronChange = (idx: number, value: string) => {
-    setCustomCrons((prev) => ({ ...prev, [idx]: value }));
-    updateSource(idx, { cronExpression: value });
-  };
-
   const handleSubmit = async () => {
     setIsSubmitting(true);
     setErrorMessage('');
+    setPublishStage('submitting');
+    setProvisioningSummary(null);
 
     const sourcesPayload = sources.map((s) => ({
       title: s.title,
       url: s.url,
       description: s.description,
       script: s.script,
-      cronExpression: s.cronExpression,
+      cronExpression: poolCron,
       isEnabled: s.isEnabled,
       initialItems: s.failedReason ? [] : s.initialItems,
       failedReason: s.failedReason,
+      // Keep catalog provenance all the way through publication. The
+      // scheduler uses it to apply the industry profile to preset RSS items.
+      catalogSourceId: s.catalogSourceId,
+      discoveryOrigin: s.discoveryOrigin,
+      collectionStrategy: s.collectionStrategy,
     }));
 
     try {
@@ -118,7 +124,7 @@ export default function Step4Confirm({
 
       if (state.subscriptionId) {
         // Wizard was persisted: use complete-wizard endpoint
-        const res = await fetch(`/api/subscriptions/${state.subscriptionId}/complete-wizard`, {
+        const res = await requestJsonWithTimeout(`/api/subscriptions/${state.subscriptionId}/complete-wizard`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -136,6 +142,10 @@ export default function Step4Confirm({
 
         const data = await res.json();
         createdId = data.id;
+        setProvisioningSummary({
+          prioritySourceCount: data.prioritySourceCount ?? 0,
+          deferredSourceCount: data.deferredSourceCount ?? 0,
+        });
       } else {
         // No persisted subscription: create from scratch
         const body = {
@@ -146,7 +156,7 @@ export default function Step4Confirm({
           sources: sourcesPayload,
         };
 
-        const res = await fetch('/api/subscriptions', {
+        const res = await requestJsonWithTimeout('/api/subscriptions', {
           method: 'POST',
           body: JSON.stringify(body),
           headers: { 'Content-Type': 'application/json' },
@@ -162,7 +172,8 @@ export default function Step4Confirm({
       }
 
       if (state.industryConfigId) {
-        const bindRes = await fetch(`/api/industry-configs/${state.industryConfigId}/pool`, {
+        setPublishStage('activating');
+        const bindRes = await requestJsonWithTimeout(`/api/industry-configs/${state.industryConfigId}/pool`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subscriptionId: createdId }),
@@ -175,11 +186,15 @@ export default function Step4Confirm({
       }
 
       // Update parent state then trigger completion
-      onStateChange({ generatedSources: sources });
+      setPublishStage('redirecting');
+      onStateChange({
+        generatedSources: sources.map((source) => ({ ...source, cronExpression: poolCron })),
+      });
       onComplete(createdId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '提交失败，请重试';
       setErrorMessage(msg);
+      setPublishStage('idle');
     } finally {
       setIsSubmitting(false);
     }
@@ -216,14 +231,33 @@ export default function Step4Confirm({
         )}
       </div>
 
+      <Card className="border-primary/30 bg-primary/[0.04]">
+        <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-medium">信息池采集频率</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              所有启用的数据源使用同一频率；已有初始新闻的源会优先发布，其余源在后台继续补齐。
+            </p>
+          </div>
+          <Select value={poolCron} onValueChange={setPoolCron}>
+            <SelectTrigger className="h-9 w-full text-sm sm:w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CRON_PRESETS.map((preset) => (
+                <SelectItem key={preset.value} value={preset.value}>
+                  {preset.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
       <ScrollArea className="h-[48vh] md:h-[45vh]">
         <div className="flex flex-col gap-3 pr-2">
           {sources.map((source, idx) => {
             const isFailed = !!source.failedReason;
-            const selectValue = getCronSelectValue(idx, source.cronExpression);
-            const isCustom = selectValue === CUSTOM_VALUE;
-            const customValue = customCrons[idx] ?? source.cronExpression;
-
             return (
               <Card key={idx} className={isFailed ? 'opacity-60' : undefined}>
                 <CardContent className="p-4 flex flex-col gap-3">
@@ -304,7 +338,7 @@ export default function Step4Confirm({
                     </div>
                   </div>
 
-                  {/* Failed sources don't show item count or cron selector */}
+                      {/* Failed sources don't show item details */}
                   {!isFailed && (
                     <>
                       {/* Item count + preview */}
@@ -322,37 +356,6 @@ export default function Step4Confirm({
                           </button>
                         </div>
                       )}
-
-                      {/* Cron selector */}
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-muted-foreground">采集频率</label>
-                        <Select value={selectValue} onValueChange={(v) => handleCronSelectChange(idx, v)}>
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CRON_PRESETS.map((preset) => (
-                              <SelectItem key={preset.value} value={preset.value} className="text-xs">
-                                {preset.label}
-                              </SelectItem>
-                            ))}
-                            <SelectItem value={CUSTOM_VALUE} className="text-xs">
-                              自定义 Cron 表达式
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {isCustom && (
-                          <Input
-                            className="h-8 text-xs font-mono"
-                            placeholder="0 * * * *"
-                            value={customValue}
-                            onChange={(e) => handleCustomCronChange(idx, e.target.value)}
-                          />
-                        )}
-                        {!isCustom && (
-                          <p className="text-xs text-muted-foreground font-mono">{source.cronExpression}</p>
-                        )}
-                      </div>
                     </>
                   )}
                 </CardContent>
@@ -365,6 +368,24 @@ export default function Step4Confirm({
       {errorMessage && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {errorMessage}
+        </div>
+      )}
+
+      {isSubmitting && (
+        <div className="rounded-lg border border-primary/30 bg-primary/[0.06] px-4 py-3 text-sm" role="status">
+          <div className="flex items-center gap-2 font-medium">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            {publishStage === 'submitting' && '正在提交发布请求'}
+            {publishStage === 'activating' && '正在启用产业信息池'}
+            {publishStage === 'redirecting' && '发布完成，正在跳转'}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {publishStage === 'submitting' && '正在保存配置，并把有初始新闻的源优先交给后台创建。'}
+            {publishStage === 'activating' && '正在开放信息池并刷新邮件投递计划；采集任务仍由后台继续执行。'}
+            {publishStage === 'redirecting' && (provisioningSummary
+              ? `已优先提交 ${provisioningSummary.prioritySourceCount} 个源，其余 ${provisioningSummary.deferredSourceCount} 个源将在后台补齐。`
+              : '正在打开信息池。')}
+          </p>
         </div>
       )}
 

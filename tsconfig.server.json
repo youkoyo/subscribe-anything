@@ -15,6 +15,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["server.ts", "src/lib/scheduler/**/*", "src/lib/db/**/*", "src/lib/utils/**/*", "src/lib/sandbox/**/*", "src/lib/notifications/**/*", "src/types/**/*"],
+  "include": ["server.ts", "worker.ts", "src/lib/**/*", "src/types/**/*"],
   "exclude": ["node_modules", ".next"]
 }

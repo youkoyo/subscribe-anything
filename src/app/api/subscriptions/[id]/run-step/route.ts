@@ -2,13 +2,9 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { subscriptions, managedBuildLogs } from '@/lib/db/schema';
 import { requireAuth } from '@/lib/auth';
-import { runFindSourcesStep, runGenerateScriptsStep } from '@/lib/managed/pipeline';
 import { clearLLMCalls } from '@/lib/managed/llmCallStore';
+import { enqueueManagedStepJob } from '@/lib/background-jobs/queue';
 import type { FoundSource } from '@/types/wizard';
-
-// In-memory set to prevent duplicate concurrent runs per subscription+step.
-// Works because everything runs in a single Node.js process.
-const runningSteps = new Set<string>();
 
 // POST /api/subscriptions/[id]/run-step
 // Body: { step: 'find_sources' | 'generate_scripts', sources?: FoundSource[] }
@@ -38,11 +34,6 @@ export async function POST(
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
-    const key = `${id}:${step}`;
-    if (runningSteps.has(key)) {
-      return Response.json({ running: true });
-    }
-
     if (step === 'find_sources') {
       // Clear old find_sources logs and LLM calls to start fresh
       clearLLMCalls(id);
@@ -54,23 +45,15 @@ export async function POST(
           )
         );
 
-      runningSteps.add(key);
-      runFindSourcesStep(id, sub.topic, sub.criteria ?? undefined, session.userId)
-        .finally(() => runningSteps.delete(key))
-        .catch(() => {});
+      const queued = await enqueueManagedStepJob(id, 'find_sources');
+      return Response.json({ started: queued, running: !queued }, { status: 202 });
     } else {
       // generate_scripts: clear old LLM calls, do NOT clear existing build logs —
       // runGenerateScriptsStep skips already-completed sources
       clearLLMCalls(id);
-      const srcList = (sources ?? []) as FoundSource[];
-
-      runningSteps.add(key);
-      runGenerateScriptsStep(id, srcList, sub.criteria ?? undefined, session.userId)
-        .finally(() => runningSteps.delete(key))
-        .catch(() => {});
+      const queued = await enqueueManagedStepJob(id, 'generate_scripts', (sources ?? []) as FoundSource[]);
+      return Response.json({ started: queued, running: !queued }, { status: 202 });
     }
-
-    return Response.json({ started: true }, { status: 202 });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

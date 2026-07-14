@@ -7,11 +7,12 @@ import cron, { type ScheduledTask } from 'node-cron';
 import pLimit from 'p-limit';
 import type { InferSelectModel } from 'drizzle-orm';
 import type { sources } from '@/lib/db/schema';
+import { enqueueSourceCollectionJob } from '@/lib/background-jobs/queue';
 
 type Source = InferSelectModel<typeof sources>;
 
-// At most 5 sandbox isolates running concurrently across all cron-triggered jobs.
-// Manual /trigger calls bypass this limit (see collector.ts).
+// The worker owns execution. This small limiter only prevents a cron burst from
+// creating hundreds of duplicate enqueue requests in the scheduler process.
 const limit = pLimit(5);
 
 const jobs = new Map<string, ScheduledTask>();
@@ -35,11 +36,9 @@ export function scheduleSource(source: Source): void {
 
   const task = cron.schedule(source.cronExpression, () => {
     limit(async () => {
-      console.log(`[Scheduler] Running collection for source ${source.id} (${source.title})`);
+      console.log(`[Scheduler] Queueing collection for source ${source.id} (${source.title})`);
       try {
-        // Phase 4: replace with real collection
-        const { collect } = await import('./collector');
-        await collect(source.id);
+        await enqueueSourceCollectionJob(source.id);
       } catch (err) {
         console.error(`[Scheduler] Collection error for source ${source.id}:`, err);
       }

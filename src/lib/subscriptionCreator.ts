@@ -24,6 +24,22 @@ export interface SourceInput {
   initialItems?: CollectedItem[];
   /** If set, the source failed script generation — stored as lastError, status='failed' */
   failedReason?: string;
+  catalogSourceId?: string;
+  discoveryOrigin?: 'catalog' | 'ai';
+  collectionStrategy?: 'generic_rss' | 'ai_script';
+}
+
+/** Provision sources that already yielded qualifying news before deferred sources. */
+export function prioritizeSourcesForPublish<T extends Pick<SourceInput, 'initialItems'>>(
+  sourcesInput: T[]
+): { priority: T[]; deferred: T[] } {
+  const priority: T[] = [];
+  const deferred: T[] = [];
+  for (const source of sourcesInput) {
+    if ((source.initialItems?.length ?? 0) > 0) priority.push(source);
+    else deferred.push(source);
+  }
+  return { priority, deferred };
 }
 
 /**
@@ -52,6 +68,9 @@ export async function createSourcesForSubscription(
         title: srcInput.title,
         description: srcInput.description || null,
         url: srcInput.url,
+        catalogSourceId: srcInput.catalogSourceId ?? null,
+        discoveryOrigin: srcInput.discoveryOrigin ?? null,
+        collectionStrategy: srcInput.collectionStrategy ?? null,
         script: srcInput.script,
         cronExpression: srcInput.cronExpression ?? '0 * * * *',
         isEnabled: isFailed ? false : srcInput.isEnabled !== false,
@@ -89,10 +108,13 @@ export async function createSourcesForSubscription(
       if (!item.title || !item.url) continue;
       const contentHash = hash(item.title + item.url);
 
-      // Check criteria match (simple keyword)
+      // Preserve every qualifying item per source. We intentionally do not
+      // merge the same event across different sources.
       const criteriaText = criteria?.trim().toLowerCase() ?? '';
       const itemText = `${item.title} ${item.summary ?? ''}`.toLowerCase();
-      const meetsCriteria = criteriaText
+      const meetsCriteria = item.relevanceLabel === 'strong' || item.relevanceLabel === 'related'
+        ? true
+        : criteriaText
         ? criteriaText.split(/[\s,，、]+/).filter(Boolean).some((kw) => itemText.includes(kw))
         : false;
 

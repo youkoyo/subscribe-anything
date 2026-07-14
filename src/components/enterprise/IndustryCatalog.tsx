@@ -61,8 +61,8 @@ export default function IndustryCatalog({ onSubscriptionCreated }: IndustryCatal
   }, [toast]);
 
   async function submitSubscription() {
-    if (!selected || !customCriteria.trim()) {
-      toast({ title: '请填写监控条件', variant: 'destructive' });
+    if (!selected) {
+      toast({ title: '请选择产业信息池', variant: 'destructive' });
       return;
     }
 
@@ -163,11 +163,15 @@ export default function IndustryCatalog({ onSubscriptionCreated }: IndustryCatal
           </DialogHeader>
           <div className="grid gap-3">
             <label className="grid gap-2 text-sm font-medium">
-              个性化监控条件
+              个性化监控条件（可选）
               <Textarea
                 value={customCriteria}
                 onChange={(event) => setCustomCriteria(event.target.value)}
+                placeholder="例如：出口、品牌动态、生产安全；留空则接收该产业信息池内的全部信息"
               />
+              <span className="text-xs font-normal text-muted-foreground">
+                不确定细分方向时无需填写，系统将按整个产业信息池为你推送。
+              </span>
             </label>
             <div className="grid gap-2 rounded-md border border-cyan-300/20 bg-secondary/30 p-3">
               <div className="text-sm font-medium">收件邮箱配置</div>

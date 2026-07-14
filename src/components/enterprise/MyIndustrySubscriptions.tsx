@@ -132,7 +132,9 @@ export default function MyIndustrySubscriptions({
                     <div className="font-medium text-cyan-50">{row.industry.name}</div>
                     <Badge variant={progress.badgeVariant}>{progress.label}</Badge>
                   </div>
-                  <div className="mt-2 text-sm text-muted-foreground">{row.subscription.customCriteria}</div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {row.subscription.customCriteria || '未设置个性化条件（接收整个产业信息池）'}
+                    </div>
                   <div className="mt-2 text-xs text-muted-foreground">
                     信息池：{row.profile?.title ?? '等待管理员发布'} · 收件邮箱：
                     {recipients.join('、') || '未配置'}
@@ -182,10 +184,11 @@ export default function MyIndustrySubscriptions({
           </DialogHeader>
           <div className="grid gap-3">
             <label className="grid gap-2 text-sm font-medium">
-              个性化监控条件
+              个性化监控条件（可选）
               <Textarea
                 value={customCriteria}
                 onChange={(event) => setCustomCriteria(event.target.value)}
+                placeholder="留空则接收该产业信息池内的全部信息"
               />
             </label>
             <label className="grid gap-2 text-sm font-medium">

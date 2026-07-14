@@ -577,6 +577,14 @@ export default function IndustryConfigManager() {
                         {hasPool ? '重建信息池' : '构建信息池'}
                       </Link>
                     </Button>
+                    {pool?.sharedSubscriptionId ? (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/subscriptions/${pool.sharedSubscriptionId}`}>
+                          <Activity className="h-4 w-4" />
+                          查看信息池
+                        </Link>
+                      </Button>
+                    ) : null}
                     <Button variant="outline" size="sm" onClick={() => handleToggleEnabled(config)}>
                       <Power className="h-4 w-4" />
                       {config.isEnabled ? '停用' : '启用'}
@@ -614,7 +622,7 @@ export default function IndustryConfigManager() {
           <DialogHeader>
             <DialogTitle>{editing ? '编辑产业配置' : '新建产业配置'}</DialogTitle>
             <DialogDescription>
-              配置产业画像后，新建订阅时可以一键带入主题、关注标准和产业快照。
+              管理员在此维护产业画像、信息源和报送规则；普通用户订阅时可直接关注整个信息池。
             </DialogDescription>
           </DialogHeader>
 
@@ -758,6 +766,13 @@ export default function IndustryConfigManager() {
               </label>
             </div>
 
+            <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.06] px-4 py-3">
+              <div className="text-sm font-medium text-cyan-50">普通用户订阅规则</div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                默认接收整个产业信息池；个性化条件为可选，仅在用户填写时作为二次筛选，不会改变本产业的采集源或产业画像。
+              </p>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-3">
               <label className="grid gap-2 text-sm font-medium">
                 邮件发送时间
@@ -859,7 +874,7 @@ export default function IndustryConfigManager() {
           <DialogHeader>
             <DialogTitle>订阅详情{subscriberConfig ? `：${subscriberConfig.name}` : ''}</DialogTitle>
             <DialogDescription>
-              查看普通用户的个性化监控条件、绑定的信息池、收件邮箱和当前处理进度。
+              查看普通用户的可选个性化条件、绑定的信息池、收件邮箱和当前处理进度；未填写条件即订阅整个产业信息池。
             </DialogDescription>
           </DialogHeader>
 
@@ -925,7 +940,9 @@ export default function IndustryConfigManager() {
                           ) : null}
                           <Badge variant={progress.badgeVariant}>{progress.label}</Badge>
                         </div>
-                        <p className="mt-2 text-sm text-cyan-50/80">{row.subscription.customCriteria}</p>
+                        <p className="mt-2 text-sm text-cyan-50/80">
+                          {row.subscription.customCriteria || '未设置个性化条件（接收整个产业信息池）'}
+                        </p>
                         <div className="mt-2 text-xs text-muted-foreground">
                           信息池：{row.profile?.title ?? '等待管理员发布'} · 收件邮箱：
                           {recipients.join('、') || '未配置'} · 更新：{formatUpdatedAt(row.subscription.updatedAt)}
