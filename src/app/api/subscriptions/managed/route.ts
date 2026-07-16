@@ -35,6 +35,7 @@ export async function POST(req: Request) {
       existingSubscriptionId,
       industryConfigId,
       industryConfigSnapshot,
+      skipPresetRss,
     } = body as {
       topic?: string;
       criteria?: string;
@@ -45,6 +46,7 @@ export async function POST(req: Request) {
       existingSubscriptionId?: string; // reuse a manual_creating subscription
       industryConfigId?: string | null;
       industryConfigSnapshot?: IndustryConfigSnapshot | null;
+      skipPresetRss?: boolean;
     };
 
     if (!topic || typeof topic !== 'string' || !topic.trim()) {
@@ -83,6 +85,7 @@ export async function POST(req: Request) {
         .map((s: FoundSource, i: number) => selectedUrls.has(s.url) ? i : -1)
         .filter((i: number) => i >= 0),
       generatedSources: generatedSources ?? [],
+      skipPresetRss: skipPresetRss === true,
     });
 
     if (existingSubscriptionId) {
@@ -146,6 +149,7 @@ export async function POST(req: Request) {
       foundSources,
       allFoundSources,
       generatedSources,
+      skipPresetRss: skipPresetRss === true,
     });
 
     return Response.json({ id: subscriptionId }, { status: 201 });

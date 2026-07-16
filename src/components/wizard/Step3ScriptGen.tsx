@@ -57,6 +57,43 @@ interface LogEntry {
   payload: { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: CollectedItem[]; unverified?: boolean } | null;
 }
 
+interface BackgroundJobStatus {
+  worker: {
+    online: boolean;
+    lastHeartbeatAt: string | null;
+    currentJobId: string | null;
+  };
+  batch: {
+    jobId: string;
+    status: 'queued' | 'running';
+    type: string;
+    queuedAhead: number;
+  } | null;
+  runningJob: {
+    jobId: string;
+    type: string;
+    startedAt: string | null;
+  } | null;
+}
+
+function backgroundJobLabel(type?: string) {
+  switch (type) {
+    case 'managed_step': return '正在发现源或生成采集脚本';
+    case 'managed_pipeline': return '正在后台创建信息池';
+    case 'generate_source': return '正在重新生成单个数据源';
+    case 'source_collection': return '正在采集已有信息源';
+    case 'source_provisioning': return '正在发布信息池数据源';
+    default: return '正在处理后台任务';
+  }
+}
+
+function elapsedLabel(startedAt: string | null) {
+  if (!startedAt) return '';
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+}
+
 export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, onManagedCreate, onDiscard }: Step3ScriptGenProps) {
   const allSources = state.foundSources;
   const selectedSet = new Set(state.selectedIndices);
@@ -96,6 +133,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
   const [userPromptInputs, setUserPromptInputs] = useState<Record<number, string>>({});
   const [retryExpanded, setRetryExpanded] = useState<Set<number>>(new Set());
   const [llmCalls, setLLMCalls] = useState<LLMCallInfo[]>([]);
+  const [backgroundJobStatus, setBackgroundJobStatus] = useState<BackgroundJobStatus | null>(null);
   const [showAllSources, setShowAllSources] = useState(false);
   // Track which source's LLM log dialog is open (globalIdx), null = none
   const [llmLogOpenFor, setLLMLogOpenFor] = useState<number | null>(null);
@@ -114,6 +152,24 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
         .then((r) => r.json())
         .then((data: { calls?: LLMCallInfo[] }) => {
           if (data.calls) setLLMCalls(data.calls);
+        })
+        .catch(() => {});
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => clearInterval(timer);
+  }, [state.subscriptionId]);
+
+  // Source logs begin only after the worker enters the batch. Poll the durable
+  // queue separately so “all pending” can explain what is actually blocking it.
+  useEffect(() => {
+    if (!state.subscriptionId) return;
+    const subId = state.subscriptionId;
+    const poll = () => {
+      fetch(`/api/subscriptions/${subId}/job-status`)
+        .then((response) => response.ok ? response.json() : null)
+        .then((data: BackgroundJobStatus | null) => {
+          if (data) setBackgroundJobStatus(data);
         })
         .catch(() => {});
     };
@@ -184,14 +240,17 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
                   }
                   return prev;
                 });
-              } else if (logEvent.level === 'success' && logEvent.payload?.script) {
+              } else if (
+                logEvent.level === 'success'
+                && (logEvent.payload?.script || allSources[globalIdx]?.collectionStrategy === 'firecrawl_scrape')
+              ) {
                 const p = logEvent.payload;
                 updateStatus(globalIdx, {
                   status: 'success',
-                  script: p.script!,
-                  cronExpression: p.cronExpression ?? '0 * * * *',
-                  items: p.initialItems ?? [],
-                  unverified: p.unverified,
+                  script: p?.script ?? '',
+                  cronExpression: p?.cronExpression ?? '0 * * * *',
+                  items: p?.initialItems ?? [],
+                  unverified: p?.unverified,
                 });
               } else if (logEvent.level === 'error') {
                 setSourceStatuses((prev) => {
@@ -314,6 +373,16 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
   const activeSourceIndices = selectedSourceIndices.filter((i) => sourceStatuses[i]?.status === 'generating');
   const completedSourceIndices = selectedSourceIndices.filter((i) => isTerminal(sourceStatuses[i]));
   const waitingForWorker = queuedSourceIndices.length > 0 && activeSourceIndices.length === 0;
+  const workerQueueMessage = !waitingForWorker ? null
+    : backgroundJobStatus?.batch?.status === 'running'
+      ? 'Worker 已领取本批任务，正在初始化数据源'
+      : backgroundJobStatus && !backgroundJobStatus.worker.online
+        ? 'Worker 未在线，等待服务恢复后自动领取'
+        : backgroundJobStatus?.runningJob
+          ? `前方任务：${backgroundJobLabel(backgroundJobStatus.runningJob.type)}${backgroundJobStatus.runningJob.startedAt ? `（已运行 ${elapsedLabel(backgroundJobStatus.runningJob.startedAt)}）` : ''}；前方排队 ${backgroundJobStatus.batch?.queuedAhead ?? 0} 个`
+          : backgroundJobStatus?.worker.online
+            ? `Worker 在线，等待领取；前方排队 ${backgroundJobStatus.batch?.queuedAhead ?? 0} 个`
+            : '正在读取 Worker 状态…';
   const visibleSourceIndices = showAllSources || selectedSourceIndices.length <= 24
     ? selectedSourceIndices
     : [...new Set([
@@ -407,13 +476,13 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
       <div className="flex-shrink-0">
         <h2 className="text-xl font-semibold mb-1">生成采集脚本</h2>
         <p className="text-sm text-muted-foreground">
-          AI 正在为管理员选中的数据源并行生成并验证采集脚本，日志、脚本和初始样本都会保留到信息池
+          优先用稳定采集器验证数据源；网页源会先由 Firecrawl 结构化采集，失败后才回退 AI 生成脚本
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>已完成 {completedSourceIndices.length}/{selectedSourceIndices.length}</span>
           <span>处理中 {activeSourceIndices.length}</span>
           <span>排队中 {queuedSourceIndices.length}</span>
-          {waitingForWorker && <span>后台：等待 Worker 领取本批任务</span>}
+          {workerQueueMessage && <span>后台：{workerQueueMessage}</span>}
           {selectedSourceIndices.length > 24 && (
             <button
               type="button"
@@ -475,7 +544,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
                         <p className="text-xs text-muted-foreground">未选中，跳过生成</p>
                       )}
                       {s.status === 'pending' && (
-                        <p className="text-xs text-muted-foreground">排队中，等待后台 Worker 领取本批任务</p>
+                        <p className="text-xs text-muted-foreground">{workerQueueMessage ? `排队中，${workerQueueMessage}` : '排队中，等待后台 Worker 领取本批任务'}</p>
                       )}
                       {s.status === 'generating' && (
                         <p className="text-xs text-muted-foreground">
@@ -485,7 +554,7 @@ export default function Step3ScriptGen({ state, onStateChange, onNext, onBack, o
                       {s.status === 'success' && !s.unverified && (
                         <div className="flex items-center gap-3 mt-1">
                           <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                            脚本验证通过
+                            {source.collectionStrategy === 'firecrawl_scrape' ? 'Firecrawl 采集验证通过' : '脚本验证通过'}
                           </span>
                           {s.items.length > 0 && (
                             <>

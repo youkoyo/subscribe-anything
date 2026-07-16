@@ -2,16 +2,23 @@ import type { CollectedItem } from '@/lib/sandbox/contract';
 import type { LLMCallInfo } from '@/lib/ai/client';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 
+export type DiscoverySourceTier = 'primary' | 'mainstream' | 'local_official' | 'company_disclosure' | 'vertical';
+export type MainstreamSourceChannel = 'general_news' | 'finance' | 'consumer_industry' | 'politics_society' | 'other';
+
 export interface FoundSource {
   title: string;
   url: string;
   description: string;
   recommended?: boolean;
+  /** Source provenance declared during AI discovery so coverage is balanced, not industry-site-only. */
+  sourceTier?: DiscoverySourceTier;
+  /** Required for mainstream discovery sources to keep finance from crowding out general reporting. */
+  sourceChannel?: MainstreamSourceChannel;
   /** true = source can provide metric data for the monitoring criteria */
   canProvideCriteria?: boolean;
   /** Catalog sources bypass AI script generation and use the standard RSS collector. */
   discoveryOrigin?: 'catalog' | 'ai';
-  collectionStrategy?: 'generic_rss' | 'ai_script';
+  collectionStrategy?: 'generic_rss' | 'firecrawl_scrape' | 'ai_script';
   catalogSourceId?: string;
   sourcePreference?: import('@/lib/discovery-sources/types').SourcePreference;
   trustLevel?: import('@/lib/discovery-sources/types').TrustLevel;
@@ -31,7 +38,7 @@ export interface GeneratedSource {
   failedReason?: string;
   catalogSourceId?: string;
   discoveryOrigin?: 'catalog' | 'ai';
-  collectionStrategy?: 'generic_rss' | 'ai_script';
+  collectionStrategy?: 'generic_rss' | 'firecrawl_scrape' | 'ai_script';
 }
 
 export interface WizardState {
@@ -41,6 +48,8 @@ export interface WizardState {
   foundSources: FoundSource[];
   selectedIndices: number[];
   generatedSources: GeneratedSource[];
+  /** Administrator-only one-off test mode: bypass preset RSS and use legacy AI discovery. */
+  skipPresetRss?: boolean;
   industryConfigId?: string | null;
   industryConfigSnapshot?: IndustryConfigSnapshot | null;
   subscriptionId?: string; // Step1 完成后写入，用于后续步骤的 DB 持久化

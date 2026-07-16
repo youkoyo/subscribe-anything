@@ -26,3 +26,13 @@ test('industry config create route returns suggestions for UI reuse', async () =
 
   assert.match(listRoute, /buildIndustrySubscriptionSuggestion/);
 });
+
+test('industry config updates preserve fields omitted by the unified form', async () => {
+  const service = await readFile('src/lib/industry-configs/service.ts', 'utf8');
+
+  assert.match(service, /const mergedInput: IndustryConfigInput = \{/);
+  assert.match(service, /keywords: input\.keywords \?\? existing\.snapshot\.keywords/);
+  assert.match(service, /riskTerms: input\.riskTerms \?\? existing\.snapshot\.riskTerms/);
+  assert.match(service, /deliveryCron: input\.deliveryCron \?\? existing\.deliveryCron/);
+  assert.match(service, /toDbValues\(mergedInput, termProfile\)/);
+});

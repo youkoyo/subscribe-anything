@@ -49,3 +49,18 @@ test('the delivery process periodically reloads pools published after server sta
   assert.match(scheduler, /export async function refreshIndustryDeliverySchedules/);
   assert.match(scheduler, /setInterval\(\(\) => \{\s*void refreshIndustryDeliverySchedules\(\)/);
 });
+
+test('LLM call progress is persisted so the web process can read worker-owned calls', async () => {
+  const [schema, store, route] = await Promise.all([
+    readFile('src/lib/db/schema.ts', 'utf8'),
+    readFile('src/lib/managed/llmCallStore.ts', 'utf8'),
+    readFile('src/app/api/subscriptions/[id]/llm-calls/route.ts', 'utf8'),
+  ]);
+
+  assert.match(schema, /export const managedLlmCalls = pgTable\('managed_llm_calls'/);
+  assert.match(store, /getDb\(\)/);
+  assert.match(store, /onConflictDoUpdate/);
+  assert.match(store, /await db\s*\.select/);
+  assert.match(route, /await getLLMCalls\(id\)/);
+  assert.doesNotMatch(store, /globalThis\.__llmCallStore/);
+});

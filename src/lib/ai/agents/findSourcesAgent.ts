@@ -1,7 +1,7 @@
 /**
  * findSourcesAgent — Wizard Step 2
  *
- * Agentic loop that searches the web to find 5-10 high-quality data sources
+ * Agentic loop that searches the web for a broad, quality-first set of sources
  * for a given subscription topic.
  *
  * SSE events emitted:
@@ -18,9 +18,81 @@ import { webSearch, webSearchToolDef } from '@/lib/ai/tools/webSearch';
 import { rssRadar, rssRadarToolDef } from '@/lib/ai/tools/rssRadar';
 import { checkFeed, checkFeedToolDef } from '@/lib/ai/tools/checkFeed';
 import type OpenAI from 'openai';
-import type { FoundSource } from '@/types/wizard';
+import type { DiscoverySourceTier, FoundSource, MainstreamSourceChannel } from '@/types/wizard';
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
+
+const MIN_DISCOVERY_SOURCE_COUNT = 20;
+const MAX_DISCOVERY_SOURCE_COUNT = 28;
+const MIN_PRIMARY_SOURCE_COUNT = 4;
+const MIN_MAINSTREAM_SOURCE_COUNT = 5;
+const MIN_NON_FINANCE_MAINSTREAM_SOURCE_COUNT = 3;
+const MAX_FINANCE_MAINSTREAM_SOURCE_COUNT = 2;
+const MIN_LOCAL_OFFICIAL_SOURCE_COUNT = 4;
+const MAX_VERTICAL_SOURCE_COUNT = 6;
+const MAX_COMPANY_DISCLOSURE_SOURCE_COUNT = 4;
+const MAX_WEB_SEARCH_CALLS = 20;
+
+// These invariants are appended even when an administrator has customized the
+// editable prompt template. They prevent a generic web search from quietly
+// degrading into article links and low-quality aggregation sites.
+const SOURCE_DISCOVERY_GUARDRAILS = `
+**强制来源质量、覆盖与数量要求**
+- 目标是 ${MIN_DISCOVERY_SOURCE_COUNT}-${MAX_DISCOVERY_SOURCE_COUNT} 个可执行候选源；只有在完成分层检索后确实找不到时才少于 ${MIN_DISCOVERY_SOURCE_COUNT} 个，并说明缺口原因。
+- 必须按以下顺序分批检索和输出，不允许先用行业站凑满数量：①政府/监管/国际组织/官方机构和权威行业协会（primary，至少 ${MIN_PRIMARY_SOURCE_COUNT} 个）；②全国性通讯社、综合新闻、时政社会、消费产业等主流媒体的资讯频道/RSS（mainstream，至少 ${MIN_MAINSTREAM_SOURCE_COUNT} 个，其中非财经栏目至少 ${MIN_NON_FINANCE_MAINSTREAM_SOURCE_COUNT} 个，财经栏目最多 ${MAX_FINANCE_MAINSTREAM_SOURCE_COUNT} 个）；③根据产业集群、生产地、消费地或经营地找到的地方政府官网、地方党媒/官媒资讯频道（local_official，至少 ${MIN_LOCAL_OFFICIAL_SOURCE_COUNT} 个）；④上市公司法定披露和研究机构（company_disclosure）；⑤垂直行业媒体（vertical，仅作为补充，最多 ${MAX_VERTICAL_SOURCE_COUNT} 个）。公司公告最多 ${MAX_COMPANY_DISCLOSURE_SOURCE_COUNT} 个，不能替代主流媒体或地方官媒。
+- 财经只是主流媒体的一个补充栏目；除非管理员明确只关注金融市场，否则不得把财经频道当作主流媒体层的默认答案。综合新闻、社会、地方新闻与产业/消费栏目优先覆盖突发事件、生产经营与区域动态。
+- 先做全国主流媒体检索，再做产业关联地区的地方官媒/政府检索，最后才补充行业媒体；每个层级都要实际搜索和核验，不能凭常识虚构来源。
+- 严禁把搜索结果页、聚合转载站、营销软文站、展会单篇宣传页、静态文章页、单条新闻详情页、失效链接作为数据源。
+- URL 必须是 RSS/Atom、官网资讯列表、栏目首页、公告/新闻中心或可持续采集的 API；每一项先核验其归属和更新能力。
+- 每项 JSON 必须带 sourceTier，值只能是 primary、mainstream、local_official、company_disclosure、vertical；mainstream 还必须带 sourceChannel，值只能是 general_news、finance、consumer_industry、politics_society、other。一级、主流媒体和地方官媒优先 recommended。vertical 的 description 必须写明为什么可信。
+`;
+
+const DISCOVERY_SOURCE_TIERS = new Set<DiscoverySourceTier>([
+  'primary', 'mainstream', 'local_official', 'company_disclosure', 'vertical',
+]);
+const MAINSTREAM_SOURCE_CHANNELS = new Set<MainstreamSourceChannel>([
+  'general_news', 'finance', 'consumer_industry', 'politics_society', 'other',
+]);
+
+function sourceTierCounts(sources: FoundSource[]): Record<DiscoverySourceTier, number> {
+  const counts: Record<DiscoverySourceTier, number> = {
+    primary: 0,
+    mainstream: 0,
+    local_official: 0,
+    company_disclosure: 0,
+    vertical: 0,
+  };
+  for (const source of sources) {
+    if (source.sourceTier) counts[source.sourceTier]++;
+  }
+  return counts;
+}
+
+function hasRequiredSourceTierCoverage(sources: FoundSource[]): boolean {
+  const counts = sourceTierCounts(sources);
+  const mainstreamSources = sources.filter((source) => source.sourceTier === 'mainstream');
+  const nonFinanceMainstreamCount = mainstreamSources.filter((source) =>
+    source.sourceChannel && source.sourceChannel !== 'finance'
+  ).length;
+  const financeMainstreamCount = mainstreamSources.filter((source) => source.sourceChannel === 'finance').length;
+  return counts.primary >= MIN_PRIMARY_SOURCE_COUNT
+    && counts.mainstream >= MIN_MAINSTREAM_SOURCE_COUNT
+    && nonFinanceMainstreamCount >= MIN_NON_FINANCE_MAINSTREAM_SOURCE_COUNT
+    && financeMainstreamCount <= MAX_FINANCE_MAINSTREAM_SOURCE_COUNT
+    && counts.local_official >= MIN_LOCAL_OFFICIAL_SOURCE_COUNT
+    && counts.vertical <= MAX_VERTICAL_SOURCE_COUNT
+    && counts.company_disclosure <= MAX_COMPANY_DISCLOSURE_SOURCE_COUNT;
+}
+
+function sourceTierCoverageSummary(sources: FoundSource[]): string {
+  const counts = sourceTierCounts(sources);
+  const mainstreamSources = sources.filter((source) => source.sourceTier === 'mainstream');
+  const nonFinanceMainstreamCount = mainstreamSources.filter((source) =>
+    source.sourceChannel && source.sourceChannel !== 'finance'
+  ).length;
+  const financeMainstreamCount = mainstreamSources.filter((source) => source.sourceChannel === 'finance').length;
+  return `primary ${counts.primary}/${MIN_PRIMARY_SOURCE_COUNT}、mainstream ${counts.mainstream}/${MIN_MAINSTREAM_SOURCE_COUNT}（非财经 ${nonFinanceMainstreamCount}/${MIN_NON_FINANCE_MAINSTREAM_SOURCE_COUNT}、财经 ${financeMainstreamCount}/${MAX_FINANCE_MAINSTREAM_SOURCE_COUNT} 上限）、local_official ${counts.local_official}/${MIN_LOCAL_OFFICIAL_SOURCE_COUNT}、vertical ${counts.vertical}/${MAX_VERTICAL_SOURCE_COUNT}（上限）、company_disclosure ${counts.company_disclosure}/${MAX_COMPANY_DISCLOSURE_SOURCE_COUNT}（上限）`;
+}
 
 /** Run the find-sources agentic loop and emit SSE events via `emit`. */
 export async function findSourcesAgent(
@@ -33,9 +105,9 @@ export async function findSourcesAgent(
     getProviderForTemplate('find-sources', userId),
     getTemplate('find-sources', userId),
   ]);
-  const systemContent = tpl.content
+  const systemContent = `${tpl.content
     .replace('{{topic}}', topic)
-    .replace('{{criteria}}', criteria ?? '无');
+    .replace('{{criteria}}', criteria ?? '无')}\n${SOURCE_DISCOVERY_GUARDRAILS}`;
 
   const messages: Message[] = [
     { role: 'user', content: systemContent },
@@ -45,9 +117,9 @@ export async function findSourcesAgent(
   let lastTextBuffer = '';
   let allTextBuffer = '';
 
-  // Track webSearch call count — max 10 calls as per prompt template
+  // A broad candidate set needs separate searches for primary, mainstream and
+  // vertical sources, while still keeping a hard upper bound.
   let webSearchCount = 0;
-  const MAX_WEB_SEARCH_CALLS = 10;
 
   // Agentic loop — max 32 iterations to prevent runaway
   for (let iteration = 0; iteration < 32; iteration++) {
@@ -96,8 +168,24 @@ export async function findSourcesAgent(
 
     const toolCalls = Array.from(toolCallMap.values());
 
-    // No tool calls → agent is done
-    if (toolCalls.length === 0) break;
+    // The model occasionally stops after giving only a few examples. Ask it to
+    // continue its own research instead of silently treating that as a complete
+    // discovery result. The web-search ceiling remains the hard safety bound.
+    if (toolCalls.length === 0) {
+      const candidates = parseSourcesFromText(textBuffer);
+      const candidateCount = candidates.length;
+      const hasCoverage = hasRequiredSourceTierCoverage(candidates);
+      if ((candidateCount < MIN_DISCOVERY_SOURCE_COUNT || !hasCoverage)
+        && webSearchCount < MAX_WEB_SEARCH_CALLS
+        && iteration < 31) {
+        messages.push({
+          role: 'user',
+          content: `当前得到 ${candidateCount} 个合格来源，分层覆盖为：${sourceTierCoverageSummary(candidates)}。请继续按“全国主流媒体 → 产业关联地区地方官媒/政府 → 权威机构 → 行业补充”检索，补足到 ${MIN_DISCOVERY_SOURCE_COUNT}-${MAX_DISCOVERY_SOURCE_COUNT} 个并满足各层数量；不得重复、不得用静态文章页或低质量聚合站凑数。最后输出完整 JSON 数组，逐项填写 sourceTier。`,
+        });
+        continue;
+      }
+      break;
+    }
 
     // Append assistant turn to history
     messages.push({
@@ -200,7 +288,7 @@ export async function findSourcesAgent(
   }
 
   // Parse final sources — try accumulated text first, then last buffer
-  const sources = parseSourcesFromText(allTextBuffer) || parseSourcesFromText(lastTextBuffer);
+  const sources = parseSourcesFromText(lastTextBuffer) || parseSourcesFromText(allTextBuffer);
   emit({ type: 'sources', sources });
 
   return sources;
@@ -219,8 +307,42 @@ function normalizeSource(item: Record<string, unknown>): FoundSource {
     url: String(item.url),
     description: String(item.description ?? item.summary ?? ''),
     ...(recommended ? { recommended: true } : {}),
+    ...(typeof item.sourceTier === 'string' && DISCOVERY_SOURCE_TIERS.has(item.sourceTier as DiscoverySourceTier)
+      ? { sourceTier: item.sourceTier as DiscoverySourceTier }
+      : {}),
+    ...(typeof item.sourceChannel === 'string' && MAINSTREAM_SOURCE_CHANNELS.has(item.sourceChannel as MainstreamSourceChannel)
+      ? { sourceChannel: item.sourceChannel as MainstreamSourceChannel }
+      : {}),
     ...(canProvideCriteria !== undefined ? { canProvideCriteria } : {}),
   };
+}
+
+function isEligibleDiscoverySource(source: FoundSource): boolean {
+  try {
+    const url = new URL(source.url);
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+    if (['example.com', 'localhost'].includes(host) || host.endsWith('.example.com')) return false;
+    // Numeric detail slugs and dated paths are overwhelmingly individual news
+    // pages. A list/category URL remains valid, including a normal /news root.
+    if (/\/(?:article|detail|content|show|view)\/?\d+(?:[/.]|$)/i.test(path)) return false;
+    if (/\/\d{5,}\.s?html?$/i.test(path)) return false;
+    if (/\/20\d{2}[/-]\d{1,2}[/-]\d{1,2}(?:[/.]|$)/.test(path)) return false;
+    return Boolean(source.title.trim());
+  } catch {
+    return false;
+  }
+}
+
+function uniqueEligibleSources(sources: FoundSource[]): FoundSource[] {
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    if (!isEligibleDiscoverySource(source)) return false;
+    const key = source.url.replace(/\/$/, '').toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** Try JSON.parse on a string and return a valid FoundSource array or []. */
@@ -228,9 +350,9 @@ function tryParseJsonArray(raw: string): FoundSource[] {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    return uniqueEligibleSources(parsed
       .filter((item) => item && typeof item.url === 'string' && item.url.startsWith('http'))
-      .map(normalizeSource);
+      .map(normalizeSource));
   } catch {
     return [];
   }
@@ -268,7 +390,7 @@ function parseSourcesFromText(text: string): FoundSource[] {
       // skip malformed
     }
   }
-  if (objects.length > 0) return objects;
+  if (objects.length > 0) return uniqueEligibleSources(objects);
 
   // 4. Markdown list fallback — extract URLs from lines like "- **Title** — https://..."
   const urlLinePattern = /[-*]\s+(?:\*{1,2}([^*\n]+)\*{1,2}[^:\n]*)?.*?(https?:\/\/[^\s)\]"]+)/g;
@@ -280,7 +402,7 @@ function parseSourcesFromText(text: string): FoundSource[] {
       markdownSources.push({ title: title || url, url, description: '' });
     }
   }
-  if (markdownSources.length > 0) return markdownSources;
+  if (markdownSources.length > 0) return uniqueEligibleSources(markdownSources);
 
   return [];
 }

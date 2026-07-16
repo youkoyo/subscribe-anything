@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, ChevronDown, ChevronLeft, Database, Rss, Settings2, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, Database, Loader2, Rss, Settings2, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ import {
 import { SOURCE_PREFERENCES, type SourcePreference } from '@/lib/discovery-sources/types';
 import { cn } from '@/lib/utils';
 
-interface FormState {
+export interface IndustryConfigFormValues {
   name: string;
   description: string;
   sourcePreferences: SourcePreference[];
@@ -26,13 +26,15 @@ interface FormState {
   autoProfileExpansion: boolean;
   deliveryEnabled: boolean;
   maxItemsPerEmail: number;
+  /** One-off administrator test switch; never persisted to the industry config. */
+  skipPresetRss: boolean;
 }
 
 const DEFAULT_PREFERENCES: SourcePreference[] = [
   'authoritative', 'mainstream', 'business', 'industry', 'trend',
 ];
 
-const initialForm: FormState = {
+export const DEFAULT_INDUSTRY_CONFIG_FORM_VALUES: IndustryConfigFormValues = {
   name: '',
   description: '',
   sourcePreferences: DEFAULT_PREFERENCES,
@@ -42,6 +44,7 @@ const initialForm: FormState = {
   autoProfileExpansion: false,
   deliveryEnabled: true,
   maxItemsPerEmail: 10,
+  skipPresetRss: false,
 };
 
 interface CatalogPreview {
@@ -49,7 +52,7 @@ interface CatalogPreview {
   matches: Array<{ id: string; title: string; category: string; trustLevel: string }>;
 }
 
-function toPayload(form: FormState): IndustryConfigInput {
+function toPayload(form: IndustryConfigFormValues): IndustryConfigInput {
   return {
     name: form.name.trim(),
     description: form.description.trim(),
@@ -66,10 +69,20 @@ function toPayload(form: FormState): IndustryConfigInput {
   };
 }
 
-export default function IndustryConfigCreateForm() {
+export interface IndustryConfigFormProps {
+  initialValues?: IndustryConfigFormValues;
+  onSave?: (values: IndustryConfigFormValues) => Promise<string | null>;
+  embedded?: boolean;
+}
+
+export default function IndustryConfigCreateForm({
+  initialValues = DEFAULT_INDUSTRY_CONFIG_FORM_VALUES,
+  onSave,
+  embedded = false,
+}: IndustryConfigFormProps = {}) {
   const router = useRouter();
   const { toast } = useToast();
-  const [form, setForm] = useState<FormState>(initialForm);
+  const [form, setForm] = useState<IndustryConfigFormValues>(initialValues);
   const [submitting, setSubmitting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
@@ -77,7 +90,12 @@ export default function IndustryConfigCreateForm() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  const updateField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
+  useEffect(() => {
+    setForm(initialValues);
+    setSubmitError('');
+  }, [initialValues]);
+
+  const updateField = useCallback(<K extends keyof IndustryConfigFormValues>(key: K, value: IndustryConfigFormValues[K]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
   }, []);
 
@@ -87,7 +105,7 @@ export default function IndustryConfigCreateForm() {
   );
 
   useEffect(() => {
-    if (!form.name.trim() || form.sourcePreferences.length === 0) {
+    if (form.skipPresetRss || !form.name.trim() || form.sourcePreferences.length === 0) {
       setPreview(null);
       return;
     }
@@ -109,7 +127,7 @@ export default function IndustryConfigCreateForm() {
       }
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [previewKey, form.name, form.description, form.sourcePreferences]);
+  }, [previewKey, form.name, form.description, form.sourcePreferences, form.skipPresetRss]);
 
   function togglePreference(preference: SourcePreference) {
     setForm((previous) => {
@@ -130,6 +148,11 @@ export default function IndustryConfigCreateForm() {
     setSubmitError('');
     setSubmitting(true);
     try {
+      if (onSave) {
+        const error = await onSave(form);
+        if (error) setSubmitError(error);
+        return;
+      }
       const response = await fetch('/api/industry-configs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -143,7 +166,8 @@ export default function IndustryConfigCreateForm() {
       toast({ title: '产业配置已创建，正在进入构建流程' });
       if (data.id) {
         sessionStorage.setItem('wizard-new', '1');
-        router.push(`/subscriptions/new?industryConfigId=${data.id}`);
+        const testFlag = form.skipPresetRss ? '&skipPresetRss=1' : '';
+        router.push(`/subscriptions/new?industryConfigId=${data.id}${testFlag}`);
       } else {
         router.push('/industry-configs');
       }
@@ -157,7 +181,7 @@ export default function IndustryConfigCreateForm() {
   return (
     <form onSubmit={submit} className="mx-auto grid w-full max-w-6xl gap-5 pb-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 border-b border-cyan-300/15 pb-5 sm:flex-row sm:items-start sm:justify-between">
+        {!embedded ? <div className="flex flex-col gap-3 border-b border-cyan-300/15 pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none">
             <div className="text-sm font-medium text-cyan-100/75">管理端 · 信息池</div>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-cyan-50">新建产业信息</h1>
@@ -166,7 +190,7 @@ export default function IndustryConfigCreateForm() {
           <Button asChild variant="outline" className="shrink-0">
             <Link href="/industry-configs"><ChevronLeft className="h-4 w-4" />返回列表</Link>
           </Button>
-        </div>
+        </div> : null}
 
         <section className="animate-in fade-in slide-in-from-top-1 rounded-xl border border-cyan-300/15 bg-card/90 p-5 shadow-[0_16px_42px_rgba(2,10,31,.2)] duration-300 motion-reduce:animate-none">
           <div className="flex items-start gap-3">
@@ -197,6 +221,18 @@ export default function IndustryConfigCreateForm() {
               </button>;
             })}
           </div>
+          {!embedded ? <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-amber-300/30 bg-amber-300/[0.06] px-3.5 py-3">
+            <div>
+              <p className="text-sm font-medium text-amber-100">测试：跳过预置 RSS 查询</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">开启后，本次创建直接进入旧版 AI 发现源与脚本生成链路；不会执行预置源匹配、RSS 验证或预览。</p>
+            </div>
+            <Switch
+              id="skip-preset-rss"
+              checked={form.skipPresetRss}
+              onCheckedChange={(value) => updateField('skipPresetRss', value)}
+              aria-label="跳过预置 RSS 查询"
+            />
+          </div> : null}
         </section>
 
         <section className="rounded-xl border border-cyan-300/10 bg-card/65">
@@ -214,8 +250,15 @@ export default function IndustryConfigCreateForm() {
         <div className="animate-in fade-in slide-in-from-top-1 rounded-xl border border-cyan-300/20 bg-gradient-to-b from-[#103a69]/85 to-card p-5 shadow-[0_20px_55px_rgba(0,0,0,.24)] duration-300 motion-reduce:animate-none">
           <div className="flex items-center gap-2 text-cyan-100"><Sparkles className="h-4 w-4 text-cyan-200" /><h2 className="font-semibold">构建预览</h2></div>
           <div className="mt-5 space-y-4 text-sm"><div><p className="text-xs text-muted-foreground">产业</p><p className="mt-1 font-medium text-cyan-50">{form.name.trim() || '等待填写'}</p></div><div><p className="text-xs text-muted-foreground">画像生成</p><p className="mt-1 leading-5 text-cyan-50/85">AI 自动生成核心词、关联词与排除语境</p></div><div className="rounded-lg border border-cyan-300/15 bg-slate-950/15 p-3"><div className="flex items-center gap-2"><Rss className="h-4 w-4 text-cyan-200" /><span className="font-medium text-cyan-50">预置 RSS</span></div><p className="mt-2 leading-5 text-muted-foreground">{previewLoading ? '正在计算可执行来源…' : preview ? `将执行 ${preview.total} 个匹配来源（展示前 ${preview.matches.length} 个）` : '填写产业名称后显示预计来源数'}</p>{preview?.matches.length ? <ul className="mt-3 space-y-1.5 text-xs text-cyan-100/75">{preview.matches.slice(0, 3).map((match) => <li key={match.id} className="truncate">{match.title}</li>)}</ul> : null}</div><div className="border-l-2 border-cyan-300/50 pl-3 text-xs leading-5 text-muted-foreground">全部来源执行后，强相关与有关内容逐条进入信息池；若没有合格内容，才启动旧的 AI 找源与脚本流程。</div></div>
-          <Button type="submit" className="mt-6 w-full" disabled={submitting}><Database className="h-4 w-4" />{submitting ? '正在创建画像…' : '创建并进入构建'}</Button>
-          <p className="mt-3 text-center text-xs text-muted-foreground">创建后可继续查看来源执行与采集结果。</p>
+          <Button type="submit" className="mt-6 w-full" disabled={submitting} aria-busy={submitting}>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+            {submitting ? '正在建立产业画像…' : '创建并进入构建'}
+          </Button>
+          {submitting ? <div aria-live="polite" className="mt-3 overflow-hidden rounded-lg border border-cyan-300/25 bg-cyan-300/[0.07] px-3.5 py-3 text-left shadow-[inset_0_0_22px_rgba(34,211,238,.05)]">
+            <div className="flex items-center gap-2 text-sm font-medium text-cyan-50"><span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-300/70 motion-reduce:animate-none" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-200" /></span>正在建立产业画像</div>
+            <p className="mt-1.5 text-xs leading-5 text-cyan-100/70">正在理解产业边界、经营语境与信息源偏好。完成后将自动进入构建流程。</p>
+            <div className="mt-3 h-1 overflow-hidden rounded-full bg-cyan-950/70"><div className="h-full w-2/3 animate-pulse rounded-full bg-gradient-to-r from-cyan-500/30 via-cyan-200 to-cyan-500/30 motion-reduce:animate-none" /></div>
+          </div> : <p className="mt-3 text-center text-xs text-muted-foreground">创建后可继续查看来源执行与采集结果。</p>}
         </div>
       </aside>
     </form>

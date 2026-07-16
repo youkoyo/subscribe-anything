@@ -301,7 +301,7 @@ export default function Step4Confirm({
                             variant="outline"
                             className="text-green-600 border-green-500/50 bg-green-500/10 text-xs"
                           >
-                            已验证
+                            {source.collectionStrategy === 'firecrawl_scrape' ? 'Firecrawl 已验证' : '已验证'}
                           </Badge>
                         )}
                       </div>

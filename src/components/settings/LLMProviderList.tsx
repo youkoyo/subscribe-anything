@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Copy, Pencil, Plus, Trash2, Zap, ZapOff } from 'lucide-react';
+import { Copy, Pencil, Plus, Trash2, Zap, ZapOff, TestTube2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,6 +33,7 @@ export default function LLMProviderList() {
   const [copyPrefill, setCopyPrefill] = useState<FormState | undefined>(undefined);
   const [activating, setActivating] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
 
   const fetchProviders = useCallback(async () => {
     setLoading(true);
@@ -95,6 +96,7 @@ export default function LLMProviderList() {
     setEditingProvider(provider);
     setFormOpen(true);
   };
+  const handleTest = async (provider: Provider) => { setTesting(provider.id); try { const res = await fetch(`/api/settings/llm-providers/${provider.id}/test`, { method: 'POST' }); const data = await res.json().catch(() => ({})); toast(res.ok ? { title: '测试成功', description: `${provider.name} API 可用` } : { title: '测试失败', description: data.error ?? '请求失败', variant: 'destructive' }); } finally { setTesting(null); } };
 
   const handleCopy = async (provider: Provider) => {
     try {
@@ -173,6 +175,7 @@ export default function LLMProviderList() {
               </CardHeader>
 
               <CardFooter className="gap-2 flex-wrap">
+                <Button size="sm" variant="outline" onClick={() => handleTest(provider)} disabled={testing === provider.id}><TestTube2 className="h-3.5 w-3.5 mr-1" />{testing === provider.id ? '测试中...' : '测试 API'}</Button>
                 <Button
                   size="sm"
                   variant={provider.isActive ? 'secondary' : 'default'}

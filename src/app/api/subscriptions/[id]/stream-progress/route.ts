@@ -28,7 +28,9 @@ export async function GET(
 
     const encoder = new TextEncoder();
 
-    const STREAM_MAX_AGE_MS = 5 * 60 * 1000;
+    // Source discovery performs several sequential searches and can legitimately
+    // exceed five minutes. Keep the stream alive long enough for its final result.
+    const STREAM_MAX_AGE_MS = 12 * 60 * 1000;
     let stopStream: (() => void) | null = null;
 
     const stream = new ReadableStream({

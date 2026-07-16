@@ -12,12 +12,13 @@ import { getDb } from '@/lib/db';
 import { sources, subscriptions, messageCards } from '@/lib/db/schema';
 import { runScript } from '@/lib/sandbox/runner';
 import { rssFetch } from '@/lib/ai/tools/rssFetch';
+import { collectWithFirecrawl } from '@/lib/firecrawl/collector';
 import { hash } from '@/lib/utils/hash';
 import { nextCronDate } from '@/lib/utils/cron';
 import { createNotification } from '@/lib/notifications';
 import { scheduleRetry, clearRetry, markCollecting, clearCollecting, setLastResult } from './retryManager';
 import { classifyProfileItems } from '@/lib/industry-configs/profile-classifier';
-import type { IndustryTermProfile } from '@/lib/industry-configs/term-profile';
+import { buildProfileCollectionHint, type IndustryTermProfile } from '@/lib/industry-configs/term-profile';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { CollectedItem } from '@/lib/sandbox/contract';
 
@@ -69,6 +70,7 @@ async function _doCollect(
     .where(eq(subscriptions.id, source.subscriptionId)))[0];
 
   const now = new Date();
+  const industryProfile = readV2IndustryProfile(subscription?.industryConfigSnapshot);
 
   // Preset feeds use the same host-side parser as initial discovery. Running
   // them through the sandbox produced an avoidable split-brain behaviour:
@@ -77,6 +79,19 @@ async function _doCollect(
   if (source.collectionStrategy === 'generic_rss') {
     try {
       rawItems = (await rssFetch(source.url, { maxItems: 'all' })).items;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await _handleFailure(db, source, subscription, errorMsg, now);
+      return { newItems: 0, skipped: 0, error: errorMsg };
+    }
+  } else if (source.collectionStrategy === 'firecrawl_scrape') {
+    try {
+      rawItems = await collectWithFirecrawl({
+        title: source.title,
+        url: source.url,
+        description: source.description ?? undefined,
+        criteria: buildProfileCollectionHint(industryProfile, subscription?.criteria ?? undefined),
+      });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       await _handleFailure(db, source, subscription, errorMsg, now);
@@ -100,17 +115,18 @@ async function _doCollect(
     rawItems = runResult.items ?? [];
   }
 
-  // An empty preset feed is a successful poll with no new content. A custom
-  // script returning no data is still treated as broken, as before.
+  // An empty RSS feed is a successful poll with no new content. Firecrawl
+  // deliberately throws for an empty extraction so its source can fall back
+  // to the normal retry lifecycle rather than silently appearing healthy.
   if (rawItems.length === 0 && source.collectionStrategy !== 'generic_rss') {
     const errorMsg = '脚本执行成功但未返回任何数据，请检查脚本逻辑或目标页面是否变更';
     await _handleFailure(db, source, subscription, errorMsg, now);
     return { newItems: 0, skipped: 0, error: errorMsg };
   }
 
-  // Preset RSS scripts return every item exposed by the feed. Relevance stays
+  // RSS and Firecrawl sources return raw page/feed entries. Relevance stays
   // host-owned so every scheduled collection uses the same industry profile.
-  const items = await classifyPresetRssItems(source, subscription, rawItems);
+  const items = await classifyIndustryProfileItems(source, subscription, rawItems);
 
   // ── Dedup + persist ───────────────────────────────────────────────────────────
   let newItems = 0;
@@ -229,16 +245,18 @@ function readV2IndustryProfile(snapshotJson: string | null | undefined): Industr
   }
 }
 
-async function classifyPresetRssItems(
+async function classifyIndustryProfileItems(
   source: { id: string; collectionStrategy?: string | null },
   subscription: { userId?: string | null; industryConfigSnapshot?: string | null } | undefined,
   rawItems: CollectedItem[],
 ): Promise<CollectedItem[]> {
-  if (source.collectionStrategy !== 'generic_rss') return rawItems;
+  if (source.collectionStrategy !== 'generic_rss' && source.collectionStrategy !== 'firecrawl_scrape') {
+    return rawItems;
+  }
 
   const profile = readV2IndustryProfile(subscription?.industryConfigSnapshot);
   if (!profile) {
-    console.warn(`[Collector] source=${source.id} skipped preset RSS items because its v2 industry profile is missing`);
+    console.warn(`[Collector] source=${source.id} skipped industry-source items because its v2 industry profile is missing`);
     return [];
   }
 

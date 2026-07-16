@@ -24,7 +24,7 @@ export async function GET(
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
-    return Response.json({ calls: getLLMCalls(id) });
+    return Response.json({ calls: await getLLMCalls(id) });
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

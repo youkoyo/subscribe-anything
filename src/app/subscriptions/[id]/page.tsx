@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import {
   ArrowLeft, LayoutGrid, AlignJustify, ExternalLink, Circle,
   X, Loader2, BarChart2, CheckCheck, RefreshCw, CheckCircle2, Bell, Heart, ScrollText,
@@ -12,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { formatDistanceToNow } from '@/lib/utils/time';
-import LLMLogDialog from '@/components/debug/LLMLogDialog';
 import type { LLMCallInfo } from '@/lib/ai/client';
 
 /* ── Types ── */
@@ -38,6 +38,7 @@ interface Source {
 
 const PAGE_SIZE = 50;
 const PULL_THRESHOLD = 70;
+const LLMLogDialog = dynamic(() => import('@/components/debug/LLMLogDialog'), { ssr: false });
 
 export default function SubscriptionDetailPage() {
   const { id } = useParams<{ id: string }>();

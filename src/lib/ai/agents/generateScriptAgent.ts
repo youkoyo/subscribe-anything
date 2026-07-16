@@ -247,11 +247,15 @@ export async function generateScriptAgent(
               lastScript = scriptArg;
               lastValidItems = result.items;
               onProgress?.(`审查通过，采集到 ${result.itemCount ?? 0} 条内容`);
-              resultContent = JSON.stringify({
+              // A fully validated script is the terminal success condition.
+              // Continuing the 32-turn agent loop after this point re-runs
+              // the same source repeatedly and blocks the single worker.
+              return {
                 success: true,
-                itemCount: result.itemCount ?? 0,
-                items: result.items?.slice(0, 3),
-              });
+                script: lastScript,
+                cronExpression: lastCronExpression,
+                initialItems: lastValidItems,
+              };
             } else if (llmCheck.fixedScript) {
               // Quality review failed but provided a fixed script — validate it automatically
               // instead of relying on the LLM to call validateScript again.
@@ -272,11 +276,12 @@ export async function generateScriptAgent(
                   lastScript = llmCheck.fixedScript;
                   lastValidItems = fixResult.items;
                   onProgress?.(`修复脚本审查通过，采集到 ${fixResult.itemCount ?? 0} 条内容`);
-                  resultContent = JSON.stringify({
+                  return {
                     success: true,
-                    itemCount: fixResult.itemCount ?? 0,
-                    items: fixResult.items?.slice(0, 3),
-                  });
+                    script: lastScript,
+                    cronExpression: lastCronExpression,
+                    initialItems: lastValidItems,
+                  };
                 } else {
                   // Fixed script also failed quality review — feed back to LLM
                   onProgress?.(`修复脚本审查仍失败: ${fixLlmCheck.reason.slice(0, 80)}`);

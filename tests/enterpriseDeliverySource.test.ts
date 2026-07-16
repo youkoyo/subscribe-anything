@@ -18,15 +18,17 @@ test('delivery service sends scored email and writes logs', async () => {
   assert.match(source, /status: 'skipped'/);
 });
 
-test('delivery scheduler registers enabled industry delivery cron jobs', async () => {
+test('delivery scheduler registers enabled industry pools on the global delivery schedule', async () => {
   const source = await readFile('src/lib/enterprise/deliveryScheduler.ts', 'utf8');
 
   assert.match(source, /node-cron/);
   assert.match(source, /deliveryEnabled/);
   assert.match(source, /runIndustryDelivery/);
   assert.match(source, /runIndustryDeliveryGroup/);
-  assert.match(source, /deliveryCron/);
-  assert.match(source, /deliveryTimezone/);
+  assert.match(source, /getIndustryDeliveryConfig/);
+  assert.match(source, /schedule\.cron/);
+  assert.match(source, /schedule\.timezone/);
+  assert.doesNotMatch(source, /industry\.deliveryCron/);
 });
 
 test('SMTP sender accepts attachment payloads for digest detail exports', async () => {

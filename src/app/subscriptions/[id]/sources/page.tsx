@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import {
   ArrowLeft, Play, Wrench, Clock, X, Loader2, Trash2,
   CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp, Code2, Copy, Check, Pencil, ScrollText,
@@ -14,7 +15,8 @@ import { Switch } from '@/components/ui/switch';
 import { CRON_PRESETS, validateCron } from '@/lib/utils/cron';
 import { formatDistanceToNow } from '@/lib/utils/time';
 import type { LLMCallInfo } from '@/lib/ai/client';
-import LLMLogDialog from '@/components/debug/LLMLogDialog';
+
+const LLMLogDialog = dynamic(() => import('@/components/debug/LLMLogDialog'), { ssr: false });
 
 /* ── Types ── */
 interface Source {
@@ -52,11 +54,14 @@ export default function SourcesPage() {
   const [scriptTarget, setScriptTarget] = useState<Source | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [retryStates, setRetryStates] = useState<Record<string, RetryInfo>>({});
+  const [hasBackendWork, setHasBackendWork] = useState(false);
   const prevRetryIdsRef = useRef<Set<string>>(new Set());
   const collectingMapRef = useRef<Map<string, number>>(new Map()); // id → timestamp
   const [collectingIds, setCollectingIds] = useState<Set<string>>(new Set());
   const [repairingIds, setRepairingIds] = useState<Set<string>>(new Set());
   const pollNowRef = useRef<(() => void) | null>(null);
+  const hasBackgroundWork = hasBackendWork || collectingIds.size > 0 || repairingIds.size > 0;
+  const sourceIds = sources.map((source) => source.id).join(',');
 
   const showToast = (msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -102,17 +107,17 @@ export default function SourcesPage() {
   // ── Retry state polling ───────────────────────────────────────────────────
   useEffect(() => {
     if (sources.length === 0) return;
-    const ids = sources.map((s) => s.id).join(',');
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/sources/retry-states?ids=${ids}`);
+        const res = await fetch(`/api/sources/retry-states?ids=${sourceIds}`);
         if (!res.ok) return;
         const body: {
           states: Record<string, RetryInfo>;
           results: Record<string, CollectResultInfo>;
         } = await res.json();
         setRetryStates(body.states);
+        setHasBackendWork(Object.keys(body.states).length > 0);
 
         const backendIds = new Set(Object.keys(body.states));
         const finishedIds: string[] = [];
@@ -179,9 +184,12 @@ export default function SourcesPage() {
 
     pollNowRef.current = poll;
     poll();
+    if (!hasBackgroundWork) {
+      return () => { pollNowRef.current = null; };
+    }
     const timer = setInterval(poll, 3000);
     return () => { clearInterval(timer); pollNowRef.current = null; };
-  }, [sources.length, id, fetchNotifs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sourceIds, id, fetchNotifs, hasBackgroundWork]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dismissNotif = async (nid: string) => {
     await fetch(`/api/notifications/${nid}/read`, { method: 'POST' });

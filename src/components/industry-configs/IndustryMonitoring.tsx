@@ -5,7 +5,6 @@ import { Activity, AlertTriangle, Database, Mail, RefreshCw, Users } from 'lucid
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { findEmailDeliverySlot } from '@/lib/industry-configs/types';
 
 interface PoolStats {
   profileId: string | null;
@@ -30,7 +29,6 @@ interface IndustryPoolRow {
   category: string | null;
   isEnabled: boolean;
   visibility?: 'draft' | 'published';
-  deliveryCron?: string | null;
   deliveryEnabled?: boolean;
   maxItemsPerEmail?: number;
   updatedAt?: string;
@@ -240,9 +238,7 @@ export default function IndustryMonitoring() {
                   </div>
                   <div className="mt-2 text-sm text-muted-foreground">
                     {pool.category || '未分类'} ·{' '}
-                    {pool.deliveryCron
-                      ? findEmailDeliverySlot(pool.deliveryCron)?.label ?? pool.deliveryCron
-                      : '未配置 cron'}{' '}
+                    {pool.deliveryEnabled ? '按统一投递设置' : '未启用投递'}{' '}
                     · 最近采集：
                     {formatDate(stats?.lastCollectedAt)}
                   </div>

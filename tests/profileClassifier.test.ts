@@ -12,6 +12,7 @@ function makeProfile(overrides: Partial<IndustryTermProfile> = {}): IndustryTerm
     canonicalIndustry: '甲行业',
     strictTerms: ['甲行业'],
     entityTerms: ['甲工厂'],
+    operatingContextTerms: [],
     productTerms: ['甲产品'],
     supplyChainTerms: [],
     riskEventTerms: ['火灾'],

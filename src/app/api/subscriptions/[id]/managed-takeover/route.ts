@@ -56,6 +56,7 @@ export async function POST(
       foundSources,
       selectedIndices,
       generatedSources,
+      skipPresetRss: wizardState?.skipPresetRss === true,
       industryConfigId: sub.industryConfigId ?? wizardState?.industryConfigId ?? null,
       industryConfigSnapshot:
         parseIndustryConfigSnapshot(sub.industryConfigSnapshot) ??
@@ -81,6 +82,7 @@ export async function POST(
       foundSources,
       selectedIndices,
       generatedSources,
+      skipPresetRss: newWizardState.skipPresetRss,
       industryConfigId: newWizardState.industryConfigId,
       industryConfigSnapshot: newWizardState.industryConfigSnapshot,
       resumeStep,

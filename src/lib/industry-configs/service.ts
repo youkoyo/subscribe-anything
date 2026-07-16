@@ -187,15 +187,34 @@ export async function updateIndustryConfigForAdmin(id: string, input: IndustryCo
   const existing = await getIndustryConfigForAdmin(id);
   if (!existing) return null;
 
+  const mergedInput: IndustryConfigInput = {
+    ...input,
+    keywords: input.keywords ?? existing.snapshot.keywords,
+    riskTerms: input.riskTerms ?? existing.snapshot.riskTerms,
+    regions: input.regions ?? existing.snapshot.regions,
+    entities: input.entities ?? existing.snapshot.entities,
+    sourceTypes: input.sourceTypes ?? existing.snapshot.sourceTypes,
+    sourcePreferences: input.sourcePreferences ?? existing.snapshot.sourcePreferences,
+    allowAiDiscoveryFallback: input.allowAiDiscoveryFallback ?? existing.snapshot.allowAiDiscoveryFallback,
+    alertLevel: input.alertLevel ?? existing.snapshot.alertLevel,
+    isEnabled: input.isEnabled ?? existing.isEnabled,
+    visibility: input.visibility ?? existing.visibility,
+    subscriptionMode: input.subscriptionMode ?? existing.subscriptionMode,
+    deliveryCron: input.deliveryCron ?? existing.deliveryCron ?? undefined,
+    deliveryTimezone: input.deliveryTimezone ?? existing.deliveryTimezone,
+    deliveryEnabled: input.deliveryEnabled ?? existing.deliveryEnabled,
+    maxItemsPerEmail: input.maxItemsPerEmail ?? existing.maxItemsPerEmail,
+  };
+
   const db = getDb();
   const termProfile = await generateIndustryTermProfile({
-    topic: input.name,
-    criteria: [input.category, input.subCategory, input.description].filter(Boolean).join('；'),
-    sourcePreferences: normalizeSourcePreferences(input.sourcePreferences),
+    topic: mergedInput.name,
+    criteria: [mergedInput.category, mergedInput.subCategory, mergedInput.description].filter(Boolean).join('；'),
+    sourcePreferences: normalizeSourcePreferences(mergedInput.sourcePreferences),
   }, existing.userId);
   await db.update(industryConfigs)
     .set({
-      ...toDbValues(input, termProfile),
+      ...toDbValues(mergedInput, termProfile),
       updatedAt: new Date(),
     })
     .where(eq(industryConfigs.id, id));

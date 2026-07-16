@@ -5,6 +5,7 @@ import {
   industryMonitoringProfiles,
   subscriptions,
   userIndustrySubscriptions,
+  workerHeartbeats,
 } from '@/lib/db/schema';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
 import type { FoundSource } from '@/types/wizard';
@@ -21,7 +22,23 @@ import {
 const HEAVY_JOB_CONCURRENCY = 1;
 const heavyLimit = pLimit(HEAVY_JOB_CONCURRENCY);
 const POLL_INTERVAL_MS = 750;
+const HEARTBEAT_INTERVAL_MS = 5_000;
 let isPolling = false;
+let activeJobId: string | null = null;
+let lastHeartbeatAt = 0;
+
+async function publishWorkerHeartbeat(force = false) {
+  const now = Date.now();
+  if (!force && now - lastHeartbeatAt < HEARTBEAT_INTERVAL_MS) return;
+  lastHeartbeatAt = now;
+  const timestamp = new Date(now);
+  await getDb().insert(workerHeartbeats)
+    .values({ id: 'primary', lastHeartbeatAt: timestamp, currentJobId: activeJobId, updatedAt: timestamp })
+    .onConflictDoUpdate({
+      target: workerHeartbeats.id,
+      set: { lastHeartbeatAt: timestamp, currentJobId: activeJobId, updatedAt: timestamp },
+    });
+}
 
 function parsePayload<T>(job: BackgroundJob): T {
   return JSON.parse(job.payload) as T;
@@ -75,10 +92,11 @@ async function runJob(job: BackgroundJob): Promise<void> {
       return;
     }
     case 'managed_step': {
-      const { subscriptionId, step, sources } = parsePayload<{
+      const { subscriptionId, step, sources, skipPresetRss } = parsePayload<{
         subscriptionId: string;
         step: 'find_sources' | 'generate_scripts';
         sources: FoundSource[];
+        skipPresetRss?: boolean;
       }>(job);
       const sub = (await getDb().select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)))[0];
       if (!sub) return;
@@ -86,7 +104,7 @@ async function runJob(job: BackgroundJob): Promise<void> {
         let snapshot: IndustryConfigSnapshot | null = null;
         try { snapshot = sub.industryConfigSnapshot ? JSON.parse(sub.industryConfigSnapshot) as IndustryConfigSnapshot : null; } catch { /* ignore legacy snapshot */ }
         const { runFindSourcesStep } = await import('@/lib/managed/pipeline');
-        await runFindSourcesStep(subscriptionId, sub.topic, sub.criteria ?? undefined, sub.userId, snapshot);
+        await runFindSourcesStep(subscriptionId, sub.topic, sub.criteria ?? undefined, sub.userId, snapshot, skipPresetRss === true);
       } else {
         const { runGenerateScriptsStep } = await import('@/lib/managed/pipeline');
         await runGenerateScriptsStep(subscriptionId, sources, sub.criteria ?? undefined, sub.userId);
@@ -128,6 +146,8 @@ async function processOneJob() {
   if (heavyLimit.activeCount >= HEAVY_JOB_CONCURRENCY) return false;
   const job = await claimNextBackgroundJob();
   if (!job) return false;
+  activeJobId = job.id;
+  void publishWorkerHeartbeat(true).catch((error) => console.warn('[Worker] heartbeat failed:', error));
 
   void heavyLimit(async () => {
     try {
@@ -136,6 +156,9 @@ async function processOneJob() {
     } catch (error) {
       console.error(`[Worker] Job ${job.id} (${job.type}) failed:`, error);
       await failBackgroundJob(job.id, error);
+    } finally {
+      activeJobId = null;
+      void publishWorkerHeartbeat(true).catch((error) => console.warn('[Worker] heartbeat failed:', error));
     }
   }).catch((error) => console.error('[Worker] Unhandled task error:', error));
   return true;
@@ -153,8 +176,12 @@ async function tick() {
 
 export async function runBackgroundWorker() {
   console.log(`[Worker] Started with heavy concurrency ${HEAVY_JOB_CONCURRENCY}`);
+  await publishWorkerHeartbeat(true);
   await tick();
-  const timer = setInterval(() => { void tick(); }, POLL_INTERVAL_MS);
+  const timer = setInterval(() => {
+    void tick();
+    void publishWorkerHeartbeat().catch((error) => console.warn('[Worker] heartbeat failed:', error));
+  }, POLL_INTERVAL_MS);
   const stop = () => {
     clearInterval(timer);
     console.log('[Worker] Stopped');

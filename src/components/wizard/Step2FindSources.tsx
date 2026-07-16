@@ -220,6 +220,16 @@ export default function Step2FindSources({
             }
           }
         }
+
+        // A proxy or the server-side stream age limit can close an otherwise
+        // healthy discovery stream. Reconnect and replay durable DB logs rather
+        // than leaving the wizard at an indefinite loading state.
+        if (!controller.signal.aborted) {
+          setIsStreaming(false);
+          window.setTimeout(() => {
+            if (!controller.signal.aborted) connectSSE();
+          }, 1000);
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') return;
         const msg = err instanceof Error ? err.message : '连接失败';
@@ -273,7 +283,7 @@ export default function Step2FindSources({
     await fetch(`/api/subscriptions/${state.subscriptionId}/run-step`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'find_sources' }),
+      body: JSON.stringify({ step: 'find_sources', skipPresetRss: state.skipPresetRss }),
     }).catch(() => {});
 
     connectSSE();

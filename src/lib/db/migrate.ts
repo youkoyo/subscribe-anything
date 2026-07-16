@@ -11,7 +11,7 @@ const DEFAULT_PROMPT_TEMPLATES = [
     id: 'find-sources',
     name: '查找订阅源',
     description: '引导智能体通过网络搜索，为给定主题找到合适的数据源',
-    content: `为主题"{{topic}}"（监控条件：{{criteria}}）找到 5-10 个高质量数据源。
+    content: `为主题"{{topic}}"（监控条件：{{criteria}}）找到 20-28 个高质量、可持续采集的数据源。优先权威官网、监管/协会、全国及地方主流新闻媒体的综合/社会/产业消费栏目和持续更新的行业媒体；财经频道仅作为补充，不得主导主流媒体层。严禁把搜索结果、聚合转载页、展会宣传单页或静态文章详情页当作数据源。
 
 **工具调用限制**
 - webSearch 最多调用 10 次，请合理规划搜索策略
@@ -200,6 +200,7 @@ export async function runMigrations() {
 
   await seedPromptTemplates(db);
   await seedSearchProvider(db);
+  await seedFirecrawlConfig(db);
   await seedRssInstance(db);
   await seedDiscoverySourceCatalog(db);
 }
@@ -271,6 +272,13 @@ async function seedRssInstance(db: ReturnType<typeof getDb>) {
       createdAt: now,
       updatedAt: now,
     })
+    .onConflictDoNothing();
+}
+
+async function seedFirecrawlConfig(db: ReturnType<typeof getDb>) {
+  await db
+    .insert(schema.firecrawlConfig)
+    .values({ id: 'default', apiKey: '' })
     .onConflictDoNothing();
 }
 

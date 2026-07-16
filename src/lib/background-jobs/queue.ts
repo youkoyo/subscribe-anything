@@ -54,12 +54,13 @@ export function enqueueManagedPipelineJob(
 export function enqueueManagedStepJob(
   subscriptionId: string,
   step: 'find_sources' | 'generate_scripts',
-  sources?: unknown
+  sources?: unknown,
+  skipPresetRss = false
 ) {
   return enqueueBackgroundJob({
     type: 'managed_step',
     dedupeKey: `managed-step:${subscriptionId}:${step}`,
-    payload: { subscriptionId, step, sources: sources ?? [] },
+    payload: { subscriptionId, step, sources: sources ?? [], skipPresetRss },
     priority: 20,
   });
 }

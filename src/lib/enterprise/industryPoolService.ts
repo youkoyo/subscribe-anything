@@ -74,6 +74,10 @@ export async function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInpu
     ))[0];
 
   const profile = existing ?? existingDefault;
+  // Rebuilding creates and verifies a replacement subscription first. Keep the
+  // old pool alive until this binding succeeds, then retire it so one industry
+  // configuration can never leave two active information pools behind.
+  const previousSubscriptionId = profile?.sharedSubscriptionId ?? null;
 
   if (profile) {
     await db.update(industryMonitoringProfiles)
@@ -146,6 +150,14 @@ export async function bindSubscriptionAsIndustryPool(input: BindIndustryPoolInpu
         })
         .where(eq(userIndustrySubscriptions.id, row.id));
     }
+  }
+
+  if (previousSubscriptionId && previousSubscriptionId !== subscription.id) {
+    await db.delete(subscriptions)
+      .where(and(
+        eq(subscriptions.industryConfigId, industry.id),
+        ne(subscriptions.id, subscription.id)
+      ));
   }
 
   await db.update(industryConfigs)

@@ -41,7 +41,7 @@ export async function POST(
 
     // Clear old logs and LLM calls for this source
     await deleteSourceLogs(id, sourceUrl);
-    clearSourceLLMCalls(id, sourceUrl);
+    await clearSourceLLMCalls(id, sourceUrl);
 
     const source: FoundSource = {
       title: sourceTitle,

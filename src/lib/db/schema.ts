@@ -93,10 +93,34 @@ export const searchProviderConfig = pgTable('search_provider_config', {
     .notNull(),
 });
 
+// ─── firecrawl_config ────────────────────────────────────────────────────────
+// One administrator-managed key for resilient webpage collection. The key is
+// never returned from the settings API after it has been stored.
+export const firecrawlConfig = pgTable('firecrawl_config', {
+  id: text('id').primaryKey().default('default'),
+  apiKey: text('api_key').notNull().default(''),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
 // ─── discovery_source_catalog ────────────────────────────────────────────────
 // Global, versioned discovery candidates. These are not user subscription
 // sources: a catalog row can be matched by many subscriptions and can be
 // disabled independently when a feed becomes unhealthy.
+// One administrator-managed email cadence shared by every published industry
+// pool. A pool only decides whether it participates in delivery.
+export const industryDeliveryConfig = pgTable('industry_delivery_config', {
+  id: text('id').primaryKey().default('default'),
+  cron: text('cron').notNull().default('0 9 * * *'),
+  timezone: text('timezone').notNull().default('Asia/Shanghai'),
+  updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
 export const discoverySourceCatalog = pgTable('discovery_source_catalog', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -214,6 +238,24 @@ export const managedBuildLogs = pgTable('managed_build_logs', {
     .notNull(),
 });
 
+// Durable LLM call state shared by the Web process and the background worker.
+// One row represents the latest streamed state for a logical LLM call.
+export const managedLlmCalls = pgTable('managed_llm_calls', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  subscriptionId: text('subscription_id')
+    .notNull()
+    .references(() => subscriptions.id, { onDelete: 'cascade' }),
+  sourceUrl: text('source_url').notNull().default(''),
+  callIndex: integer('call_index').notNull(),
+  payload: text('payload').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
 // Durable handoff between the Web/email process and the background worker.
 // Heavy work must never depend on an in-memory Promise owned by an API request.
 export const backgroundJobs = pgTable('background_jobs', {
@@ -240,6 +282,16 @@ export const backgroundJobs = pgTable('background_jobs', {
   updatedAt: timestamp('updated_at', { mode: 'date' })
     .$defaultFn(() => new Date())
     .notNull(),
+});
+
+// A lightweight liveness record written by the dedicated background process.
+// The web process reads it to explain whether a queue is busy or the worker is
+// actually offline.
+export const workerHeartbeats = pgTable('worker_heartbeats', {
+  id: text('id').primaryKey().default('primary'),
+  lastHeartbeatAt: timestamp('last_heartbeat_at', { mode: 'date' }).notNull(),
+  currentJobId: text('current_job_id'),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull(),
 });
 
 // ─── industry_monitoring_profiles ───────────────────────────────────────────
@@ -362,7 +414,7 @@ export const sources = pgTable('sources', {
   }),
   discoveryOrigin: text('discovery_origin', { enum: ['catalog', 'ai'] }),
   collectionStrategy: text('collection_strategy', {
-    enum: ['generic_rss', 'ai_script'],
+    enum: ['generic_rss', 'firecrawl_scrape', 'ai_script'],
   }),
   script: text('script').notNull().default(''),
   cronExpression: text('cron_expression').notNull().default('0 * * * *'),
@@ -533,6 +585,7 @@ export const subscriptionsRelations = relations(subscriptions, ({ one, many }) =
   messageCards: many(messageCards),
   notifications: many(notifications),
   managedBuildLogs: many(managedBuildLogs),
+  managedLlmCalls: many(managedLlmCalls),
   analysisReports: many(analysisReports),
 }));
 
@@ -621,6 +674,13 @@ export const sourcesRelations = relations(sources, ({ one, many }) => ({
     references: [discoverySourceCatalog.id],
   }),
   messageCards: many(messageCards),
+}));
+
+export const managedLlmCallsRelations = relations(managedLlmCalls, ({ one }) => ({
+  subscription: one(subscriptions, {
+    fields: [managedLlmCalls.subscriptionId],
+    references: [subscriptions.id],
+  }),
 }));
 
 export const discoverySourceCatalogRelations = relations(

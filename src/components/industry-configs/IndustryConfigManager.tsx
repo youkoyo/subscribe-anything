@@ -37,6 +37,11 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  DEFAULT_INDUSTRY_CONFIG_FORM_VALUES,
+  IndustryConfigForm,
+  type IndustryConfigFormValues,
+} from '@/components/industry-configs/IndustryConfigForm';
 import { parseRecipientEmailsJson } from '@/lib/enterprise/recipientEmails';
 import { getIndustrySubscriptionProgress } from '@/lib/enterprise/subscriptionProgress';
 import {
@@ -212,6 +217,22 @@ function toPayload(form: FormState): IndustryConfigInput {
   };
 }
 
+function toSharedForm(config: IndustryConfigView): IndustryConfigFormValues {
+  const { snapshot } = config;
+  return {
+    name: snapshot.name,
+    description: snapshot.description,
+    sourcePreferences: snapshot.sourcePreferences ?? DEFAULT_INDUSTRY_CONFIG_FORM_VALUES.sourcePreferences,
+    category: snapshot.category,
+    subCategory: snapshot.subCategory,
+    subscriptionMode: config.subscriptionMode ?? 'open',
+    autoProfileExpansion: config.autoProfileExpansion === true,
+    deliveryEnabled: config.deliveryEnabled === true,
+    maxItemsPerEmail: config.maxItemsPerEmail ?? 10,
+    skipPresetRss: false,
+  };
+}
+
 function formatUpdatedAt(value?: string) {
   if (!value) return '刚刚更新';
   const date = new Date(value);
@@ -229,6 +250,9 @@ export default function IndustryConfigManager() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<IndustryConfigView | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [sharedForm, setSharedForm] = useState<IndustryConfigFormValues>(
+    DEFAULT_INDUSTRY_CONFIG_FORM_VALUES
+  );
   const [submitting, setSubmitting] = useState(false);
   const [subscriberConfig, setSubscriberConfig] = useState<IndustryConfigView | null>(null);
   const [subscriberRows, setSubscriberRows] = useState<IndustrySubscriberRow[]>([]);
@@ -269,12 +293,14 @@ export default function IndustryConfigManager() {
   const openCreate = useCallback(() => {
     setEditing(null);
     setForm(emptyForm);
+    setSharedForm(DEFAULT_INDUSTRY_CONFIG_FORM_VALUES);
     setDialogOpen(true);
   }, []);
 
   const openEdit = useCallback((config: IndustryConfigView) => {
     setEditing(config);
     setForm(toForm(config));
+    setSharedForm(toSharedForm(config));
     setDialogOpen(true);
   }, []);
 
@@ -319,6 +345,25 @@ export default function IndustryConfigManager() {
       setSubmitting(false);
     }
   }, [editing, fetchConfigs, form, toast]);
+
+  const handleSharedSave = useCallback(async (values: IndustryConfigFormValues): Promise<string | null> => {
+    try {
+      const url = editing ? `/api/industry-configs/${editing.id}` : '/api/industry-configs';
+      const res = await fetch(url, {
+        method: editing ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...values, allowAiDiscoveryFallback: true }),
+      });
+      if (!res.ok) return '保存失败，请稍后重试。';
+
+      await fetchConfigs();
+      setDialogOpen(false);
+      toast({ title: editing ? '产业配置已更新' : '产业配置已创建' });
+      return null;
+    } catch {
+      return '网络连接异常，尚未保存配置。';
+    }
+  }, [editing, fetchConfigs, toast]);
 
   const handleDelete = useCallback(
     async (config: IndustryConfigView) => {
@@ -553,9 +598,7 @@ export default function IndustryConfigManager() {
                       <div className="rounded-md border border-cyan-300/15 bg-secondary/30 px-3 py-2">
                         <div className="text-cyan-50/80">报送</div>
                         <div className="mt-1 text-cyan-50">
-                          {config.deliveryCron
-                            ? findEmailDeliverySlot(config.deliveryCron)?.label ?? config.deliveryCron
-                            : '未配置'}{' '}
+                          {config.deliveryEnabled ? '按统一投递设置' : '未启用投递'}{' '}
                           · 最多 {config.maxItemsPerEmail ?? 10} 条
                         </div>
                       </div>
@@ -618,7 +661,7 @@ export default function IndustryConfigManager() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? '编辑产业配置' : '新建产业配置'}</DialogTitle>
             <DialogDescription>
@@ -626,7 +669,14 @@ export default function IndustryConfigManager() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4">
+          <IndustryConfigForm
+            key={editing?.id ?? 'new'}
+            initialValues={sharedForm}
+            onSave={handleSharedSave}
+            embedded
+          />
+
+          {false ? <div className="hidden grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
               <label className="grid gap-2 text-sm font-medium">
                 产业名称
@@ -847,9 +897,9 @@ export default function IndustryConfigManager() {
               </div>
               <Switch checked={form.isEnabled} onCheckedChange={(value) => updateField('isEnabled', value)} />
             </div>
-          </div>
+          </div> : null}
 
-          <DialogFooter>
+          <DialogFooter className="hidden">
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>
               取消
             </Button>

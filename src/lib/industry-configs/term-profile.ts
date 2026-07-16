@@ -15,6 +15,10 @@ export interface IndustryTermProfile {
   canonicalIndustry: string;
   strictTerms: string[];
   entityTerms: string[];
+  /** Industry-qualified actors, places and operating situations. These remain
+   * candidate terms because they identify the industry even when its formal
+   * name is absent from a report. */
+  operatingContextTerms: string[];
   productTerms: string[];
   supplyChainTerms: string[];
   riskEventTerms: string[];
@@ -74,6 +78,7 @@ export function buildFallbackIndustryTermProfile(input: IndustryProfileInput): I
     canonicalIndustry,
     strictTerms: [canonicalIndustry],
     entityTerms: [],
+    operatingContextTerms: [],
     productTerms: [],
     supplyChainTerms: [],
     riskEventTerms: [],
@@ -101,6 +106,7 @@ export function normalizeIndustryTermProfile(
     canonicalIndustry,
     strictTerms: effectiveStrictTerms,
     entityTerms: uniqueTerms(candidate?.entityTerms, 24),
+    operatingContextTerms: uniqueTerms(candidate?.operatingContextTerms, 24),
     productTerms: uniqueTerms(candidate?.productTerms, 24),
     supplyChainTerms: uniqueTerms(candidate?.supplyChainTerms, 24),
     riskEventTerms: uniqueTerms(candidate?.riskEventTerms, 24),
@@ -118,9 +124,23 @@ export function normalizeIndustryTermProfile(
  * instead of the industry's canonical name.
  */
 export function needsIndustryProfileExpansion(profile: IndustryTermProfile): boolean {
-  return profile.entityTerms.length === 0
-    && profile.productTerms.length === 0
-    && profile.supplyChainTerms.length === 0;
+  return profileCoverageGaps(profile).length > 0;
+}
+
+/**
+ * A usable portrait must describe more than the industry name.  These are
+ * structural requirements, not a hand-maintained dictionary: the model fills
+ * every slot for the administrator's particular topic.
+ */
+export function profileCoverageGaps(profile: IndustryTermProfile): string[] {
+  const gaps: string[] = [];
+  if (profile.strictTerms.length < 2) gaps.push('strictTerms');
+  if (profile.entityTerms.length < 4) gaps.push('entityTerms');
+  if ((profile.operatingContextTerms?.length ?? 0) < 4) gaps.push('operatingContextTerms');
+  if (profile.productTerms.length < 3) gaps.push('productTerms');
+  if (profile.supplyChainTerms.length < 3) gaps.push('supplyChainTerms');
+  if (profile.riskEventTerms.length < 3) gaps.push('riskEventTerms');
+  return gaps;
 }
 
 /** Terms that can make an item a candidate for AI relevance classification. */
@@ -128,9 +148,31 @@ export function profileCandidateTerms(profile: IndustryTermProfile): string[] {
   return uniqueTerms([
     ...profile.strictTerms,
     ...profile.entityTerms,
+    ...(profile.operatingContextTerms ?? []),
     ...profile.productTerms,
     ...profile.supplyChainTerms,
   ], 96);
+}
+
+/**
+ * Give extraction services the same industry vocabulary that the later
+ * relevance classifier uses.  Passing only the administrator's short input
+ * (for example “鞋业”) makes an extractor miss reports whose title says
+ * “鞋厂” or “制鞋车间” instead of repeating the canonical industry name.
+ */
+export function buildProfileCollectionHint(
+  profile: IndustryTermProfile | null | undefined,
+  fallbackCriteria?: string,
+): string {
+  const criteria = fallbackCriteria?.replace(/\s+/g, ' ').trim();
+  if (!profile) return criteria ?? '';
+
+  const terms = profileCandidateTerms(profile).slice(0, 48);
+  return [
+    `产业主题：${profile.canonicalIndustry}`,
+    terms.length > 0 ? `产业关联词：${terms.join('、')}` : '',
+    criteria ? `用户补充条件：${criteria}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 function matchingTerms(terms: readonly string[], text: string): string[] {

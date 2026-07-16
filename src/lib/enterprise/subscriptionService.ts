@@ -240,3 +240,11 @@ export async function pauseMyIndustrySubscription(id: string, userId: string, pa
   if (!row) return null;
   return paused ? row : bindSubscriptionToProfile(row.id);
 }
+
+export async function deleteMyIndustrySubscription(id: string, userId: string): Promise<boolean> {
+  const db = getDb();
+  const deleted = await db.delete(userIndustrySubscriptions)
+    .where(and(eq(userIndustrySubscriptions.id, id), eq(userIndustrySubscriptions.userId, userId)))
+    .returning({ id: userIndustrySubscriptions.id });
+  return deleted.length > 0;
+}

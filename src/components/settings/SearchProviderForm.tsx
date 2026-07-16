@@ -55,6 +55,7 @@ export default function SearchProviderForm() {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyFocused, setApiKeyFocused] = useState(false);
   const [hasExistingKey, setHasExistingKey] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   // ── RSS instance state ─────────────────────────────────────────
   const [instances, setInstances] = useState<RssInstance[]>([]);
@@ -115,6 +116,15 @@ export default function SearchProviderForm() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await fetch('/api/settings/search-provider/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, apiKey }) });
+      const data = await res.json().catch(() => ({}));
+      toast(res.ok ? { title: '测试成功', description: '搜索供应商 API 可用' } : { title: '测试失败', description: data.error ?? '请求失败', variant: 'destructive' });
+    } finally { setTesting(false); }
   };
 
   // ── RSS instance handlers ──────────────────────────────────────
@@ -213,7 +223,8 @@ export default function SearchProviderForm() {
             </div>
           )}
 
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end gap-2 pt-2">
+            {provider !== 'none' && <Button type="button" variant="outline" onClick={handleTest} disabled={testing || !apiKey}>{testing ? '测试中...' : '测试 API'}</Button>}
             <Button onClick={handleSave} disabled={saving}>
               {saving ? '保存中...' : '保存'}
             </Button>

@@ -28,9 +28,13 @@ const DEFAULT_STATE: WizardState = {
 
 interface WizardShellProps {
   initialIndustryConfigId?: string | null;
+  initialSkipPresetRss?: boolean;
 }
 
-export default function WizardShell({ initialIndustryConfigId = null }: WizardShellProps) {
+export default function WizardShell({
+  initialIndustryConfigId = null,
+  initialSkipPresetRss = false,
+}: WizardShellProps) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [state, setState] = useState<WizardState>(DEFAULT_STATE);
@@ -55,7 +59,7 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
     if (isNew) {
       sessionStorage.removeItem(STORAGE_KEY);
       if (initialIndustryConfigId) {
-        setState({ ...DEFAULT_STATE, industryConfigId: initialIndustryConfigId });
+        setState({ ...DEFAULT_STATE, industryConfigId: initialIndustryConfigId, skipPresetRss: initialSkipPresetRss });
       }
       setMounted(true);
       return;
@@ -88,7 +92,7 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
         const parsed = JSON.parse(saved) as WizardState;
         setState(parsed);
       } else if (initialIndustryConfigId) {
-        setState({ ...DEFAULT_STATE, industryConfigId: initialIndustryConfigId });
+        setState({ ...DEFAULT_STATE, industryConfigId: initialIndustryConfigId, skipPresetRss: initialSkipPresetRss });
       }
     } catch {
       // ignore parse errors
@@ -124,6 +128,7 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
         foundSources,
         selectedIndices,
         generatedSources: takeover.generatedSources ?? [],
+        skipPresetRss: takeover.skipPresetRss === true,
         industryConfigId: takeover.industryConfigId ?? null,
         industryConfigSnapshot: takeover.industryConfigSnapshot ?? null,
         subscriptionId,
@@ -193,7 +198,7 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
       await fetch(`/api/subscriptions/${data.id}/run-step`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step: 'find_sources' }),
+        body: JSON.stringify({ step: 'find_sources', skipPresetRss: state.skipPresetRss }),
       });
     } catch {
       // Fallback: advance without DB persistence
@@ -298,6 +303,7 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
           allFoundSources: data.allFoundSources,
           generatedSources: data.generatedSources,
           existingSubscriptionId: state.subscriptionId,
+          skipPresetRss: state.skipPresetRss,
         }),
       });
     } catch { /* ignore */ }
@@ -454,6 +460,7 @@ export default function WizardShell({ initialIndustryConfigId = null }: WizardSh
                     industryConfigId,
                     industryConfigSnapshot,
                     startStep: 'find_sources',
+                    skipPresetRss: state.skipPresetRss,
                   }),
                 });
               } catch { /* ignore */ }

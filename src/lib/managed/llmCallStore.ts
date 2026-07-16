@@ -1,58 +1,65 @@
 /**
- * In-memory store for LLM call debug info, keyed by subscriptionId.
- * Populated by pipeline.ts during background step execution.
- * Exposed via GET /api/subscriptions/[id]/llm-calls for wizard debug UI.
- *
- * Uses globalThis so the store survives Next.js dev-mode module re-evaluations
- * (different route bundles would otherwise get separate Map instances).
+ * Durable LLM call state shared by the Web process and background worker.
+ * A process-local map cannot serve the wizard once heavy work moves to worker.ts.
  */
 
+import { and, asc, eq } from 'drizzle-orm';
+import { getDb } from '@/lib/db';
+import { managedLlmCalls } from '@/lib/db/schema';
 import type { LLMCallInfo } from '@/lib/ai/client';
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __llmCallStore: Map<string, LLMCallInfo[]> | undefined;
+export async function getLLMCalls(subscriptionId: string): Promise<LLMCallInfo[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ payload: managedLlmCalls.payload })
+    .from(managedLlmCalls)
+    .where(eq(managedLlmCalls.subscriptionId, subscriptionId))
+    .orderBy(asc(managedLlmCalls.createdAt), asc(managedLlmCalls.callIndex));
+
+  return rows.flatMap((row) => {
+    try {
+      return [JSON.parse(row.payload) as LLMCallInfo];
+    } catch {
+      return [];
+    }
+  });
 }
 
-function getStore(): Map<string, LLMCallInfo[]> {
-  if (!globalThis.__llmCallStore) {
-    globalThis.__llmCallStore = new Map();
+/** Insert or refresh a call by its source URL and call index. */
+export async function upsertLLMCall(subscriptionId: string, info: LLMCallInfo): Promise<void> {
+  try {
+    const db = getDb();
+    const now = new Date();
+    const sourceUrl = info.sourceUrl ?? '';
+
+    await db.insert(managedLlmCalls)
+      .values({
+        subscriptionId,
+        sourceUrl,
+        callIndex: info.callIndex,
+        payload: JSON.stringify(info),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [managedLlmCalls.subscriptionId, managedLlmCalls.sourceUrl, managedLlmCalls.callIndex],
+        set: { payload: JSON.stringify(info), updatedAt: now },
+      });
+  } catch (error) {
+    console.error('[LLM call store] Failed to persist call:', error);
   }
-  return globalThis.__llmCallStore;
 }
 
-export function getLLMCalls(subscriptionId: string): LLMCallInfo[] {
-  return getStore().get(subscriptionId) ?? [];
+export async function clearLLMCalls(subscriptionId: string): Promise<void> {
+  await getDb().delete(managedLlmCalls)
+    .where(eq(managedLlmCalls.subscriptionId, subscriptionId));
 }
 
-/** Insert or update a call (matched by sourceUrl + callIndex to avoid conflicts during parallel generation). */
-export function upsertLLMCall(subscriptionId: string, info: LLMCallInfo): void {
-  const store = getStore();
-  const calls = store.get(subscriptionId) ?? [];
-  const idx = calls.findIndex(
-    (c) => c.callIndex === info.callIndex && c.sourceUrl === info.sourceUrl
-  );
-  if (idx >= 0) {
-    calls[idx] = info;
-  } else {
-    calls.push(info);
-  }
-  store.set(subscriptionId, calls);
-}
-
-export function clearLLMCalls(subscriptionId: string): void {
-  getStore().delete(subscriptionId);
-}
-
-/** Remove all LLM calls for a specific source within a subscription. */
-export function clearSourceLLMCalls(subscriptionId: string, sourceUrl: string): void {
-  const store = getStore();
-  const calls = store.get(subscriptionId);
-  if (!calls) return;
-  const filtered = calls.filter((c) => c.sourceUrl !== sourceUrl);
-  if (filtered.length === 0) {
-    store.delete(subscriptionId);
-  } else {
-    store.set(subscriptionId, filtered);
-  }
+/** Remove all LLM calls for one source while retaining the others. */
+export async function clearSourceLLMCalls(subscriptionId: string, sourceUrl: string): Promise<void> {
+  await getDb().delete(managedLlmCalls)
+    .where(and(
+      eq(managedLlmCalls.subscriptionId, subscriptionId),
+      eq(managedLlmCalls.sourceUrl, sourceUrl),
+    ));
 }

@@ -18,7 +18,11 @@ export async function POST(
     const session = await requireAuth();
     const { id } = await params;
     const body = await req.json();
-    const { step, sources } = body as { step?: string; sources?: FoundSource[] };
+    const { step, sources, skipPresetRss } = body as {
+      step?: string;
+      sources?: FoundSource[];
+      skipPresetRss?: boolean;
+    };
 
     if (step !== 'find_sources' && step !== 'generate_scripts') {
       return Response.json({ error: 'Invalid step. Must be find_sources or generate_scripts' }, { status: 400 });
@@ -36,7 +40,7 @@ export async function POST(
 
     if (step === 'find_sources') {
       // Clear old find_sources logs and LLM calls to start fresh
-      clearLLMCalls(id);
+      await clearLLMCalls(id);
       await db.delete(managedBuildLogs)
         .where(
           and(
@@ -45,12 +49,12 @@ export async function POST(
           )
         );
 
-      const queued = await enqueueManagedStepJob(id, 'find_sources');
+      const queued = await enqueueManagedStepJob(id, 'find_sources', undefined, skipPresetRss === true);
       return Response.json({ started: queued, running: !queued }, { status: 202 });
     } else {
       // generate_scripts: clear old LLM calls, do NOT clear existing build logs —
       // runGenerateScriptsStep skips already-completed sources
-      clearLLMCalls(id);
+      await clearLLMCalls(id);
       const queued = await enqueueManagedStepJob(id, 'generate_scripts', (sources ?? []) as FoundSource[]);
       return Response.json({ started: queued, running: !queued }, { status: 202 });
     }

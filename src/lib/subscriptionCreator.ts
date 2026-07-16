@@ -26,7 +26,7 @@ export interface SourceInput {
   failedReason?: string;
   catalogSourceId?: string;
   discoveryOrigin?: 'catalog' | 'ai';
-  collectionStrategy?: 'generic_rss' | 'ai_script';
+  collectionStrategy?: 'generic_rss' | 'firecrawl_scrape' | 'ai_script';
 }
 
 /** Provision sources that already yielded qualifying news before deferred sources. */

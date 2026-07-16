@@ -11,6 +11,7 @@ export default function NewSubscriptionPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const industryConfigId = searchParams.get('industryConfigId');
+  const skipPresetRss = searchParams.get('skipPresetRss') === '1';
   const [checking, setChecking] = useState(true);
   const [hasActiveProvider, setHasActiveProvider] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -90,5 +91,5 @@ export default function NewSubscriptionPage() {
   }
 
   // Wizard
-  return <WizardShell initialIndustryConfigId={industryConfigId} />;
+  return <WizardShell initialIndustryConfigId={industryConfigId} initialSkipPresetRss={skipPresetRss} />;
 }

@@ -16,14 +16,93 @@ import { createId } from '@paralleldrive/cuid2';
 import pLimit from 'p-limit';
 import { upsertLLMCall, clearLLMCalls } from './llmCallStore';
 import type { IndustryConfigSnapshot } from '@/lib/industry-configs/types';
-import { needsIndustryProfileExpansion } from '@/lib/industry-configs/term-profile';
+import {
+  buildProfileCollectionHint,
+  needsIndustryProfileExpansion,
+  profileCandidateTerms,
+} from '@/lib/industry-configs/term-profile';
 import type { FoundSource, GeneratedSource } from '@/types/wizard';
 import { buildStandardFeedScript } from '@/lib/discovery-sources/standard-feed-script';
+import { collectWithFirecrawl, getFirecrawlApiKey } from '@/lib/firecrawl/collector';
+import { rssFetch } from '@/lib/ai/tools/rssFetch';
+import { classifyProfileItems } from '@/lib/industry-configs/profile-classifier';
+import type { CollectedItem } from '@/lib/sandbox/contract';
 
 // Script agents can invoke browser tools, run sandboxes, and make several LLM calls.
 // Keep them deliberately low-concurrency so a large source selection cannot starve the
 // same Node process that serves the wizard and its progress stream.
 const SCRIPT_GENERATION_CONCURRENCY = 2;
+// An invalid or heavily protected website must not occupy the single worker
+// indefinitely. Firecrawl has its own short request timeout; this bounds the
+// slower AI-script fallback as well.
+const SOURCE_GENERATION_TIMEOUT_MS = 120_000;
+
+type CollectionStrategy = 'generic_rss' | 'firecrawl_scrape' | 'ai_script';
+
+async function legacyWebCollectionStrategy(): Promise<CollectionStrategy> {
+  return await getFirecrawlApiKey() ? 'firecrawl_scrape' : 'ai_script';
+}
+
+function buildFirecrawlGeneratedSource(source: FoundSource, initialItems: GeneratedSource['initialItems']): GeneratedSource {
+  return {
+    title: source.title,
+    url: source.url,
+    description: source.description,
+    script: '',
+    cronExpression: '0 * * * *',
+    initialItems,
+    isEnabled: true,
+    catalogSourceId: source.catalogSourceId,
+    discoveryOrigin: source.discoveryOrigin ?? 'ai',
+    collectionStrategy: 'firecrawl_scrape',
+  };
+}
+
+function isNativeRssSource(source: Pick<FoundSource, 'url'>): boolean {
+  try {
+    const url = new URL(source.url);
+    return /\.(?:rss|atom|xml)$/i.test(url.pathname)
+      || /(?:^|\/)(?:rss|atom|feed)(?:\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function filterInitialItemsByProfile(
+  source: FoundSource,
+  items: CollectedItem[],
+  userId?: string | null
+): Promise<CollectedItem[]> {
+  if (!source.termProfile) return items;
+  const candidates = items.map((item, index) => ({ id: String(index), title: item.title, summary: item.summary }));
+  const relevanceById = await classifyProfileItems(source.termProfile, candidates, userId);
+  return items.flatMap((item, index) => {
+    const relevance = relevanceById.get(String(index));
+    if (!relevance || relevance.label === 'irrelevant') return [];
+    return [{ ...item, relevanceLabel: relevance.label, relevanceReason: relevance.reason, matchedTerms: relevance.matchedTerms }];
+  });
+}
+
+function hasNoCurrentFirecrawlItems(error: unknown): boolean {
+  return error instanceof Error && /no usable current news items/i.test(error.message);
+}
+
+async function tryGenerateFirecrawlSource(
+  source: FoundSource,
+  criteria: string | undefined,
+  userId?: string | null,
+  signal?: AbortSignal
+): Promise<GeneratedSource> {
+  const rawItems = await collectWithFirecrawl({
+    title: source.title,
+    url: source.url,
+    description: source.description,
+    criteria: buildProfileCollectionHint(source.termProfile, criteria),
+    signal,
+  });
+  const initialItems = await filterInitialItemsByProfile(source, rawItems, userId);
+  return buildFirecrawlGeneratedSource(source, initialItems);
+}
 
 function prioritizeSourcesForScriptGeneration(sources: FoundSource[]): FoundSource[] {
   return [...sources].sort((left, right) => {
@@ -39,6 +118,7 @@ export const abortedSourceKeys = new Set<string>();
 // In-memory map of "subscriptionId:sourceUrl" → AbortController for running source generation tasks.
 // Used to truly cancel LLM calls when a source is aborted or managed pipeline takes over.
 const sourceAbortControllers = new Map<string, AbortController>();
+const sourceAbortTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Abort a specific source generation: add to abortedSourceKeys, trigger AbortController,
@@ -53,6 +133,9 @@ export function abortSource(subscriptionId: string, sourceUrl: string): void {
     controller.abort();
     sourceAbortControllers.delete(key);
   }
+  const timeout = sourceAbortTimeouts.get(key);
+  if (timeout) clearTimeout(timeout);
+  sourceAbortTimeouts.delete(key);
   writeLog(subscriptionId, 'generate_script', 'error', '已手动中断', { sourceUrl });
 }
 
@@ -68,6 +151,9 @@ export function abortAllSources(subscriptionId: string): void {
       abortedSourceKeys.add(key);
       controller.abort();
       sourceAbortControllers.delete(key);
+      const timeout = sourceAbortTimeouts.get(key);
+      if (timeout) clearTimeout(timeout);
+      sourceAbortTimeouts.delete(key);
     }
   }
 }
@@ -81,8 +167,17 @@ export function registerSourceAbort(subscriptionId: string, sourceUrl: string): 
   // Abort any existing controller for this source (e.g. from a previous attempt)
   const existing = sourceAbortControllers.get(key);
   if (existing) existing.abort();
+  const existingTimeout = sourceAbortTimeouts.get(key);
+  if (existingTimeout) clearTimeout(existingTimeout);
   const controller = new AbortController();
   sourceAbortControllers.set(key, controller);
+  sourceAbortTimeouts.set(key, setTimeout(() => {
+    if (sourceAbortControllers.get(key) !== controller) return;
+    controller.abort();
+    sourceAbortControllers.delete(key);
+    sourceAbortTimeouts.delete(key);
+    writeLog(subscriptionId, 'generate_script', 'error', `“${sourceUrl}”生成超时，已跳过该源并继续后续任务。`, { sourceUrl });
+  }, SOURCE_GENERATION_TIMEOUT_MS));
   // Clean up the aborted flag so retries work
   abortedSourceKeys.delete(key);
   return controller.signal;
@@ -92,7 +187,11 @@ export function registerSourceAbort(subscriptionId: string, sourceUrl: string): 
  * Unregister the AbortController for a source (task finished normally).
  */
 export function unregisterSourceAbort(subscriptionId: string, sourceUrl: string): void {
-  sourceAbortControllers.delete(`${subscriptionId}:${sourceUrl}`);
+  const key = `${subscriptionId}:${sourceUrl}`;
+  sourceAbortControllers.delete(key);
+  const timeout = sourceAbortTimeouts.get(key);
+  if (timeout) clearTimeout(timeout);
+  sourceAbortTimeouts.delete(key);
 }
 
 /** Check if an error is an abort-related error (standard AbortError or OpenAI SDK abort). */
@@ -118,6 +217,8 @@ export interface ManagedPayload {
   /** All discovered sources (for display); foundSources is the selected subset for generation */
   allFoundSources?: FoundSource[];
   generatedSources?: GeneratedSource[];
+  /** Administrator-only test mode: use the pre-catalog AI discovery path. */
+  skipPresetRss?: boolean;
 }
 
 type LogLevel = 'info' | 'progress' | 'success' | 'error';
@@ -188,7 +289,13 @@ async function shouldAutoAdvance(subscriptionId: string): Promise<boolean> {
 
 async function discoverSourcesWithFallback(
   subscriptionId: string,
-  input: { topic: string; criteria?: string; userId: string; snapshot?: IndustryConfigSnapshot | null }
+  input: {
+    topic: string;
+    criteria?: string;
+    userId: string;
+    snapshot?: IndustryConfigSnapshot | null;
+    skipPresetRss?: boolean;
+  }
 ): Promise<FoundSource[]> {
   const { generateIndustryTermProfile } = await import('@/lib/ai/agents/industryProfileAgent');
   const { discoverFromCuratedCatalog } = await import('@/lib/discovery-sources/discovery');
@@ -201,6 +308,10 @@ async function discoverSourcesWithFallback(
     sourcePreferences: input.snapshot?.sourcePreferences,
   }, input.userId);
   const snapshot = await persistSubscriptionProfile(subscriptionId, input, profile);
+  if (input.skipPresetRss) {
+    writeLog(subscriptionId, 'find_sources', 'info', '测试模式：已生成产业画像，跳过预置 RSS，直接执行旧版 AI 发现源链路。');
+    return discoverLegacyAiSources(subscriptionId, input, profile);
+  }
   const curated = await discoverFromCuratedCatalog({
     topic: input.topic,
     criteria: input.criteria,
@@ -212,9 +323,35 @@ async function discoverSourcesWithFallback(
     return curated.sources;
   }
   writeLog(subscriptionId, 'find_sources', 'info', '预置源暂无强相关或有关内容，开始补充 AI 发现源。');
+  const aiSources = await discoverLegacyAiSources(subscriptionId, input, profile);
+  return [...curated.sources, ...aiSources];
+}
+
+function buildLegacyDiscoveryCriteria(
+  criteria: string | undefined,
+  profile: NonNullable<IndustryConfigSnapshot['termProfile']>
+) {
+  const discoveryTerms = [
+    ...profileCandidateTerms(profile),
+    ...profile.riskEventTerms,
+  ].slice(0, 36);
+  const portrait = [
+    `AI 产业画像：${profile.canonicalIndustry}`,
+    discoveryTerms.length > 0 ? `关联检索词：${discoveryTerms.join('、')}` : '',
+    profile.exclusionTerms.length > 0 ? `排除语境：${profile.exclusionTerms.join('、')}` : '',
+    profile.sourcePreferences.length > 0 ? `来源偏好：${profile.sourcePreferences.join('、')}。优先从这些偏好对应的权威官网、监管/协会、全国与地方主流新闻、持续更新的行业媒体中分层找源；财经频道仅作补充。` : '',
+  ].filter(Boolean).join('\n');
+  return [criteria?.trim(), portrait].filter(Boolean).join('\n');
+}
+
+async function discoverLegacyAiSources(
+  subscriptionId: string,
+  input: { topic: string; criteria?: string; userId: string },
+  profile: NonNullable<IndustryConfigSnapshot['termProfile']>
+): Promise<FoundSource[]> {
   const { findSourcesAgent } = await import('@/lib/ai/agents/findSourcesAgent');
   const aiSources = await findSourcesAgent(
-    { topic: input.topic, criteria: input.criteria },
+    { topic: input.topic, criteria: buildLegacyDiscoveryCriteria(input.criteria, profile) },
     (event: unknown) => {
       const eventData = event as Record<string, unknown>;
       if (eventData.type === 'tool_call' && eventData.name === 'webSearch') {
@@ -225,7 +362,13 @@ async function discoverSourcesWithFallback(
     (info) => upsertLLMCall(subscriptionId, info),
     input.userId
   );
-  return [...curated.sources, ...aiSources.map((source) => ({ ...source, discoveryOrigin: 'ai' as const, collectionStrategy: 'ai_script' as const }))];
+  const webpageStrategy = await legacyWebCollectionStrategy();
+  return aiSources.map((source) => ({
+    ...source,
+    discoveryOrigin: 'ai' as const,
+    collectionStrategy: isNativeRssSource(source) ? 'generic_rss' : webpageStrategy,
+    termProfile: profile,
+  }));
 }
 
 async function persistSubscriptionProfile(
@@ -257,14 +400,18 @@ async function persistSubscriptionProfile(
   return snapshot;
 }
 
-function buildCatalogGeneratedSource(source: FoundSource): GeneratedSource {
+async function buildCatalogGeneratedSource(source: FoundSource, userId?: string | null): Promise<GeneratedSource> {
+  const rawItems = source.initialItems ?? (source.discoveryOrigin === 'ai'
+    ? (await rssFetch(source.url, { maxItems: 'all' })).items
+    : []);
+  const initialItems = await filterInitialItemsByProfile(source, rawItems, userId);
   return {
     title: source.title,
     url: source.url,
     description: source.description,
     script: buildStandardFeedScript(source.url),
     cronExpression: '0 * * * *',
-    initialItems: source.initialItems ?? [],
+    initialItems,
     isEnabled: true,
     catalogSourceId: source.catalogSourceId,
     discoveryOrigin: 'catalog',
@@ -281,21 +428,35 @@ export async function runFindSourcesStep(
   topic: string,
   criteria: string | undefined,
   userId: string,
-  industryConfigSnapshot?: IndustryConfigSnapshot | null
+  industryConfigSnapshot?: IndustryConfigSnapshot | null,
+  skipPresetRss = false
 ): Promise<void> {
   writeLog(subscriptionId, 'find_sources', 'info', '开始发现数据源...');
 
   try {
     const discovered = await discoverSourcesWithFallback(subscriptionId, {
-      topic, criteria, userId, snapshot: industryConfigSnapshot,
+      topic, criteria, userId, snapshot: industryConfigSnapshot, skipPresetRss,
     });
 
     // Auto-select up to 5 sources (prefer recommended) so managed takeover can restore correctly
     const selected = autoSelectSources(discovered);
+    const selectedUrls = new Set(selected.map((source) => source.url));
+    // The manual wizard may reconnect after its live stream has timed out.  Its
+    // source result must therefore be durable instead of existing only in logs.
+    await updateWizardState(subscriptionId, {
+      step: 2,
+      foundSources: discovered,
+      selectedIndices: discovered
+        .map((source, index) => selectedUrls.has(source.url) ? index : -1)
+        .filter((index) => index >= 0),
+      generatedSources: [],
+      managedError: null,
+    });
     // Write success log with all discovered sources (for reference)
     writeLog(subscriptionId, 'find_sources', 'success', `发现 ${discovered.length} 个数据源`, discovered);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    await updateWizardState(subscriptionId, { managedError: `发现数据源失败：${msg}` });
     writeLog(subscriptionId, 'find_sources', 'error', `发现数据源失败：${msg}`);
   }
 }
@@ -338,9 +499,9 @@ export async function runGenerateScriptsStep(
 
         try {
           if (source.collectionStrategy === 'generic_rss') {
-            const generated = buildCatalogGeneratedSource(source);
+            const generated = await buildCatalogGeneratedSource(source, userId);
             unregisterSourceAbort(subscriptionId, source.url);
-            writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}”使用预置 RSS 采集器，采集到 ${generated.initialItems.length} 条强相关/有关内容。`, {
+              writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}”已完成 RSS 读取，画像筛选后保留 ${generated.initialItems.length} 条强相关/有关内容。`, {
               sourceUrl: source.url,
               script: generated.script,
               cronExpression: generated.cronExpression,
@@ -351,12 +512,37 @@ export async function runGenerateScriptsStep(
             });
             return;
           }
+          if (source.collectionStrategy === 'firecrawl_scrape') {
+            try {
+              writeLog(subscriptionId, 'generate_script', 'progress', `“${source.title}” 正在通过 Firecrawl 验证网页采集…`, { sourceUrl: source.url });
+              const generated = await tryGenerateFirecrawlSource(source, criteria, userId, signal);
+              unregisterSourceAbort(subscriptionId, source.url);
+              writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}” 已通过 Firecrawl 验证，画像筛选后保留 ${generated.initialItems.length} 条资讯。`, {
+                sourceUrl: source.url,
+                script: generated.script,
+                cronExpression: generated.cronExpression,
+                initialItems: generated.initialItems,
+                discoveryOrigin: generated.discoveryOrigin,
+                collectionStrategy: generated.collectionStrategy,
+              });
+              return;
+            } catch (error) {
+              if (abortedSourceKeys.has(abortKey) || isAbortError(error)) return;
+              const message = error instanceof Error ? error.message : String(error);
+              if (hasNoCurrentFirecrawlItems(error)) {
+                unregisterSourceAbort(subscriptionId, source.url);
+                writeLog(subscriptionId, 'generate_script', 'error', `“${source.title}”未找到带可信发布时间的近期资讯，已跳过该网页源。`, { sourceUrl: source.url });
+                return;
+              }
+              writeLog(subscriptionId, 'generate_script', 'info', `“${source.title}” Firecrawl 未能验证（${message}），正在回退 AI 脚本。`, { sourceUrl: source.url });
+            }
+          }
           const result = await generateScriptAgent(
             {
               title: source.title,
               url: source.url,
               description: source.description,
-              criteria,
+              criteria: buildProfileCollectionHint(source.termProfile, criteria),
             },
             (msg: string) => {
               if (abortedSourceKeys.has(abortKey)) return;
@@ -383,6 +569,8 @@ export async function runGenerateScriptsStep(
                 script: result.script,
                 cronExpression: result.cronExpression,
                 initialItems: result.initialItems ?? [],
+                discoveryOrigin: source.discoveryOrigin ?? 'ai',
+                collectionStrategy: 'ai_script',
               }
             );
           } else if (result.sandboxUnavailable && result.script) {
@@ -397,6 +585,8 @@ export async function runGenerateScriptsStep(
                 cronExpression: result.cronExpression,
                 initialItems: [],
                 unverified: true,
+                discoveryOrigin: source.discoveryOrigin ?? 'ai',
+                collectionStrategy: 'ai_script',
               }
             );
           } else {
@@ -432,6 +622,31 @@ export async function retryGenerateSourceStep(
   writeLog(subscriptionId, 'generate_script', 'info', `正在为 "${source.title}" 重新生成脚本...`, { sourceUrl: source.url });
 
   try {
+    if (source.collectionStrategy === 'firecrawl_scrape') {
+      try {
+        writeLog(subscriptionId, 'generate_script', 'progress', `“${source.title}” 正在通过 Firecrawl 重新验证网页采集…`, { sourceUrl: source.url });
+        const generated = await tryGenerateFirecrawlSource(source, criteria, userId, signal);
+        unregisterSourceAbort(subscriptionId, source.url);
+        writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}” 已通过 Firecrawl 验证，画像筛选后保留 ${generated.initialItems.length} 条资讯。`, {
+          sourceUrl: source.url,
+          script: generated.script,
+          cronExpression: generated.cronExpression,
+          initialItems: generated.initialItems,
+          discoveryOrigin: generated.discoveryOrigin,
+          collectionStrategy: generated.collectionStrategy,
+        });
+        return;
+      } catch (error) {
+        if (abortedSourceKeys.has(`${subscriptionId}:${source.url}`) || isAbortError(error)) return;
+        const message = error instanceof Error ? error.message : String(error);
+        if (hasNoCurrentFirecrawlItems(error)) {
+          unregisterSourceAbort(subscriptionId, source.url);
+          writeLog(subscriptionId, 'generate_script', 'error', `“${source.title}”未找到带可信发布时间的近期资讯，已跳过该网页源。`, { sourceUrl: source.url });
+          return;
+        }
+        writeLog(subscriptionId, 'generate_script', 'info', `“${source.title}” Firecrawl 未能验证（${message}），正在回退 AI 脚本。`, { sourceUrl: source.url });
+      }
+    }
     const { generateScriptAgent } = await import('@/lib/ai/agents/generateScriptAgent');
 
     const result = await generateScriptAgent(
@@ -439,7 +654,7 @@ export async function retryGenerateSourceStep(
         title: source.title,
         url: source.url,
         description: source.description,
-        criteria,
+        criteria: buildProfileCollectionHint(source.termProfile, criteria),
         userPrompt: userPrompt?.trim() || undefined,
       },
       (msg: string) => {
@@ -463,6 +678,8 @@ export async function retryGenerateSourceStep(
           script: result.script,
           cronExpression: result.cronExpression,
           initialItems: result.initialItems ?? [],
+          discoveryOrigin: source.discoveryOrigin ?? 'ai',
+          collectionStrategy: 'ai_script',
         }
       );
     } else if (result.sandboxUnavailable && result.script) {
@@ -477,6 +694,8 @@ export async function retryGenerateSourceStep(
           cronExpression: result.cronExpression,
           initialItems: [],
           unverified: true,
+          discoveryOrigin: source.discoveryOrigin ?? 'ai',
+          collectionStrategy: 'ai_script',
         }
       );
     } else {
@@ -634,16 +853,16 @@ async function waitForFindSourcesResult(
 
 /**
  * Preset catalog feeds are a selected collection policy, not suggestions. Keep
- * every one of them; the legacy AI-discovered sources retain the five-source
- * guardrail for backwards compatibility.
+ * every one of them. AI discovery candidates are also preserved in full so an
+ * administrator can decide the coverage; worker-side queuing controls load.
  */
 function autoSelectSources(discovered: FoundSource[]): FoundSource[] {
-  const catalogSources = discovered.filter((s) => s.collectionStrategy === 'generic_rss');
-  const candidates = discovered.filter((s) => s.collectionStrategy !== 'generic_rss');
-  const recommended = candidates.filter((s) => s.recommended);
-  const notRecommended = candidates.filter((s) => !s.recommended);
-  if (recommended.length >= 5) return [...catalogSources, ...recommended.slice(0, 5)];
-  return [...catalogSources, ...recommended, ...notRecommended.slice(0, 5 - recommended.length)];
+  const unique = new Map<string, FoundSource>();
+  for (const source of discovered) {
+    const key = source.url.replace(/\/$/, '').toLowerCase();
+    if (!unique.has(key)) unique.set(key, source);
+  }
+  return [...unique.values()];
 }
 
 /**
@@ -671,15 +890,15 @@ async function getSourceResultFromLogs(
       const log = logs[i];
       if (!log.payload) continue;
       try {
-        const p = JSON.parse(log.payload) as { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: unknown[]; unverified?: boolean; catalogSourceId?: string; discoveryOrigin?: 'catalog' | 'ai'; collectionStrategy?: 'generic_rss' | 'ai_script' };
+        const p = JSON.parse(log.payload) as { sourceUrl?: string; script?: string; cronExpression?: string; initialItems?: unknown[]; unverified?: boolean; catalogSourceId?: string; discoveryOrigin?: 'catalog' | 'ai'; collectionStrategy?: 'generic_rss' | 'firecrawl_scrape' | 'ai_script' };
         if (p.sourceUrl !== source.url) continue;
 
-        if (log.level === 'success' && p.script) {
+        if (log.level === 'success' && (p.script || p.collectionStrategy === 'firecrawl_scrape')) {
           return {
             title: source.title,
             url: source.url,
             description: source.description,
-            script: p.script,
+            script: p.script ?? '',
             cronExpression: p.cronExpression ?? '0 * * * *',
             initialItems: (p.initialItems as GeneratedSource['initialItems']) ?? [],
             isEnabled: true,
@@ -833,6 +1052,7 @@ export async function runManagedPipeline(
               criteria,
               userId,
               snapshot: payload.industryConfigSnapshot,
+              skipPresetRss: payload.skipPresetRss,
             });
 
             const selected = autoSelectSources(discovered);
@@ -868,7 +1088,7 @@ export async function runManagedPipeline(
       if (await isCancelled(subscriptionId)) return;
 
       // Clear old LLM calls from Phase 1 (find_sources has no sourceUrl, would clutter the store)
-      clearLLMCalls(subscriptionId);
+      await clearLLMCalls(subscriptionId);
 
       // Use selected sources for script generation, not all found sources
       // foundSources contains all discovered sources, but we want only the ones actually selected
@@ -929,12 +1149,12 @@ export async function runManagedPipeline(
 
               try {
                 if (source.collectionStrategy === 'generic_rss') {
-                  const generated = buildCatalogGeneratedSource(source);
+                  const generated = await buildCatalogGeneratedSource(source, userId);
                   unregisterSourceAbort(subscriptionId, source.url);
                   if (!(await isCancelled(subscriptionId))) {
                     generatedSources.push(generated);
                     updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
-                    writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}”使用预置 RSS 采集器，采集到 ${generated.initialItems.length} 条强相关/有关内容。`, {
+                    writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}”已完成 RSS 读取，画像筛选后保留 ${generated.initialItems.length} 条强相关/有关内容。`, {
                       sourceUrl: source.url,
                       script: generated.script,
                       cronExpression: generated.cronExpression,
@@ -946,12 +1166,41 @@ export async function runManagedPipeline(
                   }
                   return;
                 }
+                if (source.collectionStrategy === 'firecrawl_scrape') {
+                  try {
+                    writeLog(subscriptionId, 'generate_script', 'progress', `“${source.title}” 正在通过 Firecrawl 验证网页采集…`, { sourceUrl: source.url });
+                        const generated = await tryGenerateFirecrawlSource(source, criteria, userId, signal);
+                    unregisterSourceAbort(subscriptionId, source.url);
+                    if (!(await isCancelled(subscriptionId))) {
+                      generatedSources.push(generated);
+                      updateWizardState(subscriptionId, { generatedSources: [...generatedSources] });
+                      writeLog(subscriptionId, 'generate_script', 'success', `“${source.title}” 已通过 Firecrawl 验证，画像筛选后保留 ${generated.initialItems.length} 条资讯。`, {
+                        sourceUrl: source.url,
+                        script: generated.script,
+                        cronExpression: generated.cronExpression,
+                        initialItems: generated.initialItems,
+                        discoveryOrigin: generated.discoveryOrigin,
+                        collectionStrategy: generated.collectionStrategy,
+                      });
+                    }
+                    return;
+                  } catch (error) {
+                    if (abortedSourceKeys.has(`${subscriptionId}:${source.url}`) || isAbortError(error)) return;
+                    const message = error instanceof Error ? error.message : String(error);
+                    if (hasNoCurrentFirecrawlItems(error)) {
+                      unregisterSourceAbort(subscriptionId, source.url);
+                      writeLog(subscriptionId, 'generate_script', 'error', `“${source.title}”未找到带可信发布时间的近期资讯，已跳过该网页源。`, { sourceUrl: source.url });
+                      return;
+                    }
+                    writeLog(subscriptionId, 'generate_script', 'info', `“${source.title}” Firecrawl 未能验证（${message}），正在回退 AI 脚本。`, { sourceUrl: source.url });
+                  }
+                }
                 const result = await generateScriptAgent(
                   {
-                    title: source.title,
-                    url: source.url,
-                    description: source.description,
-                    criteria,
+                  title: source.title,
+                  url: source.url,
+                  description: source.description,
+                  criteria: buildProfileCollectionHint(source.termProfile, criteria),
                   },
                   (msg: string) => {
                     if (abortedSourceKeys.has(`${subscriptionId}:${source.url}`)) return;
@@ -975,6 +1224,8 @@ export async function runManagedPipeline(
                     cronExpression: result.cronExpression ?? '0 * * * *',
                     initialItems: result.initialItems ?? [],
                     isEnabled: true,
+                    discoveryOrigin: source.discoveryOrigin ?? 'ai',
+                    collectionStrategy: 'ai_script',
                   };
                   generatedSources.push(genSource);
                   // Persist each completed source into wizardStateJson
@@ -984,7 +1235,14 @@ export async function runManagedPipeline(
                     'generate_script',
                     'success',
                     `"${source.title}" 脚本生成成功，采集到 ${result.initialItems?.length ?? 0} 条数据`,
-                    { sourceUrl: source.url, script: result.script, cronExpression: result.cronExpression, initialItems: result.initialItems ?? [] }
+                    {
+                      sourceUrl: source.url,
+                      script: result.script,
+                      cronExpression: result.cronExpression,
+                      initialItems: result.initialItems ?? [],
+                      discoveryOrigin: source.discoveryOrigin ?? 'ai',
+                      collectionStrategy: 'ai_script',
+                    }
                   );
                 } else if (result.sandboxUnavailable && result.script) {
                   const genSource: GeneratedSource = {
@@ -995,6 +1253,8 @@ export async function runManagedPipeline(
                     cronExpression: result.cronExpression ?? '0 * * * *',
                     initialItems: [],
                     isEnabled: true,
+                    discoveryOrigin: source.discoveryOrigin ?? 'ai',
+                    collectionStrategy: 'ai_script',
                   };
                   generatedSources.push(genSource);
                   // Persist each completed source into wizardStateJson
@@ -1005,6 +1265,8 @@ export async function runManagedPipeline(
                     cronExpression: result.cronExpression,
                     initialItems: [],
                     unverified: true,
+                    discoveryOrigin: source.discoveryOrigin ?? 'ai',
+                    collectionStrategy: 'ai_script',
                   });
                 } else {
                   const failedSource: GeneratedSource = {

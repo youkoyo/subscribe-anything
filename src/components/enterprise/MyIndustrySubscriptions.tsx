@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Pause, Pencil, Play, Save } from 'lucide-react';
+import { Pause, Pencil, Play, Save, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -53,6 +53,7 @@ export default function MyIndustrySubscriptions({
   const [customCriteria, setCustomCriteria] = useState('');
   const [extraRecipientEmails, setExtraRecipientEmails] = useState('');
   const [saving, setSaving] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const loadRows = useCallback(async () => {
     const res = await fetch('/api/enterprise/my-industry-subscriptions');
@@ -105,6 +106,21 @@ export default function MyIndustrySubscriptions({
       return;
     }
     await loadRows();
+  }
+
+  async function cancelSubscription(id: string) {
+    if (!window.confirm('确认取消订阅？你将不再收到这个产业信息池的后续邮件。')) return;
+    setCancellingId(id);
+    try {
+      const res = await fetch(`/api/enterprise/my-industry-subscriptions/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to cancel subscription');
+      setRows((previous) => previous.filter((row) => row.subscription.id !== id));
+      toast({ title: '订阅已取消' });
+    } catch {
+      toast({ title: '取消订阅失败', variant: 'destructive' });
+    } finally {
+      setCancellingId(null);
+    }
   }
 
   return (
@@ -163,6 +179,16 @@ export default function MyIndustrySubscriptions({
                   >
                     {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                     {paused ? '恢复' : '暂停'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => cancelSubscription(row.subscription.id)}
+                    disabled={cancellingId === row.subscription.id}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {cancellingId === row.subscription.id ? '取消中…' : '取消订阅'}
                   </Button>
                 </div>
               </div>

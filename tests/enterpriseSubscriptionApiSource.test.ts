@@ -47,6 +47,22 @@ test('my subscription routes are scoped to the current user', async () => {
   assert.match(pauseRoute, /session\.userId/);
 });
 
+test('a user can permanently cancel only their own industry subscription', async () => {
+  const [itemRoute, service, ui] = await Promise.all([
+    readFile('src/app/api/enterprise/my-industry-subscriptions/[id]/route.ts', 'utf8'),
+    readFile('src/lib/enterprise/subscriptionService.ts', 'utf8'),
+    readFile('src/components/enterprise/MyIndustrySubscriptions.tsx', 'utf8'),
+  ]);
+
+  assert.match(itemRoute, /export async function DELETE/);
+  assert.match(itemRoute, /deleteMyIndustrySubscription\(id, session\.userId\)/);
+  assert.match(service, /export async function deleteMyIndustrySubscription/);
+  assert.match(service, /db\.delete\(userIndustrySubscriptions\)/);
+  assert.match(service, /eq\(userIndustrySubscriptions\.userId, userId\)/);
+  assert.match(ui, /method: 'DELETE'/);
+  assert.match(ui, /取消订阅/);
+});
+
 test('admin industry subscriber route lists users and monitoring progress', async () => {
   const route = await readFile(
     'src/app/api/industry-configs/[id]/subscriptions/route.ts',

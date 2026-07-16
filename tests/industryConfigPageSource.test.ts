@@ -7,9 +7,9 @@ test('navigation exposes industry config page', async () => {
   const bottomNav = await readFile('src/components/layout/BottomNav.tsx', 'utf8');
 
   assert.match(sidebar, /\/industry-configs/);
-  assert.match(sidebar, /产业配置/);
+  assert.match(sidebar, /产业信息池/);
   assert.match(bottomNav, /\/industry-configs/);
-  assert.match(bottomNav, /产业配置/);
+  assert.match(bottomNav, /信息池/);
 });
 
 test('industry config page renders admin manager and user subscription variants', async () => {
@@ -17,16 +17,15 @@ test('industry config page renders admin manager and user subscription variants'
 
   assert.match(page, /IndustryConfigManager/);
   assert.match(page, /IndustryCatalog/);
-  assert.match(page, /产业方向管理/);
-  assert.match(page, /产业订阅/);
+  assert.match(page, /产业信息池/);
+  assert.match(page, /产业目录/);
 });
 
 test('industry config manager uses API and exposes core fields', async () => {
   const manager = await readFile('src/components/industry-configs/IndustryConfigManager.tsx', 'utf8');
 
   assert.match(manager, /\/api\/industry-configs/);
-  assert.match(manager, /行业分类/);
-  assert.match(manager, /关键词/);
-  assert.match(manager, /风险词/);
-  assert.match(manager, /启用/);
+  assert.match(manager, /IndustryConfigForm/);
+  assert.match(manager, /toSharedForm/);
+  assert.match(manager, /initialValues=\{sharedForm\}/);
 });

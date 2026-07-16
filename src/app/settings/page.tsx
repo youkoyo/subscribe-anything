@@ -4,6 +4,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import LLMProviderList from '@/components/settings/LLMProviderList';
 import PromptTemplateEditor from '@/components/settings/PromptTemplateEditor';
 import SearchProviderForm from '@/components/settings/SearchProviderForm';
+import FirecrawlConfigForm from '@/components/settings/FirecrawlConfigForm';
+import IndustryDeliveryConfigForm from '@/components/settings/IndustryDeliveryConfigForm';
+import CuratedRssSourceList from '@/components/settings/CuratedRssSourceList';
 import SmtpConfigForm from '@/components/settings/SmtpConfigForm';
 import UserPersonalSettings from '@/components/settings/UserPersonalSettings';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,6 +29,9 @@ export default function SettingsPage() {
             <TabsTrigger value="prompts">提示词模板</TabsTrigger>
             <TabsTrigger value="llm">AI 供应商</TabsTrigger>
             <TabsTrigger value="search">搜索供应商</TabsTrigger>
+            <TabsTrigger value="web-collection">网页采集</TabsTrigger>
+            <TabsTrigger value="industry-delivery">邮件投递</TabsTrigger>
+            <TabsTrigger value="curated-rss">预置 RSS 源</TabsTrigger>
             <TabsTrigger value="auth">用户服务</TabsTrigger>
           </TabsList>
           <TabsContent value="llm">
@@ -37,6 +43,11 @@ export default function SettingsPage() {
           <TabsContent value="search">
             <SearchProviderForm />
           </TabsContent>
+          <TabsContent value="web-collection">
+            <FirecrawlConfigForm />
+          </TabsContent>
+          <TabsContent value="industry-delivery"><IndustryDeliveryConfigForm /></TabsContent>
+          <TabsContent value="curated-rss"><CuratedRssSourceList /></TabsContent>
           <TabsContent value="auth">
             <SmtpConfigForm />
           </TabsContent>

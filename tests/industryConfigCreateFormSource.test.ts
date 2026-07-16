@@ -15,3 +15,17 @@ test('industry creation UI is natural-language first and explains the curated RS
   assert.match(source, /motion-reduce/);
   assert.doesNotMatch(source, /每分钟/);
 });
+
+test('industry config form is shared by creation and editing surfaces', async () => {
+  const form = await readFile('src/components/industry-configs/IndustryConfigForm.tsx', 'utf8');
+  const create = await readFile('src/components/industry-configs/IndustryConfigCreateForm.tsx', 'utf8');
+
+  assert.match(form, /IndustryConfigForm/);
+  assert.match(form, /IndustryConfigCreateForm/);
+  assert.match(create, /export interface IndustryConfigFormValues/);
+  assert.match(create, /SOURCE_PREFERENCES/);
+  assert.match(create, /aria-pressed/);
+  assert.match(create, /高级资料/);
+  assert.match(create, /发布与投递/);
+  assert.match(create, /IndustryConfigForm/);
+});

@@ -32,3 +32,12 @@ test('pool publishing waits until the pool binding has completed', async () => {
 
   assert.match(route, /const profile = await bindSubscriptionAsIndustryPool\(/);
 });
+
+test('rebuilding an industry pool retires the previous shared subscription after replacement', async () => {
+  const service = await readFile('src/lib/enterprise/industryPoolService.ts', 'utf8');
+
+  assert.match(service, /previousSubscriptionId/);
+  assert.match(service, /db\.delete\(subscriptions\)/);
+  assert.match(service, /previousSubscriptionId !== subscription\.id/);
+  assert.match(service, /ne\(subscriptions\.id, subscription\.id\)/);
+});
