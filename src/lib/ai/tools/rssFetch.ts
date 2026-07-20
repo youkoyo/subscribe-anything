@@ -15,6 +15,9 @@ import { getActiveRssBaseUrl } from '@/lib/rss';
 
 const RSSHUB_DOMAIN_RE = /rsshub\.app/gi;
 const RSSHUB_TEST_RE = /rsshub\.app/i;
+// Full-feed collection keeps every entry, but one unbounded XML response must
+// not exhaust the single worker on a small server.
+const MAX_RSS_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 export interface FeedItem {
   title: string;
@@ -131,6 +134,44 @@ function parseAtom(xml: string, maxItems: number): { feedTitle: string; items: F
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
+async function readBoundedRssResponse(response: Response): Promise<string> {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RSS_RESPONSE_BYTES) {
+    throw new Error('RSS response exceeds the 16 MB safety limit');
+  }
+
+  if (!response.body) return '';
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RSS_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new Error('RSS response exceeds the 16 MB safety limit');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 /**
  * Fetch an RSS/Atom feed URL and return its items.
  * rsshub.app is automatically replaced with freezrss.zeabur.app.
@@ -162,7 +203,7 @@ export async function rssFetch(
       },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    xml = await res.text();
+    xml = await readBoundedRssResponse(res);
   } finally {
     clearTimeout(timer);
   }
